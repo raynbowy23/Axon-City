@@ -61,19 +61,17 @@ export async function fetchLayerData(
 function buildOverpassQuery(layer: LayerConfig, bboxStr: string): string {
   const { osmQuery, geometryType } = layer;
 
-  // Parse the osmQuery which can have multiple parts separated by |
-  const queryParts = osmQuery.split('|').map((part) => part.trim());
+  // Parse the osmQuery - split on | only when it's between queries (not inside quotes)
+  // Pattern: split on | that is followed by 'node', 'way', or 'relation'
+  const queryParts = splitQueryParts(osmQuery);
 
   let output = '[out:json][timeout:30];\n(\n';
 
   for (const part of queryParts) {
+    const trimmed = part.trim();
     // Handle different element types
-    if (part.startsWith('node')) {
-      output += `  ${part}(${bboxStr});\n`;
-    } else if (part.startsWith('way')) {
-      output += `  ${part}(${bboxStr});\n`;
-    } else if (part.startsWith('relation')) {
-      output += `  ${part}(${bboxStr});\n`;
+    if (trimmed.startsWith('node') || trimmed.startsWith('way') || trimmed.startsWith('relation')) {
+      output += `  ${trimmed}(${bboxStr});\n`;
     }
   }
 
@@ -87,6 +85,39 @@ function buildOverpassQuery(layer: LayerConfig, bboxStr: string): string {
   }
 
   return output;
+}
+
+/**
+ * Split query string on | but only between separate queries, not inside regex patterns
+ */
+function splitQueryParts(osmQuery: string): string[] {
+  const parts: string[] = [];
+  let current = '';
+  let inQuotes = false;
+
+  for (let i = 0; i < osmQuery.length; i++) {
+    const char = osmQuery[i];
+
+    if (char === '"') {
+      inQuotes = !inQuotes;
+      current += char;
+    } else if (char === '|' && !inQuotes) {
+      // Only split on | outside of quotes
+      if (current.trim()) {
+        parts.push(current.trim());
+      }
+      current = '';
+    } else {
+      current += char;
+    }
+  }
+
+  // Add the last part
+  if (current.trim()) {
+    parts.push(current.trim());
+  }
+
+  return parts;
 }
 
 /**

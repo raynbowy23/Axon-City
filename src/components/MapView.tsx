@@ -376,8 +376,9 @@ function createPolygonLayer(
   const fillColor = [...style.fillColor] as [number, number, number, number];
   fillColor[3] = Math.floor(fillColor[3] * opacity);
 
-  // Add a small extrusion height when exploded to give layers thickness
-  const extrusionHeight = isExploded ? 8 : (config.style.extrusionHeight || 0);
+  // Use layer's configured extrusion height, or add small height when exploded
+  const configuredHeight = config.style.extrusionHeight || 0;
+  const extrusionHeight = isExploded ? Math.max(8, configuredHeight) : configuredHeight;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return new GeoJsonLayer<any>({
@@ -391,8 +392,8 @@ function createPolygonLayer(
       : style.strokeColor,
     getLineWidth: isHovered ? style.strokeWidth * 2 : style.strokeWidth,
     lineWidthUnits: 'pixels',
-    getElevation: isExploded ? zOffset + extrusionHeight : zOffset,
-    extruded: isExploded || config.style.extruded,
+    getElevation: zOffset + extrusionHeight,
+    extruded: extrusionHeight > 0 || isExploded,
     pickable: true,
     autoHighlight: true,
     highlightColor: [255, 255, 255, 100],

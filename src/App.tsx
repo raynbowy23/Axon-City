@@ -47,8 +47,6 @@ function App() {
       try {
         // Get bbox from polygon
         const bbox = getBboxFromPolygon(polygon, 0.001);
-        console.log('Selection polygon:', JSON.stringify(polygon.coordinates));
-        console.log('Bounding box:', bbox);
 
         // Filter to only active layers
         const layersToFetch = layerManifest.layers.filter((layer) =>
@@ -74,16 +72,12 @@ function App() {
           const layer = layerManifest.layers.find((l) => l.id === layerId);
           if (!layer) continue;
 
-          console.log(`[${layerId}] Raw features:`, features.features.length);
-
           // Clip features to selection polygon
           const clippedFeatures = clipFeaturesToPolygon(
             features,
             polygon,
             layer.geometryType
           );
-
-          console.log(`[${layerId}] Clipped features:`, clippedFeatures.features.length);
 
           // Calculate stats
           const stats = calculateLayerStats(clippedFeatures, layer, polygonAreaKm2);
