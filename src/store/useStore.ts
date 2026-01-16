@@ -33,6 +33,17 @@ export const useStore = create<AppState>((set) => ({
   setDrawingPoints: (points) => set({ drawingPoints: points }),
   addDrawingPoint: (point) => set((state) => ({ drawingPoints: [...state.drawingPoints, point] })),
 
+  // Polygon editing
+  editableVertices: [],
+  setEditableVertices: (vertices) => set({ editableVertices: vertices }),
+  updateVertex: (index, position) => set((state) => {
+    const newVertices = [...state.editableVertices];
+    newVertices[index] = position;
+    return { editableVertices: newVertices };
+  }),
+  draggingVertexIndex: null,
+  setDraggingVertexIndex: (index) => set({ draggingVertexIndex: index }),
+
   // Layer data
   layerData: new Map<string, LayerData>(),
   setLayerData: (layerId, data) =>

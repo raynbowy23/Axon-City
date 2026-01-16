@@ -100,6 +100,13 @@ export interface AppState {
   setDrawingPoints: (points: [number, number][]) => void;
   addDrawingPoint: (point: [number, number]) => void;
 
+  // Polygon editing
+  editableVertices: [number, number][];
+  setEditableVertices: (vertices: [number, number][]) => void;
+  updateVertex: (index: number, position: [number, number]) => void;
+  draggingVertexIndex: number | null;
+  setDraggingVertexIndex: (index: number | null) => void;
+
   // Layers
   layerData: Map<string, LayerData>;
   setLayerData: (layerId: string, data: LayerData) => void;

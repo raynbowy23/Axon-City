@@ -16,6 +16,8 @@ import './App.css';
 
 function App() {
   const containerRef = useRef<HTMLDivElement>(null);
+  const lastFetchedPolygonRef = useRef<string | null>(null);
+  const isEditingRef = useRef(false);
 
   const {
     isDrawing,
@@ -26,6 +28,8 @@ function App() {
     activeLayers,
     selectionPolygon,
     setSelectionPolygon,
+    layerData,
+    draggingVertexIndex,
   } = useStore();
 
   const {
@@ -91,6 +95,9 @@ function App() {
         }
 
         setLoadingMessage('Complete!');
+
+        // Track that we've fetched data for this polygon
+        lastFetchedPolygonRef.current = JSON.stringify(polygon.coordinates);
       } catch (error) {
         console.error('Error fetching data:', error);
         setLoadingMessage('Error fetching data. Please try again.');
@@ -100,6 +107,29 @@ function App() {
     },
     [activeLayers, clearLayerData, setIsLoading, setLayerData, setLoadingMessage]
   );
+
+  // Re-fetch data when polygon is edited (dragged)
+  useEffect(() => {
+    // Only re-fetch if:
+    // 1. We have a selection polygon
+    // 2. We're not currently drawing
+    // 3. We've finished dragging (draggingVertexIndex is null)
+    // 4. The polygon has changed from what we last fetched
+    // 5. We have already loaded data (layerData is not empty)
+    if (
+      selectionPolygon &&
+      !isDrawing &&
+      draggingVertexIndex === null &&
+      layerData.size > 0
+    ) {
+      const currentPolygonStr = JSON.stringify(selectionPolygon.geometry.coordinates);
+
+      if (lastFetchedPolygonRef.current && lastFetchedPolygonRef.current !== currentPolygonStr) {
+        // Polygon was edited, re-fetch data
+        handlePolygonComplete(selectionPolygon.geometry as Polygon);
+      }
+    }
+  }, [selectionPolygon, isDrawing, draggingVertexIndex, layerData.size, handlePolygonComplete]);
 
   // Handle map clicks for drawing
   const handleContainerClick = useCallback(

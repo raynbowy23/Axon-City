@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState, useEffect } from 'react';
 import Map from 'react-map-gl/maplibre';
 import DeckGL from '@deck.gl/react';
 import { GeoJsonLayer, ScatterplotLayer, PathLayer, PolygonLayer } from '@deck.gl/layers';
@@ -44,10 +44,17 @@ export function MapView() {
     selectionPolygon,
     isDrawing,
     drawingPoints,
+    editableVertices,
+    setEditableVertices,
+    updateVertex,
+    draggingVertexIndex,
+    setDraggingVertexIndex,
+    setSelectionPolygon,
   } = useStore();
 
   const [hoveredFeature, setHoveredFeature] = useState<Feature | null>(null);
   const [cursorPosition, setCursorPosition] = useState<{ x: number; y: number } | null>(null);
+  const [hoveredVertexIndex, setHoveredVertexIndex] = useState<number | null>(null);
 
   // Calculate layer render order and z-offsets with group-based separation
   const layerRenderInfo = useMemo((): LayerRenderInfo[] => {
@@ -109,6 +116,63 @@ export function MapView() {
     },
     [setHoveredLayerId]
   );
+
+  // Sync editable vertices when selection polygon changes
+  useEffect(() => {
+    if (selectionPolygon && !isDrawing) {
+      // Extract vertices from polygon (excluding the closing point which duplicates the first)
+      const coords = selectionPolygon.geometry.coordinates[0];
+      const vertices = coords.slice(0, -1) as [number, number][];
+      setEditableVertices(vertices);
+    } else if (!selectionPolygon) {
+      setEditableVertices([]);
+    }
+  }, [selectionPolygon, isDrawing, setEditableVertices]);
+
+  // Handle drag start on vertex handles
+  const onDragStart = useCallback(
+    (info: PickingInfo) => {
+      if (info.layer?.id === 'vertex-handles' && info.index !== undefined) {
+        setDraggingVertexIndex(info.index);
+        return true; // Prevent map panning
+      }
+      return false;
+    },
+    [setDraggingVertexIndex]
+  );
+
+  // Handle drag movement
+  const onDrag = useCallback(
+    (info: PickingInfo) => {
+      if (draggingVertexIndex !== null && info.coordinate) {
+        const [lng, lat] = info.coordinate;
+        updateVertex(draggingVertexIndex, [lng, lat]);
+      }
+    },
+    [draggingVertexIndex, updateVertex]
+  );
+
+  // Handle drag end - update the selection polygon
+  const onDragEnd = useCallback(() => {
+    if (draggingVertexIndex !== null && editableVertices.length >= 3) {
+      // Create new polygon from edited vertices
+      const newPolygon: Polygon = {
+        type: 'Polygon',
+        coordinates: [[...editableVertices, editableVertices[0]]],
+      };
+
+      // Calculate new area
+      const area = editableVertices.length >= 3 ? calculatePolygonAreaFromCoords(editableVertices) : 0;
+
+      setSelectionPolygon({
+        id: selectionPolygon?.id || `selection-${Date.now()}`,
+        geometry: newPolygon,
+        area,
+      });
+
+      setDraggingVertexIndex(null);
+    }
+  }, [draggingVertexIndex, editableVertices, selectionPolygon, setSelectionPolygon, setDraggingVertexIndex]);
 
   // Create deck.gl layers
   const deckLayers = useMemo((): Layer[] => {
@@ -286,8 +350,66 @@ export function MapView() {
 
     }
 
+    // Editable vertex handles - shown when selection exists and not drawing
+    if (!isDrawing && editableVertices.length > 0) {
+      const vertexData = editableVertices.map((vertex, index) => ({
+        position: vertex,
+        index,
+      }));
+
+      // Draw polygon edges with editable style
+      if (editableVertices.length > 1) {
+        const edgeData = editableVertices.map((vertex, index) => ({
+          path: [vertex, editableVertices[(index + 1) % editableVertices.length]],
+        }));
+
+        layers.push(
+          new PathLayer({
+            id: 'editable-edges',
+            data: edgeData,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            getPath: (d: any) => d.path,
+            getColor: [255, 200, 50, 255],
+            getWidth: 3,
+            widthUnits: 'pixels' as const,
+            pickable: false,
+          })
+        );
+      }
+
+      // Draggable vertex handles
+      layers.push(
+        new ScatterplotLayer({
+          id: 'vertex-handles',
+          data: vertexData,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          getPosition: (d: any) => d.position,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          getFillColor: (d: any) =>
+            d.index === draggingVertexIndex
+              ? [255, 100, 100, 255] // Red when dragging
+              : d.index === hoveredVertexIndex
+              ? [255, 255, 100, 255] // Yellow when hovered
+              : [255, 200, 50, 255], // Orange default
+          getLineColor: [255, 255, 255, 255],
+          getRadius: 14,
+          radiusUnits: 'pixels' as const,
+          filled: true,
+          stroked: true,
+          lineWidthMinPixels: 3,
+          pickable: true,
+          onHover: (info: PickingInfo) => {
+            setHoveredVertexIndex(info.index ?? null);
+          },
+          updateTriggers: {
+            getFillColor: [draggingVertexIndex, hoveredVertexIndex],
+          },
+        })
+      );
+    }
+
     return layers;
-  }, [layerRenderInfo, selectionPolygon, hoveredLayerId, isolatedLayerId, explodedView, isDrawing, drawingPoints]);
+  }, [layerRenderInfo, selectionPolygon, hoveredLayerId, isolatedLayerId, explodedView, isDrawing, drawingPoints, editableVertices, draggingVertexIndex, hoveredVertexIndex]);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const onViewStateChange = useCallback(
@@ -314,14 +436,28 @@ export function MapView() {
         viewState={viewState}
         onViewStateChange={onViewStateChange}
         controller={{
-          dragRotate: true,
-          touchRotate: true,
+          dragRotate: draggingVertexIndex === null, // Disable rotation when dragging vertex
+          touchRotate: draggingVertexIndex === null,
           keyboard: true,
+          dragPan: draggingVertexIndex === null, // Disable panning when dragging vertex
         }}
         layers={deckLayers}
         onHover={onHover}
+        onDragStart={onDragStart}
+        onDrag={onDrag}
+        onDragEnd={onDragEnd}
         getCursor={({ isDragging, isHovering }) =>
-          isDrawing ? 'crosshair' : isDragging ? 'grabbing' : isHovering ? 'pointer' : 'grab'
+          draggingVertexIndex !== null
+            ? 'grabbing'
+            : hoveredVertexIndex !== null
+            ? 'grab'
+            : isDrawing
+            ? 'crosshair'
+            : isDragging
+            ? 'grabbing'
+            : isHovering
+            ? 'pointer'
+            : 'grab'
         }
       >
         <Map mapStyle={MAP_STYLE} maxPitch={89} minPitch={0} />
@@ -363,6 +499,35 @@ export function MapView() {
       )}
     </div>
   );
+}
+
+// Calculate polygon area from coordinates (in m²)
+function calculatePolygonAreaFromCoords(coords: [number, number][]): number {
+  if (coords.length < 3) return 0;
+
+  // Using the Shoelace formula with coordinate conversion
+  // This is a simplified calculation - for more accuracy, use turf.js
+  const R = 6371000; // Earth's radius in meters
+
+  let area = 0;
+  const n = coords.length;
+
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n;
+    const [lon1, lat1] = coords[i];
+    const [lon2, lat2] = coords[j];
+
+    // Convert to radians
+    const lat1Rad = (lat1 * Math.PI) / 180;
+    const lat2Rad = (lat2 * Math.PI) / 180;
+    const lon1Rad = (lon1 * Math.PI) / 180;
+    const lon2Rad = (lon2 * Math.PI) / 180;
+
+    area += (lon2Rad - lon1Rad) * (2 + Math.sin(lat1Rad) + Math.sin(lat2Rad));
+  }
+
+  area = Math.abs((area * R * R) / 2);
+  return area;
 }
 
 // Helper functions to create layers
