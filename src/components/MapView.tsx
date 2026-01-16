@@ -2,6 +2,8 @@ import { useCallback, useMemo, useState } from 'react';
 import Map from 'react-map-gl/maplibre';
 import DeckGL from '@deck.gl/react';
 import { GeoJsonLayer, ScatterplotLayer, PathLayer, PolygonLayer } from '@deck.gl/layers';
+import { SimpleMeshLayer } from '@deck.gl/mesh-layers';
+import { SphereGeometry } from '@luma.gl/engine';
 import type { PickingInfo, Layer } from '@deck.gl/core';
 import type { Feature, FeatureCollection, Polygon, LineString, Point } from 'geojson';
 import 'maplibre-gl/dist/maplibre-gl.css';
@@ -443,6 +445,13 @@ function createLineLayer(
   });
 }
 
+// Create sphere mesh for 3D point rendering
+const sphereMesh = new SphereGeometry({
+  radius: 1,
+  nlat: 16,
+  nlong: 16,
+});
+
 function createPointLayer(
   config: LayerConfig,
   features: FeatureCollection,
@@ -455,28 +464,27 @@ function createPointLayer(
   const fillColor = [...style.fillColor] as [number, number, number, number];
   fillColor[3] = Math.floor(fillColor[3] * opacity);
 
+  // Elevation height for 3D spheres
+  const elevation = isExploded ? zOffset + 25 : 15; // meters above ground
+
   const pointData = features.features
     .filter((f) => f.geometry.type === 'Point')
     .map((f) => ({
-      position: [...(f.geometry as Point).coordinates, zOffset],
+      position: [...(f.geometry as Point).coordinates, elevation],
       properties: f.properties,
     }));
 
-  // Make points larger when exploded for better visibility
-  const baseRadius = isExploded ? 8 : 5;
+  // Scale for 3D spheres (in meters)
+  const sphereScale = isExploded ? 15 : 10;
 
-  return new ScatterplotLayer({
+  return new SimpleMeshLayer({
     id: `${config.id}-elevated`,
     data: pointData,
+    mesh: sphereMesh,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     getPosition: (d: any) => d.position,
-    getFillColor: fillColor,
-    getLineColor: isHovered ? [255, 255, 255, 255] : style.strokeColor,
-    getRadius: isHovered ? baseRadius * 1.5 : baseRadius,
-    radiusUnits: 'pixels' as const,
-    filled: true,
-    stroked: true,
-    lineWidthMinPixels: style.strokeWidth,
+    getColor: isHovered ? [255, 255, 255, 255] : fillColor,
+    getScale: [sphereScale, sphereScale, sphereScale],
     pickable: true,
     autoHighlight: true,
     highlightColor: [255, 255, 255, 150],
