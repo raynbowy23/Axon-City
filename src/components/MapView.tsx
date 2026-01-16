@@ -430,35 +430,43 @@ export function MapView() {
     [setViewState]
   );
 
+  // Memoize controller to prevent DeckGL re-initialization
+  const controller = useMemo(() => ({
+    dragRotate: draggingVertexIndex === null,
+    touchRotate: draggingVertexIndex === null,
+    keyboard: true,
+    dragPan: draggingVertexIndex === null,
+  }), [draggingVertexIndex]);
+
+  // Memoize getCursor function
+  const getCursor = useCallback(
+    ({ isDragging, isHovering }: { isDragging: boolean; isHovering: boolean }) =>
+      draggingVertexIndex !== null
+        ? 'grabbing'
+        : hoveredVertexIndex !== null
+        ? 'grab'
+        : isDrawing
+        ? 'crosshair'
+        : isDragging
+        ? 'grabbing'
+        : isHovering
+        ? 'pointer'
+        : 'grab',
+    [draggingVertexIndex, hoveredVertexIndex, isDrawing]
+  );
+
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
       <DeckGL
         viewState={viewState}
         onViewStateChange={onViewStateChange}
-        controller={{
-          dragRotate: draggingVertexIndex === null, // Disable rotation when dragging vertex
-          touchRotate: draggingVertexIndex === null,
-          keyboard: true,
-          dragPan: draggingVertexIndex === null, // Disable panning when dragging vertex
-        }}
+        controller={controller}
         layers={deckLayers}
         onHover={onHover}
         onDragStart={onDragStart}
         onDrag={onDrag}
         onDragEnd={onDragEnd}
-        getCursor={({ isDragging, isHovering }) =>
-          draggingVertexIndex !== null
-            ? 'grabbing'
-            : hoveredVertexIndex !== null
-            ? 'grab'
-            : isDrawing
-            ? 'crosshair'
-            : isDragging
-            ? 'grabbing'
-            : isHovering
-            ? 'pointer'
-            : 'grab'
-        }
+        getCursor={getCursor}
       >
         <Map mapStyle={MAP_STYLE} maxPitch={89} minPitch={0} />
       </DeckGL>
@@ -610,12 +618,19 @@ function createLineLayer(
   });
 }
 
-// Create sphere mesh for 3D point rendering
-const sphereMesh = new SphereGeometry({
-  radius: 1,
-  nlat: 16,
-  nlong: 16,
-});
+// Sphere mesh will be created lazily
+let sphereMesh: SphereGeometry | null = null;
+
+function getSphereMesh(): SphereGeometry {
+  if (!sphereMesh) {
+    sphereMesh = new SphereGeometry({
+      radius: 1,
+      nlat: 16,
+      nlong: 16,
+    });
+  }
+  return sphereMesh;
+}
 
 function createPointLayer(
   config: LayerConfig,
@@ -645,7 +660,7 @@ function createPointLayer(
   return new SimpleMeshLayer({
     id: `${config.id}-elevated`,
     data: pointData,
-    mesh: sphereMesh,
+    mesh: getSphereMesh(),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     getPosition: (d: any) => d.position,
     getColor: fillColor,
