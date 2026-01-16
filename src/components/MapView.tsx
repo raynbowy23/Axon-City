@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState, useEffect, useRef } from 'react';
 import Map from 'react-map-gl/maplibre';
 import DeckGL from '@deck.gl/react';
 import { GeoJsonLayer, ScatterplotLayer, PathLayer, PolygonLayer } from '@deck.gl/layers';
@@ -42,11 +42,22 @@ export function MapView() {
     selectionPolygon,
     isDrawing,
     drawingPoints,
+    setDrawingPoints,
     addDrawingPoint,
   } = useStore();
 
   const [hoveredFeature, setHoveredFeature] = useState<Feature | null>(null);
   const [cursorPosition, setCursorPosition] = useState<{ x: number; y: number } | null>(null);
+
+  // Clear drawing points when starting a new drawing session
+  const prevIsDrawing = useRef(false);
+  useEffect(() => {
+    if (isDrawing && !prevIsDrawing.current) {
+      // Just entered drawing mode - ensure points are cleared
+      setDrawingPoints([]);
+    }
+    prevIsDrawing.current = isDrawing;
+  }, [isDrawing, setDrawingPoints]);
 
   // Calculate layer render order and z-offsets with group-based separation
   const layerRenderInfo = useMemo((): LayerRenderInfo[] => {
