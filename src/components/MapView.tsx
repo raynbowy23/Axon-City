@@ -572,7 +572,7 @@ function createLineLayer(
   features: FeatureCollection,
   zOffset: number,
   opacity: number,
-  isHovered: boolean
+  _isHovered: boolean
 ) {
   const { style } = config;
   const color = [...style.strokeColor] as [number, number, number, number];
@@ -601,12 +601,12 @@ function createLineLayer(
     data: pathData,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     getPath: (d: any) => d.path,
-    getColor: isHovered ? [255, 255, 255, 255] : color,
-    getWidth: isHovered ? style.strokeWidth * 2 : style.strokeWidth,
+    getColor: color,
+    getWidth: style.strokeWidth,
     widthUnits: 'pixels' as const,
     pickable: true,
     autoHighlight: true,
-    highlightColor: [255, 255, 255, 150],
+    highlightColor: [255, 255, 100, 255], // Bright yellow for individual road highlight
   });
 }
 
@@ -622,7 +622,7 @@ function createPointLayer(
   features: FeatureCollection,
   zOffset: number,
   opacity: number,
-  isHovered: boolean,
+  _isHovered: boolean,
   isExploded: boolean
 ) {
   const { style } = config;
@@ -648,11 +648,11 @@ function createPointLayer(
     mesh: sphereMesh,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     getPosition: (d: any) => d.position,
-    getColor: isHovered ? [255, 255, 255, 255] : fillColor,
+    getColor: fillColor,
     getScale: [sphereScale, sphereScale, sphereScale],
     pickable: true,
     autoHighlight: true,
-    highlightColor: [255, 255, 255, 150],
+    highlightColor: [255, 255, 100, 255], // Bright yellow for individual sphere highlight
   });
 }
 
