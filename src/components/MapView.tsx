@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, useEffect, useRef } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import Map from 'react-map-gl/maplibre';
 import DeckGL from '@deck.gl/react';
 import { GeoJsonLayer, ScatterplotLayer, PathLayer, PolygonLayer } from '@deck.gl/layers';
@@ -42,22 +42,10 @@ export function MapView() {
     selectionPolygon,
     isDrawing,
     drawingPoints,
-    setDrawingPoints,
-    addDrawingPoint,
   } = useStore();
 
   const [hoveredFeature, setHoveredFeature] = useState<Feature | null>(null);
   const [cursorPosition, setCursorPosition] = useState<{ x: number; y: number } | null>(null);
-
-  // Clear drawing points when starting a new drawing session
-  const prevIsDrawing = useRef(false);
-  useEffect(() => {
-    if (isDrawing && !prevIsDrawing.current) {
-      // Just entered drawing mode - ensure points are cleared
-      setDrawingPoints([]);
-    }
-    prevIsDrawing.current = isDrawing;
-  }, [isDrawing, setDrawingPoints]);
 
   // Calculate layer render order and z-offsets with group-based separation
   const layerRenderInfo = useMemo((): LayerRenderInfo[] => {
@@ -118,19 +106,6 @@ export function MapView() {
       }
     },
     [setHoveredLayerId]
-  );
-
-  // Handle map click for drawing mode - uses accurate DeckGL coordinates
-  const onClick = useCallback(
-    (info: PickingInfo) => {
-      if (!isDrawing) return;
-      if (!info.coordinate) return;
-
-      // info.coordinate gives us accurate [lng, lat] from DeckGL
-      const [lng, lat] = info.coordinate;
-      addDrawingPoint([lng, lat]);
-    },
-    [isDrawing, addDrawingPoint]
   );
 
   // Create deck.gl layers
@@ -343,7 +318,6 @@ export function MapView() {
         }}
         layers={deckLayers}
         onHover={onHover}
-        onClick={onClick}
         getCursor={({ isDragging, isHovering }) =>
           isDrawing ? 'crosshair' : isDragging ? 'grabbing' : isHovering ? 'pointer' : 'grab'
         }
