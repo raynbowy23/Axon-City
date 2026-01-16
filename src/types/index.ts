@@ -96,6 +96,9 @@ export interface AppState {
   setSelectionPolygon: (polygon: SelectionPolygon | null) => void;
   isDrawing: boolean;
   setIsDrawing: (isDrawing: boolean) => void;
+  drawingPoints: [number, number][];
+  setDrawingPoints: (points: [number, number][]) => void;
+  addDrawingPoint: (point: [number, number]) => void;
 
   // Layers
   layerData: Map<string, LayerData>;

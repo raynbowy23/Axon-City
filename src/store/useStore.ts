@@ -29,6 +29,9 @@ export const useStore = create<AppState>((set) => ({
   setSelectionPolygon: (polygon) => set({ selectionPolygon: polygon }),
   isDrawing: false,
   setIsDrawing: (isDrawing) => set({ isDrawing }),
+  drawingPoints: [],
+  setDrawingPoints: (points) => set({ drawingPoints: points }),
+  addDrawingPoint: (point) => set((state) => ({ drawingPoints: [...state.drawingPoints, point] })),
 
   // Layer data
   layerData: new Map<string, LayerData>(),

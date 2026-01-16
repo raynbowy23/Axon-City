@@ -41,6 +41,8 @@ export function MapView() {
     isolatedLayerId,
     selectionPolygon,
     isDrawing,
+    drawingPoints,
+    addDrawingPoint,
   } = useStore();
 
   const [hoveredFeature, setHoveredFeature] = useState<Feature | null>(null);
@@ -105,6 +107,19 @@ export function MapView() {
       }
     },
     [setHoveredLayerId]
+  );
+
+  // Handle map click for drawing mode - uses accurate DeckGL coordinates
+  const onClick = useCallback(
+    (info: PickingInfo) => {
+      if (!isDrawing) return;
+      if (!info.coordinate) return;
+
+      // info.coordinate gives us accurate [lng, lat] from DeckGL
+      const [lng, lat] = info.coordinate;
+      addDrawingPoint([lng, lat]);
+    },
+    [isDrawing, addDrawingPoint]
   );
 
   // Create deck.gl layers
@@ -224,8 +239,67 @@ export function MapView() {
       }
     }
 
+    // Drawing corner markers - rendered LAST to appear on top of all layers
+    if (isDrawing && drawingPoints.length > 0) {
+      // Corner data with metadata for styling
+      const cornerData = drawingPoints.map((point, index) => ({
+        position: point,
+        index: index + 1,
+        isFirst: index === 0,
+        isLast: index === drawingPoints.length - 1,
+      }));
+
+      // Draw connecting lines between corner points
+      if (drawingPoints.length > 1) {
+        const pathData = drawingPoints.map((point, index) => ({
+          path: index < drawingPoints.length - 1
+            ? [point, drawingPoints[index + 1]]
+            : null,
+        })).filter(d => d.path !== null);
+
+        layers.push(
+          new PathLayer({
+            id: 'drawing-lines',
+            data: pathData,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            getPath: (d: any) => d.path,
+            getColor: [65, 135, 255, 255],
+            getWidth: 3,
+            widthUnits: 'pixels' as const,
+            pickable: false,
+          })
+        );
+      }
+
+      // Draw corner nodes - first point is green (close polygon), others are blue
+      layers.push(
+        new ScatterplotLayer({
+          id: 'drawing-corners',
+          data: cornerData,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          getPosition: (d: any) => d.position,
+          // First point is green to indicate polygon close point
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          getFillColor: (d: any) => d.isFirst ? [0, 220, 100, 255] : [65, 135, 255, 255],
+          getLineColor: [255, 255, 255, 255],
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          getRadius: (d: any) => d.isFirst ? 14 : 12,
+          radiusUnits: 'pixels' as const,
+          filled: true,
+          stroked: true,
+          lineWidthMinPixels: 3,
+          pickable: false,
+          updateTriggers: {
+            getFillColor: [drawingPoints.length],
+            getRadius: [drawingPoints.length],
+          },
+        })
+      );
+
+    }
+
     return layers;
-  }, [layerRenderInfo, selectionPolygon, hoveredLayerId, isolatedLayerId, explodedView]);
+  }, [layerRenderInfo, selectionPolygon, hoveredLayerId, isolatedLayerId, explodedView, isDrawing, drawingPoints]);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const onViewStateChange = useCallback(
@@ -258,6 +332,7 @@ export function MapView() {
         }}
         layers={deckLayers}
         onHover={onHover}
+        onClick={onClick}
         getCursor={({ isDragging, isHovering }) =>
           isDrawing ? 'crosshair' : isDragging ? 'grabbing' : isHovering ? 'pointer' : 'grab'
         }
