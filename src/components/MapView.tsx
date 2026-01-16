@@ -238,6 +238,8 @@ export function MapView() {
           zoom: newViewState.zoom,
           pitch: newViewState.pitch || 0,
           bearing: newViewState.bearing || 0,
+          maxPitch: 89,
+          minPitch: 0,
         });
       }
     },
@@ -260,7 +262,7 @@ export function MapView() {
           isDrawing ? 'crosshair' : isDragging ? 'grabbing' : isHovering ? 'pointer' : 'grab'
         }
       >
-        <Map mapStyle={MAP_STYLE} />
+        <Map mapStyle={MAP_STYLE} maxPitch={89} minPitch={0} />
       </DeckGL>
 
       {/* Tooltip */}

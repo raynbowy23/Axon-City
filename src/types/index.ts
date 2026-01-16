@@ -75,6 +75,8 @@ export interface ViewState {
   zoom: number;
   pitch: number;
   bearing: number;
+  maxPitch?: number;
+  minPitch?: number;
 }
 
 export interface ExplodedViewConfig {

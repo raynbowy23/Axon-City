@@ -8,6 +8,8 @@ const defaultViewState: ViewState = {
   zoom: 14,
   pitch: 45,
   bearing: 0,
+  maxPitch: 89,
+  minPitch: 0,
 };
 
 const defaultExplodedView: ExplodedViewConfig = {
