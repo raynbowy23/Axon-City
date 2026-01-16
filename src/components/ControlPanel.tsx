@@ -65,14 +65,18 @@ export function ControlPanel() {
               </label>
               <input
                 type="range"
-                min="10"
-                max="200"
+                min="20"
+                max="500"
+                step="10"
                 value={explodedView.layerSpacing}
                 onChange={(e) =>
                   setExplodedView({ layerSpacing: Number(e.target.value) })
                 }
                 style={{ width: '100%' }}
               />
+            </div>
+            <div style={{ fontSize: '10px', opacity: 0.6, marginBottom: '8px' }}>
+              Tip: Use higher spacing + horizontal view for best layer separation
             </div>
           </>
         )}
@@ -82,6 +86,71 @@ export function ControlPanel() {
       <div style={{ marginBottom: '20px' }}>
         <div style={{ marginBottom: '8px', fontWeight: '600' }}>Camera</div>
 
+        {/* View Presets */}
+        <div style={{ marginBottom: '12px' }}>
+          <label style={{ display: 'block', marginBottom: '6px', fontSize: '11px', opacity: 0.7 }}>
+            View Presets
+          </label>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '4px' }}>
+            <button
+              onClick={() => setViewState({ ...viewState, pitch: 0, bearing: 0 })}
+              style={{
+                padding: '6px 8px',
+                backgroundColor: viewState.pitch === 0 ? '#4A90D9' : 'rgba(255,255,255,0.1)',
+                color: 'white',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                fontSize: '10px',
+              }}
+            >
+              Top Down
+            </button>
+            <button
+              onClick={() => setViewState({ ...viewState, pitch: 45, bearing: 0 })}
+              style={{
+                padding: '6px 8px',
+                backgroundColor: viewState.pitch === 45 && viewState.bearing === 0 ? '#4A90D9' : 'rgba(255,255,255,0.1)',
+                color: 'white',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                fontSize: '10px',
+              }}
+            >
+              Axonometric
+            </button>
+            <button
+              onClick={() => setViewState({ ...viewState, pitch: 75, bearing: 0 })}
+              style={{
+                padding: '6px 8px',
+                backgroundColor: viewState.pitch >= 70 && viewState.pitch <= 80 && viewState.bearing === 0 ? '#4A90D9' : 'rgba(255,255,255,0.1)',
+                color: 'white',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                fontSize: '10px',
+              }}
+            >
+              Horizontal
+            </button>
+            <button
+              onClick={() => setViewState({ ...viewState, pitch: 85, bearing: 45 })}
+              style={{
+                padding: '6px 8px',
+                backgroundColor: viewState.pitch >= 80 ? '#4A90D9' : 'rgba(255,255,255,0.1)',
+                color: 'white',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                fontSize: '10px',
+              }}
+            >
+              Street View
+            </button>
+          </div>
+        </div>
+
         <div style={{ marginBottom: '8px' }}>
           <label style={{ display: 'block', marginBottom: '4px', fontSize: '12px' }}>
             Pitch: {viewState.pitch.toFixed(0)}°
@@ -89,7 +158,7 @@ export function ControlPanel() {
           <input
             type="range"
             min="0"
-            max="80"
+            max="89"
             value={viewState.pitch}
             onChange={(e) =>
               setViewState({ ...viewState, pitch: Number(e.target.value) })

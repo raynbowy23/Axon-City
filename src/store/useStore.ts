@@ -12,7 +12,7 @@ const defaultViewState: ViewState = {
 
 const defaultExplodedView: ExplodedViewConfig = {
   enabled: false,
-  layerSpacing: 50, // meters between layers
+  layerSpacing: 100, // meters between groups (increased for better separation)
   baseElevation: 0,
   animationDuration: 500,
 };

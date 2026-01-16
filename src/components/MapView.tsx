@@ -55,7 +55,7 @@ export function MapView() {
 
     // Calculate z-offsets based on group hierarchy
     const groupSpacing = explodedView.layerSpacing; // Space between groups
-    const intraGroupSpacing = explodedView.layerSpacing * 0.3; // Space within groups
+    const intraGroupSpacing = explodedView.layerSpacing * 0.6; // Space within groups (increased for better layer separation)
 
     // Track layer index within each group
     const groupLayerCounts: Record<string, number> = {};
