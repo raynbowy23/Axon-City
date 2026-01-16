@@ -18,6 +18,7 @@ function App() {
   const containerRef = useRef<HTMLDivElement>(null);
   const lastFetchedPolygonRef = useRef<string | null>(null);
   const isEditingRef = useRef(false);
+  const mouseDownPosRef = useRef<{ x: number; y: number } | null>(null);
 
   const {
     isDrawing,
@@ -131,10 +132,37 @@ function App() {
     }
   }, [selectionPolygon, isDrawing, draggingVertexIndex, layerData.size, handlePolygonComplete]);
 
-  // Handle map clicks for drawing
+  // Track mouse down position to distinguish clicks from drags
+  const handleMouseDown = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      if (!isDrawing) return;
+      if (e.button !== 0) return; // Only track left-click
+      mouseDownPosRef.current = { x: e.clientX, y: e.clientY };
+    },
+    [isDrawing]
+  );
+
+  // Handle map clicks for drawing (left-click only, distinguish from drag)
   const handleContainerClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
       if (!isDrawing) return;
+
+      // Only add points on left-click (button 0)
+      if (e.button !== 0) return;
+
+      // Check if this was a drag (mouse moved more than 5 pixels)
+      if (mouseDownPosRef.current) {
+        const dx = e.clientX - mouseDownPosRef.current.x;
+        const dy = e.clientY - mouseDownPosRef.current.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+
+        // If mouse moved more than 5 pixels, it was a drag, not a click
+        if (distance > 5) {
+          mouseDownPosRef.current = null;
+          return;
+        }
+      }
+      mouseDownPosRef.current = null;
 
       // Don't capture clicks on UI elements
       if ((e.target as HTMLElement).closest('button, input, .control-panel, .stats-panel')) {
@@ -194,6 +222,7 @@ function App() {
         position: 'relative',
         overflow: 'hidden',
       }}
+      onMouseDown={handleMouseDown}
       onClick={handleContainerClick}
     >
       <MapView />
