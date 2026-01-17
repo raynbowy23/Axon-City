@@ -298,6 +298,11 @@ export function MapView() {
               ...createParkingLayer(config, features, zOffset, opacity, isHovered, explodedView.enabled)
             );
             // No vertical connectors for floating parking
+          } else if (config.id === 'parks') {
+            layers.push(
+              ...createParkLayer(config, features, zOffset, opacity, isHovered, explodedView.enabled)
+            );
+            // No vertical connectors for floating parks
           } else {
             layers.push(
               createPolygonLayer(config, features, zOffset, opacity, isHovered, explodedView.enabled)
@@ -1081,10 +1086,7 @@ function getParkingHeight(props: Record<string, unknown>): number {
   return 3;
 }
 
-// Minimum floating height for parking when in exploded view
-const PARKING_FLOAT_HEIGHT = 200; // meters above ground (higher than buildings)
-
-// Specialized layer for parking - floating in exploded view
+// Specialized layer for parking - floating in exploded view (same height as buildings)
 function createParkingLayer(
   config: LayerConfig,
   features: FeatureCollection,
@@ -1098,17 +1100,16 @@ function createParkingLayer(
   fillColor[3] = Math.floor(fillColor[3] * opacity);
 
   if (isExploded) {
-    // Floating parking platforms
+    // Floating parking - flat polygons at same height as buildings
     const parkingData = features.features
       .filter((f) => f.geometry.type === 'Polygon')
       .map((f, index) => {
         const coords = (f.geometry as Polygon).coordinates[0];
-        const height = getParkingHeight(f.properties || {});
-        // Ensure minimum floating height + zOffset + small per-parking offset
-        const baseElevation = Math.max(PARKING_FLOAT_HEIGHT, zOffset) + (index % 10) * 0.3;
+        // Use same floating height as buildings + small per-parking offset to prevent z-fighting
+        const baseElevation = Math.max(BUILDING_FLOAT_HEIGHT, zOffset) + (index % 10) * 0.3;
         return {
           polygon: coords.map((c) => [c[0], c[1], baseElevation]),
-          height: height * 0.5, // Thin floating platforms
+          height: 2, // Thin floating parking blocks
           properties: f.properties,
           id: f.id || index,
         };
@@ -1124,9 +1125,7 @@ function createParkingLayer(
         getLineColor: isHovered ? [255, 255, 255, 255] : [255, 255, 255, 180],
         getLineWidth: isHovered ? 3 : 2,
         lineWidthUnits: 'pixels' as const,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        getElevation: (d: any) => d.height,
-        extruded: true,
+        extruded: false,
         pickable: true,
         autoHighlight: true,
         highlightColor: [255, 255, 100, 100],
@@ -1148,6 +1147,75 @@ function createParkingLayer(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     getElevation: (f: any) => getParkingHeight(f.properties || {}),
     extruded: true,
+    pickable: true,
+    autoHighlight: true,
+    highlightColor: [255, 255, 100, 100],
+  })];
+}
+
+// Floating height for parks - below buildings
+const PARK_FLOAT_HEIGHT = 40; // meters above ground (below buildings at 80m)
+const PARK_THICKNESS = 5; // meters thick
+
+// Specialized layer for parks - floating in exploded view (below buildings, with thickness)
+function createParkLayer(
+  config: LayerConfig,
+  features: FeatureCollection,
+  zOffset: number,
+  opacity: number,
+  isHovered: boolean,
+  isExploded: boolean
+): Layer[] {
+  const { style } = config;
+  const fillColor = [...style.fillColor] as [number, number, number, number];
+  fillColor[3] = Math.floor(fillColor[3] * opacity);
+
+  if (isExploded) {
+    // Floating parks - polygons below buildings with some thickness
+    const parkData = features.features
+      .filter((f) => f.geometry.type === 'Polygon')
+      .map((f, index) => {
+        const coords = (f.geometry as Polygon).coordinates[0];
+        // Float below buildings + small per-park offset to prevent z-fighting
+        const baseElevation = Math.max(PARK_FLOAT_HEIGHT, zOffset) + (index % 10) * 0.3;
+        return {
+          polygon: coords.map((c) => [c[0], c[1], baseElevation]),
+          properties: f.properties,
+          id: f.id || index,
+        };
+      });
+
+    return [
+      new PolygonLayer({
+        id: `${config.id}-floating`,
+        data: parkData,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        getPolygon: (d: any) => d.polygon,
+        getFillColor: isHovered ? [100, 200, 100, 200] : fillColor,
+        getLineColor: isHovered ? [255, 255, 255, 255] : style.strokeColor,
+        getLineWidth: isHovered ? 3 : 2,
+        lineWidthUnits: 'pixels' as const,
+        getElevation: PARK_THICKNESS,
+        extruded: true,
+        pickable: true,
+        autoHighlight: true,
+        highlightColor: [255, 255, 100, 100],
+      }),
+    ];
+  }
+
+  // Non-exploded: flat polygon layer (parks don't need extrusion)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return [new GeoJsonLayer<any>({
+    id: `${config.id}-elevated`,
+    data: features,
+    filled: true,
+    stroked: true,
+    getFillColor: isHovered ? [100, 200, 100, 200] : fillColor,
+    getLineColor: isHovered ? [255, 255, 255, 255] : style.strokeColor,
+    getLineWidth: isHovered ? 2 : 1,
+    lineWidthUnits: 'pixels',
+    extruded: false,
     pickable: true,
     autoHighlight: true,
     highlightColor: [255, 255, 100, 100],
