@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, useEffect } from 'react';
+import { useCallback, useMemo, useState, useEffect, useRef } from 'react';
 import Map from 'react-map-gl/maplibre';
 import DeckGL from '@deck.gl/react';
 import { GeoJsonLayer, ScatterplotLayer, PathLayer, PolygonLayer } from '@deck.gl/layers';
@@ -39,6 +39,8 @@ export function MapView() {
     editableVertices,
     setEditableVertices,
     updateVertex,
+    addVertex,
+    removeVertex,
     draggingVertexIndex,
     setDraggingVertexIndex,
     setSelectionPolygon,
@@ -50,6 +52,8 @@ export function MapView() {
   const [hoveredFeature, setHoveredFeature] = useState<Feature | null>(null);
   const [cursorPosition, setCursorPosition] = useState<{ x: number; y: number } | null>(null);
   const [hoveredVertexIndex, setHoveredVertexIndex] = useState<number | null>(null);
+  const [hoveredMidpointIndex, setHoveredMidpointIndex] = useState<number | null>(null);
+  const lastVertexClickRef = useRef<{ index: number; time: number } | null>(null);
 
   // Calculate layer render order and z-offsets with group-based separation
   const layerRenderInfo = useMemo((): LayerRenderInfo[] => {
@@ -203,6 +207,40 @@ export function MapView() {
       setDraggingVertexIndex(null);
     }
   }, [draggingVertexIndex, editableVertices, selectionPolygon, setSelectionPolygon, setDraggingVertexIndex]);
+
+  // Helper to update polygon after vertex add/remove
+  const updatePolygonFromVertices = useCallback((vertices: [number, number][]) => {
+    if (vertices.length >= 3) {
+      const newPolygon: Polygon = {
+        type: 'Polygon',
+        coordinates: [[...vertices, vertices[0]]],
+      };
+      const area = calculatePolygonAreaFromCoords(vertices);
+      setSelectionPolygon({
+        id: selectionPolygon?.id || `selection-${Date.now()}`,
+        geometry: newPolygon,
+        area,
+      });
+    }
+  }, [selectionPolygon, setSelectionPolygon]);
+
+  // Handle adding a vertex at midpoint
+  const handleAddVertex = useCallback((afterIndex: number, position: [number, number]) => {
+    addVertex(afterIndex, position);
+    // Update polygon with new vertices (need to include the new vertex)
+    const newVertices = [...editableVertices];
+    newVertices.splice(afterIndex + 1, 0, position);
+    updatePolygonFromVertices(newVertices);
+  }, [addVertex, editableVertices, updatePolygonFromVertices]);
+
+  // Handle removing a vertex
+  const handleRemoveVertex = useCallback((index: number) => {
+    if (editableVertices.length <= 3) return; // Can't remove if only 3 vertices
+    removeVertex(index);
+    // Update polygon with remaining vertices
+    const newVertices = editableVertices.filter((_, i) => i !== index);
+    updatePolygonFromVertices(newVertices);
+  }, [removeVertex, editableVertices, updatePolygonFromVertices]);
 
   // Create deck.gl layers
   const deckLayers = useMemo((): Layer[] => {
@@ -409,7 +447,17 @@ export function MapView() {
       const vertexData = editableVertices.map((vertex, index) => ({
         position: vertex,
         index,
+        canRemove: editableVertices.length > 3,
       }));
+
+      // Calculate midpoints for adding new vertices
+      const midpointData = editableVertices.map((vertex, index) => {
+        const nextVertex = editableVertices[(index + 1) % editableVertices.length];
+        return {
+          position: [(vertex[0] + nextVertex[0]) / 2, (vertex[1] + nextVertex[1]) / 2] as [number, number],
+          afterIndex: index,
+        };
+      });
 
       // Draw polygon edges with editable style
       if (editableVertices.length > 1) {
@@ -431,7 +479,40 @@ export function MapView() {
         );
       }
 
-      // Draggable vertex handles
+      // Midpoint handles for adding new vertices
+      layers.push(
+        new ScatterplotLayer({
+          id: 'midpoint-handles',
+          data: midpointData,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          getPosition: (d: any) => d.position,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          getFillColor: (d: any) =>
+            d.afterIndex === hoveredMidpointIndex
+              ? [100, 200, 255, 255] // Light blue when hovered
+              : [100, 200, 255, 150], // Semi-transparent light blue
+          getLineColor: [255, 255, 255, 200],
+          getRadius: 8,
+          radiusUnits: 'pixels' as const,
+          filled: true,
+          stroked: true,
+          lineWidthMinPixels: 2,
+          pickable: true,
+          onHover: (info: PickingInfo) => {
+            setHoveredMidpointIndex(info.object?.afterIndex ?? null);
+          },
+          onClick: (info: PickingInfo) => {
+            if (info.object && info.coordinate) {
+              handleAddVertex(info.object.afterIndex, info.coordinate as [number, number]);
+            }
+          },
+          updateTriggers: {
+            getFillColor: [hoveredMidpointIndex],
+          },
+        })
+      );
+
+      // Draggable vertex handles (double-click to remove)
       layers.push(
         new ScatterplotLayer({
           id: 'vertex-handles',
@@ -443,7 +524,9 @@ export function MapView() {
             d.index === draggingVertexIndex
               ? [255, 100, 100, 255] // Red when dragging
               : d.index === hoveredVertexIndex
-              ? [255, 255, 100, 255] // Yellow when hovered
+              ? d.canRemove
+                ? [255, 150, 100, 255] // Orange-red when hovered and can remove
+                : [255, 255, 100, 255] // Yellow when hovered but can't remove
               : [255, 200, 50, 255], // Orange default
           getLineColor: [255, 255, 255, 255],
           getRadius: 14,
@@ -455,8 +538,21 @@ export function MapView() {
           onHover: (info: PickingInfo) => {
             setHoveredVertexIndex(info.index ?? null);
           },
+          onClick: (info: PickingInfo) => {
+            if (info.object && info.object.canRemove) {
+              const now = Date.now();
+              const lastClick = lastVertexClickRef.current;
+              // Detect double-click (within 300ms on same vertex)
+              if (lastClick && lastClick.index === info.object.index && now - lastClick.time < 300) {
+                handleRemoveVertex(info.object.index);
+                lastVertexClickRef.current = null;
+              } else {
+                lastVertexClickRef.current = { index: info.object.index, time: now };
+              }
+            }
+          },
           updateTriggers: {
-            getFillColor: [draggingVertexIndex, hoveredVertexIndex],
+            getFillColor: [draggingVertexIndex, hoveredVertexIndex, editableVertices.length],
           },
         })
       );
@@ -629,7 +725,7 @@ export function MapView() {
     }
 
     return layers;
-  }, [layerRenderInfo, selectionPolygon, hoveredLayerId, isolatedLayerId, explodedView, isDrawing, drawingPoints, editableVertices, draggingVertexIndex, hoveredVertexIndex, selectedFeatures, layerOrder]);
+  }, [layerRenderInfo, selectionPolygon, hoveredLayerId, isolatedLayerId, explodedView, isDrawing, drawingPoints, editableVertices, draggingVertexIndex, hoveredVertexIndex, hoveredMidpointIndex, handleAddVertex, handleRemoveVertex, selectedFeatures, layerOrder]);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const onViewStateChange = useCallback(

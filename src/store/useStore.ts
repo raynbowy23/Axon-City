@@ -76,6 +76,17 @@ export const useStore = create<AppState>((set) => ({
     newVertices[index] = position;
     return { editableVertices: newVertices };
   }),
+  addVertex: (afterIndex, position) => set((state) => {
+    const newVertices = [...state.editableVertices];
+    newVertices.splice(afterIndex + 1, 0, position);
+    return { editableVertices: newVertices };
+  }),
+  removeVertex: (index) => set((state) => {
+    // Don't remove if we have 3 or fewer vertices (minimum for a polygon)
+    if (state.editableVertices.length <= 3) return state;
+    const newVertices = state.editableVertices.filter((_, i) => i !== index);
+    return { editableVertices: newVertices };
+  }),
   draggingVertexIndex: null,
   setDraggingVertexIndex: (index) => set({ draggingVertexIndex: index }),
 

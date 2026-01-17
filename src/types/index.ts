@@ -118,6 +118,8 @@ export interface AppState {
   editableVertices: [number, number][];
   setEditableVertices: (vertices: [number, number][]) => void;
   updateVertex: (index: number, position: [number, number]) => void;
+  addVertex: (afterIndex: number, position: [number, number]) => void;
+  removeVertex: (index: number) => void;
   draggingVertexIndex: number | null;
   setDraggingVertexIndex: (index: number | null) => void;
 

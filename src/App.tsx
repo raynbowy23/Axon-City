@@ -265,22 +265,43 @@ function App() {
             </button>
 
             {selectionPolygon && (
-              <button
-                onClick={handleClearSelection}
-                disabled={isLoading}
-                style={{
-                  padding: '8px 16px',
-                  backgroundColor: isLoading ? '#666' : '#D94A4A',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '6px',
-                  cursor: isLoading ? 'not-allowed' : 'pointer',
-                  fontSize: '12px',
-                  opacity: isLoading ? 0.7 : 1,
-                }}
-              >
-                Clear Selection
-              </button>
+              <>
+                <button
+                  onClick={handleClearSelection}
+                  disabled={isLoading}
+                  style={{
+                    padding: '8px 16px',
+                    backgroundColor: isLoading ? '#666' : '#D94A4A',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '6px',
+                    cursor: isLoading ? 'not-allowed' : 'pointer',
+                    fontSize: '12px',
+                    opacity: isLoading ? 0.7 : 1,
+                  }}
+                >
+                  Clear Selection
+                </button>
+                {!isLoading && (
+                  <div
+                    style={{
+                      backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                      padding: '8px 12px',
+                      borderRadius: '6px',
+                      fontSize: '10px',
+                      color: 'rgba(255, 255, 255, 0.7)',
+                      lineHeight: '1.4',
+                    }}
+                  >
+                    <div style={{ marginBottom: '4px', fontWeight: '500', color: 'rgba(255, 200, 50, 0.9)' }}>
+                      Edit Selection:
+                    </div>
+                    <div>Drag corners to move</div>
+                    <div>Click <span style={{ color: '#64C8FF' }}>blue dots</span> to add point</div>
+                    <div>Double-click corner to remove</div>
+                  </div>
+                )}
+              </>
             )}
           </>
         ) : (
