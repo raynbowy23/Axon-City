@@ -24,6 +24,7 @@ function App() {
 
   const {
     isDrawing,
+    isLoading,
     setIsLoading,
     setLoadingMessage,
     setLayerData,
@@ -245,32 +246,36 @@ function App() {
           <>
             <button
               onClick={handleStartDrawing}
+              disabled={isLoading}
               style={{
                 padding: '12px 24px',
-                backgroundColor: '#4A90D9',
+                backgroundColor: isLoading ? '#666' : '#4A90D9',
                 color: 'white',
                 border: 'none',
                 borderRadius: '8px',
-                cursor: 'pointer',
+                cursor: isLoading ? 'not-allowed' : 'pointer',
                 fontSize: '14px',
                 fontWeight: '600',
                 boxShadow: '0 2px 8px rgba(0, 0, 0, 0.3)',
+                opacity: isLoading ? 0.7 : 1,
               }}
             >
-              Draw Selection Area
+              {isLoading ? 'Processing...' : 'Draw Selection Area'}
             </button>
 
             {selectionPolygon && (
               <button
                 onClick={handleClearSelection}
+                disabled={isLoading}
                 style={{
                   padding: '8px 16px',
-                  backgroundColor: '#D94A4A',
+                  backgroundColor: isLoading ? '#666' : '#D94A4A',
                   color: 'white',
                   border: 'none',
                   borderRadius: '6px',
-                  cursor: 'pointer',
+                  cursor: isLoading ? 'not-allowed' : 'pointer',
                   fontSize: '12px',
+                  opacity: isLoading ? 0.7 : 1,
                 }}
               >
                 Clear Selection
