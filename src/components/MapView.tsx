@@ -53,19 +53,89 @@ export function MapView() {
   const [hoveredVertexIndex, setHoveredVertexIndex] = useState<number | null>(null);
   const [hoveredMidpointIndex, setHoveredMidpointIndex] = useState<number | null>(null);
   const lastVertexClickRef = useRef<{ index: number; time: number } | null>(null);
+  const deckRef = useRef<any>(null);
 
-  // Pinned feature info (clicked to stick)
+  // Pinned feature info (clicked to stick) - stores geographic coordinates and initial screen position
   interface PinnedInfo {
     id: string;
     feature: Feature;
     layerId: string;
-    position: { x: number; y: number };
+    coordinates: [number, number]; // [longitude, latitude]
+    initialScreenPos: { x: number; y: number }; // fallback position
   }
   const [pinnedInfos, setPinnedInfos] = useState<PinnedInfo[]>([]);
+
+  // Track current screen positions of pinned features (updated when viewState changes)
+  const [pinnedScreenPositions, setPinnedScreenPositions] = useState<Record<string, { x: number; y: number }>>({});
+
+  // Update pinned screen positions when viewState changes
+  useEffect(() => {
+    if (pinnedInfos.length === 0) return;
+
+    // Use requestAnimationFrame to ensure DeckGL has updated its viewport
+    const updatePositions = () => {
+      if (!deckRef.current?.deck) return;
+      const viewport = deckRef.current.deck.getViewports()[0];
+      if (!viewport) return;
+
+      const newPositions: Record<string, { x: number; y: number }> = {};
+      for (const pinned of pinnedInfos) {
+        try {
+          const [x, y] = viewport.project(pinned.coordinates);
+          newPositions[pinned.id] = { x, y };
+        } catch {
+          // Fall back to initial position if projection fails
+          newPositions[pinned.id] = pinned.initialScreenPos;
+        }
+      }
+      setPinnedScreenPositions(newPositions);
+    };
+
+    // Run immediately and also after a frame for DeckGL to update
+    updatePositions();
+    const frameId = requestAnimationFrame(updatePositions);
+
+    return () => cancelAnimationFrame(frameId);
+  }, [viewState, pinnedInfos]);
 
   // Remove a pinned info
   const removePinnedInfo = useCallback((id: string) => {
     setPinnedInfos((prev) => prev.filter((p) => p.id !== id));
+  }, []);
+
+  // Helper to get centroid of a feature
+  const getFeatureCentroid = useCallback((feature: Feature): [number, number] => {
+    const geometry = feature.geometry;
+    if (!geometry) return [0, 0];
+
+    if (geometry.type === 'Point') {
+      return geometry.coordinates as [number, number];
+    } else if (geometry.type === 'LineString') {
+      const coords = geometry.coordinates;
+      const mid = Math.floor(coords.length / 2);
+      return coords[mid] as [number, number];
+    } else if (geometry.type === 'Polygon') {
+      const coords = geometry.coordinates[0];
+      let sumX = 0, sumY = 0;
+      for (const c of coords) {
+        sumX += c[0];
+        sumY += c[1];
+      }
+      return [sumX / coords.length, sumY / coords.length];
+    } else if (geometry.type === 'MultiPolygon') {
+      const coords = geometry.coordinates[0][0];
+      let sumX = 0, sumY = 0;
+      for (const c of coords) {
+        sumX += c[0];
+        sumY += c[1];
+      }
+      return [sumX / coords.length, sumY / coords.length];
+    } else if (geometry.type === 'MultiLineString') {
+      const coords = geometry.coordinates[0];
+      const mid = Math.floor(coords.length / 2);
+      return coords[mid] as [number, number];
+    }
+    return [0, 0];
   }, []);
 
   // Calculate layer render order and z-offsets with group-based separation
@@ -121,6 +191,7 @@ export function MapView() {
       if (info.layer) {
         const layerId = info.layer.id
           .replace('-elevated', '')
+          .replace('-floating', '')
           .replace('-ground', '')
           .replace('-connectors', '')
           .replace('-platform', '')
@@ -149,14 +220,80 @@ export function MapView() {
       if (info.object && info.layer && info.x !== undefined && info.y !== undefined) {
         const layerId = info.layer.id
           .replace('-elevated', '')
+          .replace('-floating', '')
           .replace('-ground', '')
           .replace('-connectors', '')
           .replace('-platform', '')
           .replace('-selected', '');
 
-        // Get the feature (handle different data formats)
-        const feature = (info.object.feature || info.object) as Feature;
-        if (feature && (feature.type === 'Feature' || feature.properties)) {
+        // Get the feature and coordinates (handle different data formats)
+        let feature: Feature | null = null;
+        let coordinates: [number, number] | null = null;
+
+        // Check if it's a full GeoJSON feature (polygons from GeoJsonLayer)
+        if (info.object.feature) {
+          feature = info.object.feature as Feature;
+          coordinates = getFeatureCentroid(feature);
+        } else if (info.object.type === 'Feature' && info.object.geometry) {
+          feature = info.object as Feature;
+          coordinates = getFeatureCentroid(feature);
+        } else if (info.object.path) {
+          // Line layer - has path array with [lon, lat, z] coordinates
+          const path = info.object.path as number[][];
+          const midIndex = Math.floor(path.length / 2);
+          coordinates = [path[midIndex][0], path[midIndex][1]];
+          // Create a synthetic feature for display
+          feature = {
+            type: 'Feature',
+            properties: info.object.properties || {},
+            geometry: {
+              type: 'LineString',
+              coordinates: path.map((p: number[]) => [p[0], p[1]]),
+            },
+          } as Feature;
+        } else if (info.object.position) {
+          // Point layer - has position array [lon, lat, z]
+          const pos = info.object.position as number[];
+          coordinates = [pos[0], pos[1]];
+          // Create a synthetic feature for display
+          feature = {
+            type: 'Feature',
+            properties: info.object.properties || {},
+            geometry: {
+              type: 'Point',
+              coordinates: [pos[0], pos[1]],
+            },
+          } as Feature;
+        } else if (info.object.polygon) {
+          // Floating polygon layer (buildings, parks in exploded view) - has polygon array
+          const polygon = info.object.polygon as number[][];
+          let sumX = 0, sumY = 0;
+          for (const c of polygon) {
+            sumX += c[0];
+            sumY += c[1];
+          }
+          coordinates = [sumX / polygon.length, sumY / polygon.length];
+          // Create a synthetic feature for display
+          feature = {
+            type: 'Feature',
+            properties: info.object.properties || {},
+            geometry: {
+              type: 'Polygon',
+              coordinates: [polygon.map((p: number[]) => [p[0], p[1]])],
+            },
+          } as Feature;
+        } else if (info.object.properties) {
+          // Fallback - has properties but unknown structure
+          feature = {
+            type: 'Feature',
+            properties: info.object.properties,
+            geometry: { type: 'Point', coordinates: [0, 0] },
+          } as Feature;
+          // Use click position for coordinates (will be converted back)
+          coordinates = info.coordinate as [number, number] || [0, 0];
+        }
+
+        if (feature && coordinates) {
           // Create unique ID for pinned info
           const featureId = feature.id || feature.properties?.id || `${layerId}-${Date.now()}`;
           const pinnedId = `pinned-${featureId}-${Date.now()}`;
@@ -164,7 +301,7 @@ export function MapView() {
           // Check if this feature is already pinned (by comparing properties)
           const alreadyPinned = pinnedInfos.some(
             (p) => p.layerId === layerId &&
-            JSON.stringify(p.feature.properties) === JSON.stringify(feature.properties)
+            JSON.stringify(p.feature.properties) === JSON.stringify(feature!.properties)
           );
 
           if (!alreadyPinned) {
@@ -172,16 +309,17 @@ export function MapView() {
               ...prev,
               {
                 id: pinnedId,
-                feature: feature as Feature,
+                feature,
                 layerId,
-                position: { x: info.x, y: info.y },
+                coordinates: coordinates!,
+                initialScreenPos: { x: info.x, y: info.y },
               },
             ]);
           }
         }
       }
     },
-    [isDrawing, draggingVertexIndex, pinnedInfos]
+    [isDrawing, draggingVertexIndex, pinnedInfos, getFeatureCentroid]
   );
 
   // Sync editable vertices when selection polygon changes
@@ -757,8 +895,91 @@ export function MapView() {
       });
     }
 
+    // Render pinned feature highlights (like autoHighlight but persistent)
+    if (pinnedInfos.length > 0) {
+      pinnedInfos.forEach((pinned, pinnedIndex) => {
+        const layerConfig = layerRenderInfo.find((l) => l.config.id === pinned.layerId);
+        const baseZOffset = layerConfig?.zOffset || 0;
+        const pinnedElevationOffset = (pinnedIndex + 1) * 5;
+        // Yellow highlight color matching autoHighlight
+        const highlightFillColor: [number, number, number, number] = [255, 255, 100, 120];
+        const highlightLineColor: [number, number, number, number] = [255, 255, 100, 255];
+
+        const geometryType = pinned.feature.geometry?.type;
+
+        if (geometryType === 'Polygon' || geometryType === 'MultiPolygon') {
+          // Semi-transparent fill overlay (like autoHighlight)
+          layers.push(
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            new GeoJsonLayer<any>({
+              id: `pinned-polygon-fill-${pinned.id}`,
+              data: { type: 'FeatureCollection', features: [pinned.feature] },
+              filled: true,
+              stroked: true,
+              getFillColor: highlightFillColor,
+              getLineColor: highlightLineColor,
+              getLineWidth: 3,
+              lineWidthUnits: 'pixels',
+              getElevation: baseZOffset + pinnedElevationOffset + 2,
+              extruded: false,
+              pickable: false,
+            })
+          );
+        } else if (geometryType === 'LineString' || geometryType === 'MultiLineString') {
+          // Highlight for lines - thicker bright line
+          layers.push(
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            new GeoJsonLayer<any>({
+              id: `pinned-line-${pinned.id}`,
+              data: { type: 'FeatureCollection', features: [pinned.feature] },
+              stroked: true,
+              getLineColor: highlightLineColor,
+              getLineWidth: 8,
+              lineWidthUnits: 'pixels',
+              pickable: false,
+            })
+          );
+        } else if (geometryType === 'Point') {
+          const coords = (pinned.feature.geometry as Point).coordinates;
+          const elevation = explodedView.enabled ? baseZOffset + 25 + pinnedElevationOffset : 15 + pinnedElevationOffset;
+
+          // Highlighted sphere
+          layers.push(
+            new SimpleMeshLayer({
+              id: `pinned-point-${pinned.id}`,
+              data: [{ position: [...coords, elevation] }],
+              mesh: getSphereMesh(),
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              getPosition: (d: any) => d.position,
+              getColor: highlightLineColor,
+              getScale: [20, 20, 20],
+              pickable: false,
+            })
+          );
+
+          // Ring around point
+          layers.push(
+            new ScatterplotLayer({
+              id: `pinned-point-ring-${pinned.id}`,
+              data: [{ position: coords }],
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              getPosition: (d: any) => d.position,
+              getFillColor: [0, 0, 0, 0],
+              getLineColor: highlightLineColor,
+              getRadius: 22,
+              radiusUnits: 'pixels' as const,
+              filled: false,
+              stroked: true,
+              lineWidthMinPixels: 4,
+              pickable: false,
+            })
+          );
+        }
+      });
+    }
+
     return layers;
-  }, [layerRenderInfo, selectionPolygon, hoveredLayerId, isolatedLayerId, explodedView, isDrawing, drawingPoints, editableVertices, draggingVertexIndex, hoveredVertexIndex, hoveredMidpointIndex, handleAddVertex, handleRemoveVertex, selectedFeatures, layerOrder]);
+  }, [layerRenderInfo, selectionPolygon, hoveredLayerId, isolatedLayerId, explodedView, isDrawing, drawingPoints, editableVertices, draggingVertexIndex, hoveredVertexIndex, hoveredMidpointIndex, handleAddVertex, handleRemoveVertex, selectedFeatures, layerOrder, pinnedInfos]);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const onViewStateChange = useCallback(
@@ -807,6 +1028,7 @@ export function MapView() {
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
       <DeckGL
+        ref={deckRef}
         viewState={viewState}
         onViewStateChange={onViewStateChange}
         controller={controller}
@@ -859,62 +1081,106 @@ export function MapView() {
         </div>
       )}
 
-      {/* Pinned Info Cards */}
-      {pinnedInfos.map((pinned) => (
-        <div
-          key={pinned.id}
-          style={{
-            position: 'absolute',
-            left: Math.min(pinned.position.x + 10, window.innerWidth - 270),
-            top: Math.min(pinned.position.y + 10, window.innerHeight - 200),
-            backgroundColor: 'rgba(0, 0, 0, 0.95)',
-            color: 'white',
-            padding: '10px 12px',
-            borderRadius: '6px',
-            fontSize: '12px',
-            maxWidth: '260px',
-            zIndex: 1001,
-            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.4)',
-            border: '1px solid rgba(255, 200, 50, 0.5)',
-          }}
-        >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '6px' }}>
-            <div style={{ fontWeight: 'bold', color: 'rgba(255, 200, 50, 1)' }}>
-              {getLayerById(pinned.layerId)?.name || 'Feature'}
-            </div>
-            <button
-              onClick={() => removePinnedInfo(pinned.id)}
+      {/* Pinned Info Cards with connector lines */}
+      {pinnedInfos.map((pinned) => {
+        // Use tracked screen position, fall back to initial position
+        const screenPos = pinnedScreenPositions[pinned.id] || pinned.initialScreenPos;
+
+        // Calculate card position (offset from object)
+        const cardOffset = { x: 20, y: -10 };
+        const cardX = screenPos.x + cardOffset.x;
+        const cardY = screenPos.y + cardOffset.y;
+
+        return (
+          <div key={pinned.id}>
+            {/* Connector line from object to card */}
+            <svg
               style={{
-                background: 'none',
-                border: 'none',
-                color: 'rgba(255, 255, 255, 0.6)',
-                cursor: 'pointer',
-                padding: '0 4px',
-                fontSize: '16px',
-                lineHeight: '1',
-                marginLeft: '8px',
+                position: 'absolute',
+                left: 0,
+                top: 0,
+                width: '100%',
+                height: '100%',
+                pointerEvents: 'none',
+                zIndex: 1000,
               }}
-              onMouseEnter={(e) => (e.currentTarget.style.color = 'rgba(255, 100, 100, 1)')}
-              onMouseLeave={(e) => (e.currentTarget.style.color = 'rgba(255, 255, 255, 0.6)')}
             >
-              ×
-            </button>
-          </div>
-          {pinned.feature.properties && (
-            <div>
-              {Object.entries(pinned.feature.properties)
-                .filter(([key]) => !['id', 'type'].includes(key))
-                .slice(0, 8)
-                .map(([key, value]) => (
-                  <div key={key} style={{ fontSize: '11px', opacity: 0.85, marginBottom: '2px' }}>
-                    <span style={{ color: 'rgba(255, 255, 255, 0.5)' }}>{key}:</span>{' '}
-                    <span>{String(value)}</span>
-                  </div>
-                ))}
+              <line
+                x1={screenPos.x}
+                y1={screenPos.y}
+                x2={cardX}
+                y2={cardY + 20}
+                stroke="rgba(255, 200, 50, 0.8)"
+                strokeWidth="2"
+                strokeDasharray="4,2"
+              />
+              {/* Small circle at object location */}
+              <circle
+                cx={screenPos.x}
+                cy={screenPos.y}
+                r="6"
+                fill="rgba(255, 200, 50, 1)"
+                stroke="white"
+                strokeWidth="2"
+              />
+            </svg>
+
+            {/* Info Card */}
+            <div
+              style={{
+                position: 'absolute',
+                left: cardX,
+                top: cardY,
+                backgroundColor: 'rgba(0, 0, 0, 0.95)',
+                color: 'white',
+                padding: '10px 12px',
+                borderRadius: '6px',
+                fontSize: '12px',
+                maxWidth: '260px',
+                zIndex: 1001,
+                boxShadow: '0 4px 12px rgba(0, 0, 0, 0.4)',
+                border: '2px solid rgba(255, 200, 50, 0.8)',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '6px' }}>
+                <div style={{ fontWeight: 'bold', color: 'rgba(255, 200, 50, 1)' }}>
+                  {getLayerById(pinned.layerId)?.name || 'Feature'}
+                </div>
+                <button
+                  onClick={() => removePinnedInfo(pinned.id)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: 'rgba(255, 255, 255, 0.6)',
+                    cursor: 'pointer',
+                    padding: '0 4px',
+                    fontSize: '16px',
+                    lineHeight: '1',
+                    marginLeft: '8px',
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.color = 'rgba(255, 100, 100, 1)')}
+                  onMouseLeave={(e) => (e.currentTarget.style.color = 'rgba(255, 255, 255, 0.6)')}
+                >
+                  ×
+                </button>
+              </div>
+              {pinned.feature.properties && (
+                <div>
+                  {Object.entries(pinned.feature.properties)
+                    .filter(([key]) => !['id', 'type'].includes(key))
+                    .slice(0, 8)
+                    .map(([key, value]) => (
+                      <div key={key} style={{ fontSize: '11px', opacity: 0.85, marginBottom: '2px' }}>
+                        <span style={{ color: 'rgba(255, 255, 255, 0.5)' }}>{key}:</span>{' '}
+                        <span>{String(value)}</span>
+                      </div>
+                    ))}
+                </div>
+              )}
             </div>
-          )}
-        </div>
-      ))}
+          </div>
+        );
+      })}
     </div>
   );
 }
