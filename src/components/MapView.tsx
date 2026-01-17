@@ -45,7 +45,6 @@ export function MapView() {
     setDraggingVertexIndex,
     setSelectionPolygon,
     selectedFeatures,
-    addSelectedFeature,
     layerOrder,
   } = useStore();
 
@@ -54,6 +53,20 @@ export function MapView() {
   const [hoveredVertexIndex, setHoveredVertexIndex] = useState<number | null>(null);
   const [hoveredMidpointIndex, setHoveredMidpointIndex] = useState<number | null>(null);
   const lastVertexClickRef = useRef<{ index: number; time: number } | null>(null);
+
+  // Pinned feature info (clicked to stick)
+  interface PinnedInfo {
+    id: string;
+    feature: Feature;
+    layerId: string;
+    position: { x: number; y: number };
+  }
+  const [pinnedInfos, setPinnedInfos] = useState<PinnedInfo[]>([]);
+
+  // Remove a pinned info
+  const removePinnedInfo = useCallback((id: string) => {
+    setPinnedInfos((prev) => prev.filter((p) => p.id !== id));
+  }, []);
 
   // Calculate layer render order and z-offsets with group-based separation
   const layerRenderInfo = useMemo((): LayerRenderInfo[] => {
@@ -124,16 +137,16 @@ export function MapView() {
     [setHoveredLayerId]
   );
 
-  // Handle click to select/deselect features
+  // Handle click to pin feature info
   const onClick = useCallback(
     (info: PickingInfo) => {
-      // Don't select if in drawing mode or dragging vertices
+      // Don't handle if in drawing mode or dragging vertices
       if (isDrawing || draggingVertexIndex !== null) return;
 
-      // Don't select vertex handles or other UI elements
-      if (info.layer?.id === 'vertex-handles') return;
+      // Don't handle vertex handles or midpoint handles
+      if (info.layer?.id === 'vertex-handles' || info.layer?.id === 'midpoint-handles') return;
 
-      if (info.object && info.layer) {
+      if (info.object && info.layer && info.x !== undefined && info.y !== undefined) {
         const layerId = info.layer.id
           .replace('-elevated', '')
           .replace('-ground', '')
@@ -142,13 +155,33 @@ export function MapView() {
           .replace('-selected', '');
 
         // Get the feature (handle different data formats)
-        const feature = info.object as Feature;
-        if (feature && feature.type === 'Feature') {
-          addSelectedFeature(feature, layerId);
+        const feature = (info.object.feature || info.object) as Feature;
+        if (feature && (feature.type === 'Feature' || feature.properties)) {
+          // Create unique ID for pinned info
+          const featureId = feature.id || feature.properties?.id || `${layerId}-${Date.now()}`;
+          const pinnedId = `pinned-${featureId}-${Date.now()}`;
+
+          // Check if this feature is already pinned (by comparing properties)
+          const alreadyPinned = pinnedInfos.some(
+            (p) => p.layerId === layerId &&
+            JSON.stringify(p.feature.properties) === JSON.stringify(feature.properties)
+          );
+
+          if (!alreadyPinned) {
+            setPinnedInfos((prev) => [
+              ...prev,
+              {
+                id: pinnedId,
+                feature: feature as Feature,
+                layerId,
+                position: { x: info.x, y: info.y },
+              },
+            ]);
+          }
         }
       }
     },
-    [isDrawing, draggingVertexIndex, addSelectedFeature]
+    [isDrawing, draggingVertexIndex, pinnedInfos]
   );
 
   // Sync editable vertices when selection polygon changes
@@ -788,7 +821,7 @@ export function MapView() {
         <Map mapStyle={MAP_STYLE} maxPitch={89} minPitch={0} />
       </DeckGL>
 
-      {/* Tooltip */}
+      {/* Hover Tooltip */}
       {hoveredFeature && cursorPosition && (
         <div
           style={{
@@ -820,8 +853,68 @@ export function MapView() {
                 ))}
             </div>
           )}
+          <div style={{ fontSize: '10px', opacity: 0.5, marginTop: '4px' }}>
+            Click to pin
+          </div>
         </div>
       )}
+
+      {/* Pinned Info Cards */}
+      {pinnedInfos.map((pinned) => (
+        <div
+          key={pinned.id}
+          style={{
+            position: 'absolute',
+            left: Math.min(pinned.position.x + 10, window.innerWidth - 270),
+            top: Math.min(pinned.position.y + 10, window.innerHeight - 200),
+            backgroundColor: 'rgba(0, 0, 0, 0.95)',
+            color: 'white',
+            padding: '10px 12px',
+            borderRadius: '6px',
+            fontSize: '12px',
+            maxWidth: '260px',
+            zIndex: 1001,
+            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.4)',
+            border: '1px solid rgba(255, 200, 50, 0.5)',
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '6px' }}>
+            <div style={{ fontWeight: 'bold', color: 'rgba(255, 200, 50, 1)' }}>
+              {getLayerById(pinned.layerId)?.name || 'Feature'}
+            </div>
+            <button
+              onClick={() => removePinnedInfo(pinned.id)}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: 'rgba(255, 255, 255, 0.6)',
+                cursor: 'pointer',
+                padding: '0 4px',
+                fontSize: '16px',
+                lineHeight: '1',
+                marginLeft: '8px',
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.color = 'rgba(255, 100, 100, 1)')}
+              onMouseLeave={(e) => (e.currentTarget.style.color = 'rgba(255, 255, 255, 0.6)')}
+            >
+              ×
+            </button>
+          </div>
+          {pinned.feature.properties && (
+            <div>
+              {Object.entries(pinned.feature.properties)
+                .filter(([key]) => !['id', 'type'].includes(key))
+                .slice(0, 8)
+                .map(([key, value]) => (
+                  <div key={key} style={{ fontSize: '11px', opacity: 0.85, marginBottom: '2px' }}>
+                    <span style={{ color: 'rgba(255, 255, 255, 0.5)' }}>{key}:</span>{' '}
+                    <span>{String(value)}</span>
+                  </div>
+                ))}
+            </div>
+          )}
+        </div>
+      ))}
     </div>
   );
 }

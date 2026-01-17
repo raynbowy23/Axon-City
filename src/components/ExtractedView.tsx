@@ -82,6 +82,19 @@ const DeckGLView = memo(function DeckGLView({
   const [hoveredLayerId, setHoveredLayerId] = useState<string | null>(null);
   const [cursorPosition, setCursorPosition] = useState<{ x: number; y: number } | null>(null);
 
+  // Pinned feature info
+  interface PinnedInfo {
+    id: string;
+    feature: Feature;
+    layerId: string;
+    position: { x: number; y: number };
+  }
+  const [pinnedInfos, setPinnedInfos] = useState<PinnedInfo[]>([]);
+
+  const removePinnedInfo = useCallback((id: string) => {
+    setPinnedInfos((prev) => prev.filter((p) => p.id !== id));
+  }, []);
+
   // Handle WebGL initialization
   const handleWebGLInitialized = useCallback(() => {
     setIsReady(true);
@@ -108,6 +121,36 @@ const DeckGLView = memo(function DeckGLView({
       setCursorPosition(null);
     }
   }, []);
+
+  // Handle click to pin feature info
+  const onClick = useCallback((info: PickingInfo) => {
+    if (info.object && info.layer && info.x !== undefined && info.y !== undefined) {
+      const layerId = info.layer.id.replace('extracted-', '');
+      const feature = (info.object.feature || info.object) as Feature;
+
+      if (feature && (feature.type === 'Feature' || feature.properties)) {
+        const featureId = feature.id || feature.properties?.id || `${layerId}-${Date.now()}`;
+        const pinnedId = `pinned-${featureId}-${Date.now()}`;
+
+        const alreadyPinned = pinnedInfos.some(
+          (p) => p.layerId === layerId &&
+          JSON.stringify(p.feature.properties) === JSON.stringify(feature.properties)
+        );
+
+        if (!alreadyPinned) {
+          setPinnedInfos((prev) => [
+            ...prev,
+            {
+              id: pinnedId,
+              feature: feature as Feature,
+              layerId,
+              position: { x: info.x, y: info.y },
+            },
+          ]);
+        }
+      }
+    }
+  }, [pinnedInfos]);
 
   // Build layers for the extracted view
   const extractedLayers = useMemo((): Layer[] => {
@@ -242,12 +285,13 @@ const DeckGLView = memo(function DeckGLView({
         onWebGLInitialized={handleWebGLInitialized}
         onError={handleError}
         onHover={onHover}
+        onClick={onClick}
         controller={{ dragRotate: true, touchRotate: true, keyboard: true }}
         layers={extractedLayers}
         style={{ position: 'absolute', top: '0', left: '0', width: '100%', height: '100%' }}
       />
 
-      {/* Tooltip */}
+      {/* Hover Tooltip */}
       {hoveredFeature && cursorPosition && (
         <div
           style={{
@@ -280,8 +324,68 @@ const DeckGLView = memo(function DeckGLView({
                 ))}
             </div>
           )}
+          <div style={{ fontSize: '9px', opacity: 0.5, marginTop: '4px' }}>
+            Click to pin
+          </div>
         </div>
       )}
+
+      {/* Pinned Info Cards */}
+      {pinnedInfos.map((pinned) => (
+        <div
+          key={pinned.id}
+          style={{
+            position: 'absolute',
+            left: Math.min(pinned.position.x + 10, 400),
+            top: Math.min(pinned.position.y + 10, 300),
+            backgroundColor: 'rgba(0, 0, 0, 0.95)',
+            color: 'white',
+            padding: '10px 12px',
+            borderRadius: '6px',
+            fontSize: '11px',
+            maxWidth: '240px',
+            zIndex: 11,
+            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.4)',
+            border: '1px solid rgba(255, 200, 50, 0.5)',
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '6px' }}>
+            <div style={{ fontWeight: 'bold', color: 'rgba(255, 200, 50, 1)' }}>
+              {getLayerById(pinned.layerId)?.name || 'Feature'}
+            </div>
+            <button
+              onClick={() => removePinnedInfo(pinned.id)}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: 'rgba(255, 255, 255, 0.6)',
+                cursor: 'pointer',
+                padding: '0 4px',
+                fontSize: '14px',
+                lineHeight: '1',
+                marginLeft: '8px',
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.color = 'rgba(255, 100, 100, 1)')}
+              onMouseLeave={(e) => (e.currentTarget.style.color = 'rgba(255, 255, 255, 0.6)')}
+            >
+              ×
+            </button>
+          </div>
+          {pinned.feature.properties && (
+            <div>
+              {Object.entries(pinned.feature.properties)
+                .filter(([key]) => !['id', 'type'].includes(key))
+                .slice(0, 8)
+                .map(([key, value]) => (
+                  <div key={key} style={{ marginBottom: '2px' }}>
+                    <span style={{ color: 'rgba(255, 255, 255, 0.5)' }}>{key}:</span>{' '}
+                    <span>{String(value)}</span>
+                  </div>
+                ))}
+            </div>
+          )}
+        </div>
+      ))}
     </>
   );
 });
