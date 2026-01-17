@@ -224,6 +224,7 @@ function App() {
         height: '100vh',
         position: 'relative',
         overflow: 'hidden',
+        cursor: isDrawing ? 'crosshair' : 'auto',
       }}
       onMouseDown={handleMouseDown}
       onClick={handleContainerClick}
