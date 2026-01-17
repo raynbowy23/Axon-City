@@ -1,10 +1,118 @@
-import { useMemo } from 'react';
+import { useMemo, useState, useCallback, useEffect, useRef } from 'react';
 import { useStore } from '../store/useStore';
 import { getLayerById, getGroupById } from '../data/layerManifest';
 import type { LayerStats, LayerGroup } from '../types';
 
+// Size constraints
+const MIN_WIDTH = 280;
+const MAX_WIDTH = 600;
+const MIN_HEIGHT = 200;
+const MAX_HEIGHT = 800;
+const DEFAULT_WIDTH = 360;
+const DEFAULT_HEIGHT = 400;
+
+// LocalStorage key
+const STORAGE_KEY = 'axoncity-stats-panel-size';
+
+interface PanelSize {
+  width: number;
+  height: number;
+}
+
+function loadSavedSize(): PanelSize {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      return {
+        width: Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, parsed.width || DEFAULT_WIDTH)),
+        height: Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, parsed.height || DEFAULT_HEIGHT)),
+      };
+    }
+  } catch {
+    // Ignore parse errors
+  }
+  return { width: DEFAULT_WIDTH, height: DEFAULT_HEIGHT };
+}
+
+function saveSize(size: PanelSize): void {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(size));
+  } catch {
+    // Ignore storage errors
+  }
+}
+
 export function StatsPanel() {
   const { layerData, activeLayers, selectionPolygon, isLoading, loadingMessage } = useStore();
+
+  // Panel size state
+  const [size, setSize] = useState<PanelSize>(loadSavedSize);
+  const [isResizing, setIsResizing] = useState(false);
+  const [resizeDirection, setResizeDirection] = useState<'right' | 'top' | 'corner' | null>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const startPosRef = useRef<{ x: number; y: number; width: number; height: number }>({ x: 0, y: 0, width: 0, height: 0 });
+
+  // Handle mouse move during resize
+  const handleMouseMove = useCallback((e: MouseEvent) => {
+    if (!isResizing || !resizeDirection) return;
+
+    const deltaX = e.clientX - startPosRef.current.x;
+    const deltaY = startPosRef.current.y - e.clientY; // Inverted for top resize
+
+    let newWidth = startPosRef.current.width;
+    let newHeight = startPosRef.current.height;
+
+    if (resizeDirection === 'right' || resizeDirection === 'corner') {
+      newWidth = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, startPosRef.current.width + deltaX));
+    }
+
+    if (resizeDirection === 'top' || resizeDirection === 'corner') {
+      newHeight = Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, startPosRef.current.height + deltaY));
+    }
+
+    setSize({ width: newWidth, height: newHeight });
+  }, [isResizing, resizeDirection]);
+
+  // Handle mouse up to stop resize
+  const handleMouseUp = useCallback(() => {
+    if (isResizing) {
+      setIsResizing(false);
+      setResizeDirection(null);
+      saveSize(size);
+    }
+  }, [isResizing, size]);
+
+  // Add/remove global mouse listeners
+  useEffect(() => {
+    if (isResizing) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = resizeDirection === 'corner' ? 'nesw-resize' : resizeDirection === 'right' ? 'ew-resize' : 'ns-resize';
+      document.body.style.userSelect = 'none';
+    }
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, [isResizing, handleMouseMove, handleMouseUp, resizeDirection]);
+
+  // Start resize
+  const startResize = useCallback((e: React.MouseEvent, direction: 'right' | 'top' | 'corner') => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsResizing(true);
+    setResizeDirection(direction);
+    startPosRef.current = {
+      x: e.clientX,
+      y: e.clientY,
+      width: size.width,
+      height: size.height,
+    };
+  }, [size]);
 
   // Group stats by layer group
   const groupedStats = useMemo(() => {
@@ -37,6 +145,40 @@ export function StatsPanel() {
     layers.some((l) => l.stats)
   );
 
+  // Resize handle styles
+  const resizeHandleStyle: React.CSSProperties = {
+    position: 'absolute',
+    backgroundColor: 'transparent',
+  };
+
+  const rightHandleStyle: React.CSSProperties = {
+    ...resizeHandleStyle,
+    right: -4,
+    top: 0,
+    width: 8,
+    height: '100%',
+    cursor: 'ew-resize',
+  };
+
+  const topHandleStyle: React.CSSProperties = {
+    ...resizeHandleStyle,
+    top: -4,
+    left: 0,
+    width: '100%',
+    height: 8,
+    cursor: 'ns-resize',
+  };
+
+  const cornerHandleStyle: React.CSSProperties = {
+    ...resizeHandleStyle,
+    top: -6,
+    right: -6,
+    width: 14,
+    height: 14,
+    cursor: 'nesw-resize',
+    borderRadius: '2px',
+  };
+
   if (!selectionPolygon && !isLoading) {
     return (
       <div
@@ -65,6 +207,7 @@ export function StatsPanel() {
 
   return (
     <div
+      ref={panelRef}
       style={{
         position: 'absolute',
         bottom: '20px',
@@ -74,15 +217,50 @@ export function StatsPanel() {
         color: 'white',
         padding: '16px',
         borderRadius: '8px',
-        maxWidth: '360px',
-        maxHeight: '50vh',
+        width: size.width,
+        height: size.height,
+        maxHeight: `calc(100vh - 40px)`,
         overflowY: 'auto',
         fontSize: '13px',
+        boxSizing: 'border-box',
       }}
     >
-      <h3 style={{ margin: '0 0 12px 0', fontSize: '14px' }}>
-        Selection Statistics
-      </h3>
+      {/* Resize handles */}
+      <div
+        style={rightHandleStyle}
+        onMouseDown={(e) => startResize(e, 'right')}
+      />
+      <div
+        style={topHandleStyle}
+        onMouseDown={(e) => startResize(e, 'top')}
+      />
+      <div
+        style={cornerHandleStyle}
+        onMouseDown={(e) => startResize(e, 'corner')}
+      >
+        {/* Corner indicator */}
+        <div
+          style={{
+            position: 'absolute',
+            top: 4,
+            right: 4,
+            width: 8,
+            height: 8,
+            borderTop: '2px solid rgba(255,255,255,0.4)',
+            borderRight: '2px solid rgba(255,255,255,0.4)',
+            borderTopRightRadius: '2px',
+          }}
+        />
+      </div>
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+        <h3 style={{ margin: 0, fontSize: '14px' }}>
+          Selection Statistics
+        </h3>
+        <span style={{ fontSize: '10px', opacity: 0.5 }}>
+          {size.width}×{size.height}
+        </span>
+      </div>
 
       {selectionPolygon && (
         <div
