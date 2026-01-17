@@ -86,6 +86,14 @@ export interface ExplodedViewConfig {
   animationDuration: number;
 }
 
+// Selected feature with color for visual differentiation
+export interface SelectedFeature {
+  id: string | number;
+  feature: Feature;
+  layerId: string;
+  color: [number, number, number, number]; // Unique color for this selection
+}
+
 export interface AppState {
   // Map view
   viewState: ViewState;
@@ -126,6 +134,12 @@ export interface AppState {
   setHoveredLayerId: (layerId: string | null) => void;
   isolatedLayerId: string | null;
   setIsolatedLayerId: (layerId: string | null) => void;
+
+  // Feature selection (for comparing features within same layer)
+  selectedFeatures: SelectedFeature[];
+  addSelectedFeature: (feature: Feature, layerId: string) => void;
+  removeSelectedFeature: (id: string | number) => void;
+  clearSelectedFeatures: () => void;
 
   // Loading states
   isLoading: boolean;

@@ -16,12 +16,13 @@ import type { LayerConfig, LayerData, LayerGroup } from '../types';
 const MAP_STYLE = 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json';
 
 // Group spacing configuration for better visual separation
+// All groups start from 1 to ensure proper floating in exploded view
 const GROUP_BASE_HEIGHTS: Record<LayerGroup, number> = {
-  usage: 0,        // Base layer (land use, buildings)
-  infrastructure: 1, // Roads, bike lanes
-  access: 2,       // Transit, parking
-  safety: 3,       // Signals, crosswalks
-  environment: 4,  // Parks, water, trees (top)
+  usage: 1,        // Base layer (land use, buildings) - now floats
+  infrastructure: 2, // Roads, bike lanes
+  access: 3,       // Transit, parking
+  safety: 4,       // Signals, crosswalks
+  environment: 5,  // Parks, water, trees (top)
 };
 
 interface LayerRenderInfo {
@@ -50,6 +51,8 @@ export function MapView() {
     draggingVertexIndex,
     setDraggingVertexIndex,
     setSelectionPolygon,
+    selectedFeatures,
+    addSelectedFeature,
   } = useStore();
 
   const [hoveredFeature, setHoveredFeature] = useState<Feature | null>(null);
@@ -104,7 +107,8 @@ export function MapView() {
           .replace('-elevated', '')
           .replace('-ground', '')
           .replace('-connectors', '')
-          .replace('-platform', '');
+          .replace('-platform', '')
+          .replace('-selected', '');
         setHoveredLayerId(layerId);
         setHoveredFeature(info.object as Feature || null);
         setCursorPosition(info.x !== undefined ? { x: info.x, y: info.y } : null);
@@ -115,6 +119,33 @@ export function MapView() {
       }
     },
     [setHoveredLayerId]
+  );
+
+  // Handle click to select/deselect features
+  const onClick = useCallback(
+    (info: PickingInfo) => {
+      // Don't select if in drawing mode or dragging vertices
+      if (isDrawing || draggingVertexIndex !== null) return;
+
+      // Don't select vertex handles or other UI elements
+      if (info.layer?.id === 'vertex-handles') return;
+
+      if (info.object && info.layer) {
+        const layerId = info.layer.id
+          .replace('-elevated', '')
+          .replace('-ground', '')
+          .replace('-connectors', '')
+          .replace('-platform', '')
+          .replace('-selected', '');
+
+        // Get the feature (handle different data formats)
+        const feature = info.object as Feature;
+        if (feature && feature.type === 'Feature') {
+          addSelectedFeature(feature, layerId);
+        }
+      }
+    },
+    [isDrawing, draggingVertexIndex, addSelectedFeature]
   );
 
   // Sync editable vertices when selection polygon changes
@@ -256,14 +287,27 @@ export function MapView() {
       // Main elevated layer
       switch (config.geometryType) {
         case 'polygon':
-          layers.push(
-            createPolygonLayer(config, features, zOffset, opacity, isHovered, explodedView.enabled)
-          );
-          // Vertical connectors for polygons
-          if (explodedView.enabled && zOffset > 0) {
+          // Use specialized layer functions for buildings and parking
+          if (config.id === 'buildings') {
             layers.push(
-              createVerticalConnectors(config, features, zOffset, 'polygon')
+              ...createBuildingLayer(config, features, zOffset, opacity, isHovered, explodedView.enabled)
             );
+            // No vertical connectors for floating buildings
+          } else if (config.id === 'parking') {
+            layers.push(
+              ...createParkingLayer(config, features, zOffset, opacity, isHovered, explodedView.enabled)
+            );
+            // No vertical connectors for floating parking
+          } else {
+            layers.push(
+              createPolygonLayer(config, features, zOffset, opacity, isHovered, explodedView.enabled)
+            );
+            // Vertical connectors for other polygons (parks, land use, etc.)
+            if (explodedView.enabled && zOffset > 0) {
+              layers.push(
+                createVerticalConnectors(config, features, zOffset, 'polygon')
+              );
+            }
           }
           break;
         case 'line':
@@ -408,8 +452,174 @@ export function MapView() {
       );
     }
 
+    // Render selected features with distinct colors (on top of everything)
+    if (selectedFeatures.length > 0) {
+      // Render each selected feature with its unique color and stacked elevation
+      selectedFeatures.forEach((selection, selectionIndex) => {
+        const layerConfig = layerRenderInfo.find((l) => l.config.id === selection.layerId);
+        const baseZOffset = layerConfig?.zOffset || 0;
+        // Add incremental elevation offset for each selection to prevent z-fighting
+        const selectionElevationOffset = (selectionIndex + 1) * 15;
+
+        const geometryType = selection.feature.geometry.type;
+
+        if (geometryType === 'Polygon' || geometryType === 'MultiPolygon') {
+          // Render outline only (no fill) to avoid visual stacking
+          layers.push(
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            new GeoJsonLayer<any>({
+              id: `selected-polygon-outline-${selection.id}`,
+              data: { type: 'FeatureCollection', features: [selection.feature] },
+              filled: false,
+              stroked: true,
+              getLineColor: selection.color,
+              getLineWidth: 6,
+              lineWidthUnits: 'pixels',
+              getElevation: baseZOffset + selectionElevationOffset,
+              extruded: false,
+              pickable: false,
+            })
+          );
+
+          // Add a pulsing/glowing effect layer with thinner line
+          layers.push(
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            new GeoJsonLayer<any>({
+              id: `selected-polygon-glow-${selection.id}`,
+              data: { type: 'FeatureCollection', features: [selection.feature] },
+              filled: false,
+              stroked: true,
+              getLineColor: [...selection.color.slice(0, 3), 100] as [number, number, number, number],
+              getLineWidth: 12,
+              lineWidthUnits: 'pixels',
+              getElevation: baseZOffset + selectionElevationOffset - 1,
+              extruded: false,
+              pickable: false,
+            })
+          );
+
+          // Add colored marker at centroid to identify each selection
+          const coords = (selection.feature.geometry as Polygon).coordinates[0];
+          if (coords && coords.length > 0) {
+            // Calculate centroid
+            let sumX = 0, sumY = 0;
+            for (const coord of coords) {
+              sumX += coord[0];
+              sumY += coord[1];
+            }
+            const centroid: [number, number] = [sumX / coords.length, sumY / coords.length];
+
+            layers.push(
+              new ScatterplotLayer({
+                id: `selected-polygon-marker-${selection.id}`,
+                data: [{ position: centroid }],
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                getPosition: (d: any) => d.position,
+                getFillColor: selection.color,
+                getLineColor: [255, 255, 255, 255],
+                getRadius: 16,
+                radiusUnits: 'pixels' as const,
+                filled: true,
+                stroked: true,
+                lineWidthMinPixels: 3,
+                pickable: false,
+              })
+            );
+          }
+        } else if (geometryType === 'LineString' || geometryType === 'MultiLineString') {
+          const coords = (selection.feature.geometry as LineString).coordinates;
+
+          // Outer glow
+          layers.push(
+            new PathLayer({
+              id: `selected-line-glow-${selection.id}`,
+              data: [{ path: coords.map((c) => [...c, baseZOffset + selectionElevationOffset]) }],
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              getPath: (d: any) => d.path,
+              getColor: [...selection.color.slice(0, 3), 100] as [number, number, number, number],
+              getWidth: 14,
+              widthUnits: 'pixels' as const,
+              pickable: false,
+            })
+          );
+
+          // Main colored line
+          layers.push(
+            new PathLayer({
+              id: `selected-line-${selection.id}`,
+              data: [{ path: coords.map((c) => [...c, baseZOffset + selectionElevationOffset + 1]) }],
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              getPath: (d: any) => d.path,
+              getColor: selection.color,
+              getWidth: 8,
+              widthUnits: 'pixels' as const,
+              pickable: false,
+            })
+          );
+
+          // Add marker at midpoint
+          if (coords.length >= 2) {
+            const midIndex = Math.floor(coords.length / 2);
+            const midpoint = coords[midIndex];
+
+            layers.push(
+              new ScatterplotLayer({
+                id: `selected-line-marker-${selection.id}`,
+                data: [{ position: midpoint }],
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                getPosition: (d: any) => d.position,
+                getFillColor: selection.color,
+                getLineColor: [255, 255, 255, 255],
+                getRadius: 12,
+                radiusUnits: 'pixels' as const,
+                filled: true,
+                stroked: true,
+                lineWidthMinPixels: 2,
+                pickable: false,
+              })
+            );
+          }
+        } else if (geometryType === 'Point') {
+          const coords = (selection.feature.geometry as Point).coordinates;
+          const elevation = explodedView.enabled ? baseZOffset + 25 + selectionElevationOffset : 15 + selectionElevationOffset;
+
+          // Larger highlighted sphere
+          layers.push(
+            new SimpleMeshLayer({
+              id: `selected-point-${selection.id}`,
+              data: [{ position: [...coords, elevation] }],
+              mesh: getSphereMesh(),
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              getPosition: (d: any) => d.position,
+              getColor: selection.color,
+              getScale: [22, 22, 22],
+              pickable: false,
+            })
+          );
+
+          // Add ring around the point for extra visibility
+          layers.push(
+            new ScatterplotLayer({
+              id: `selected-point-ring-${selection.id}`,
+              data: [{ position: coords }],
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              getPosition: (d: any) => d.position,
+              getFillColor: [0, 0, 0, 0],
+              getLineColor: selection.color,
+              getRadius: 20,
+              radiusUnits: 'pixels' as const,
+              filled: false,
+              stroked: true,
+              lineWidthMinPixels: 4,
+              pickable: false,
+            })
+          );
+        }
+      });
+    }
+
     return layers;
-  }, [layerRenderInfo, selectionPolygon, hoveredLayerId, isolatedLayerId, explodedView, isDrawing, drawingPoints, editableVertices, draggingVertexIndex, hoveredVertexIndex]);
+  }, [layerRenderInfo, selectionPolygon, hoveredLayerId, isolatedLayerId, explodedView, isDrawing, drawingPoints, editableVertices, draggingVertexIndex, hoveredVertexIndex, selectedFeatures]);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const onViewStateChange = useCallback(
@@ -463,6 +673,7 @@ export function MapView() {
         controller={controller}
         layers={deckLayers}
         onHover={onHover}
+        onClick={onClick}
         onDragStart={onDragStart}
         onDrag={onDrag}
         onDragEnd={onDragEnd}
@@ -763,4 +974,182 @@ function createVerticalConnectors(
     widthUnits: 'pixels' as const,
     pickable: false,
   });
+}
+
+// Helper to get building height from properties
+function getBuildingHeight(props: Record<string, unknown>): number {
+  // Try to get actual height
+  if (props.height) {
+    const h = parseFloat(props.height as string);
+    if (!isNaN(h)) return h;
+  }
+  // Estimate from building levels (average 3.5m per level)
+  if (props['building:levels'] || props.levels) {
+    const levels = parseInt((props['building:levels'] || props.levels) as string);
+    if (!isNaN(levels)) return levels * 3.5;
+  }
+  // Default height based on building type
+  const buildingType = props.building as string;
+  if (buildingType === 'yes' || !buildingType) return 8;
+  if (['apartments', 'residential', 'house'].includes(buildingType)) return 12;
+  if (['commercial', 'office', 'retail'].includes(buildingType)) return 20;
+  if (['industrial', 'warehouse'].includes(buildingType)) return 15;
+  return 8;
+}
+
+// Minimum floating height for buildings when in exploded view
+const BUILDING_FLOAT_HEIGHT = 80; // meters above ground
+
+// Specialized layer for buildings - floating in exploded view
+function createBuildingLayer(
+  config: LayerConfig,
+  features: FeatureCollection,
+  zOffset: number,
+  opacity: number,
+  isHovered: boolean,
+  isExploded: boolean
+): Layer[] {
+  const { style } = config;
+  const fillColor = [...style.fillColor] as [number, number, number, number];
+  fillColor[3] = Math.floor(fillColor[3] * opacity);
+
+  if (isExploded) {
+    // Floating buildings - render as flat polygons at elevation (no ground extrusion)
+    const buildingData = features.features
+      .filter((f) => f.geometry.type === 'Polygon')
+      .map((f, index) => {
+        const coords = (f.geometry as Polygon).coordinates[0];
+        const height = getBuildingHeight(f.properties || {});
+        // Ensure minimum floating height + zOffset + small per-building offset to prevent z-fighting
+        const baseElevation = Math.max(BUILDING_FLOAT_HEIGHT, zOffset) + (index % 10) * 0.5;
+        return {
+          polygon: coords.map((c) => [c[0], c[1], baseElevation]),
+          height: height * 0.4, // Thinner floating blocks
+          properties: f.properties,
+          id: f.id || index,
+        };
+      });
+
+    return [
+      new PolygonLayer({
+        id: `${config.id}-floating`,
+        data: buildingData,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        getPolygon: (d: any) => d.polygon,
+        getFillColor: fillColor,
+        getLineColor: isHovered ? [255, 255, 255, 255] : style.strokeColor,
+        getLineWidth: isHovered ? 2 : 1,
+        lineWidthUnits: 'pixels' as const,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        getElevation: (d: any) => d.height,
+        extruded: true,
+        pickable: true,
+        autoHighlight: true,
+        highlightColor: [255, 255, 100, 100],
+      }),
+    ];
+  }
+
+  // Non-exploded: traditional ground-based extrusion
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return [new GeoJsonLayer<any>({
+    id: `${config.id}-elevated`,
+    data: features,
+    filled: true,
+    stroked: true,
+    getFillColor: fillColor,
+    getLineColor: isHovered ? [255, 255, 255, 255] : style.strokeColor,
+    getLineWidth: isHovered ? style.strokeWidth * 2 : style.strokeWidth,
+    lineWidthUnits: 'pixels',
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    getElevation: (f: any) => getBuildingHeight(f.properties || {}),
+    extruded: true,
+    pickable: true,
+    autoHighlight: true,
+    highlightColor: [255, 255, 100, 100],
+  })];
+}
+
+// Helper to get parking height from properties
+function getParkingHeight(props: Record<string, unknown>): number {
+  // Multi-story parking
+  if (props.parking === 'multi-storey' || props.building === 'parking') {
+    const levels = parseInt((props['building:levels'] || props.levels || '3') as string);
+    return levels * 3;
+  }
+  // Surface parking - flat
+  return 3;
+}
+
+// Minimum floating height for parking when in exploded view
+const PARKING_FLOAT_HEIGHT = 200; // meters above ground (higher than buildings)
+
+// Specialized layer for parking - floating in exploded view
+function createParkingLayer(
+  config: LayerConfig,
+  features: FeatureCollection,
+  zOffset: number,
+  opacity: number,
+  isHovered: boolean,
+  isExploded: boolean
+): Layer[] {
+  const { style } = config;
+  const fillColor = [...style.fillColor] as [number, number, number, number];
+  fillColor[3] = Math.floor(fillColor[3] * opacity);
+
+  if (isExploded) {
+    // Floating parking platforms
+    const parkingData = features.features
+      .filter((f) => f.geometry.type === 'Polygon')
+      .map((f, index) => {
+        const coords = (f.geometry as Polygon).coordinates[0];
+        const height = getParkingHeight(f.properties || {});
+        // Ensure minimum floating height + zOffset + small per-parking offset
+        const baseElevation = Math.max(PARKING_FLOAT_HEIGHT, zOffset) + (index % 10) * 0.3;
+        return {
+          polygon: coords.map((c) => [c[0], c[1], baseElevation]),
+          height: height * 0.5, // Thin floating platforms
+          properties: f.properties,
+          id: f.id || index,
+        };
+      });
+
+    return [
+      new PolygonLayer({
+        id: `${config.id}-floating`,
+        data: parkingData,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        getPolygon: (d: any) => d.polygon,
+        getFillColor: isHovered ? [100, 149, 237, 200] : fillColor,
+        getLineColor: isHovered ? [255, 255, 255, 255] : [255, 255, 255, 180],
+        getLineWidth: isHovered ? 3 : 2,
+        lineWidthUnits: 'pixels' as const,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        getElevation: (d: any) => d.height,
+        extruded: true,
+        pickable: true,
+        autoHighlight: true,
+        highlightColor: [255, 255, 100, 100],
+      }),
+    ];
+  }
+
+  // Non-exploded: traditional ground-based extrusion
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return [new GeoJsonLayer<any>({
+    id: `${config.id}-elevated`,
+    data: features,
+    filled: true,
+    stroked: true,
+    getFillColor: isHovered ? [100, 149, 237, 200] : fillColor,
+    getLineColor: isHovered ? [255, 255, 255, 255] : [255, 255, 255, 180],
+    getLineWidth: isHovered ? 3 : 2,
+    lineWidthUnits: 'pixels',
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    getElevation: (f: any) => getParkingHeight(f.properties || {}),
+    extruded: true,
+    pickable: true,
+    autoHighlight: true,
+    highlightColor: [255, 255, 100, 100],
+  })];
 }
