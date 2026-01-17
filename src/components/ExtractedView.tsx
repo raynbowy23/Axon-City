@@ -1,19 +1,14 @@
-import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import Map from 'react-map-gl/maplibre';
+import { useState, useMemo, useCallback, useEffect, useRef, memo } from 'react';
 import DeckGL from '@deck.gl/react';
 import { GeoJsonLayer, PathLayer, PolygonLayer } from '@deck.gl/layers';
 import { SimpleMeshLayer } from '@deck.gl/mesh-layers';
 import { SphereGeometry } from '@luma.gl/engine';
 import type { Layer } from '@deck.gl/core';
 import type { FeatureCollection, Polygon, MultiPolygon, LineString, Point } from 'geojson';
-import 'maplibre-gl/dist/maplibre-gl.css';
 
 import { useStore } from '../store/useStore';
 import { getLayersByCustomOrder, layerManifest } from '../data/layerManifest';
-import type { LayerConfig, LayerGroup, ViewState } from '../types';
-
-// Map style
-const MAP_STYLE = 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json';
+import type { LayerConfig, LayerGroup, LayerData, LayerOrderConfig, ViewState } from '../types';
 
 // Size constraints
 const MIN_WIDTH = 400;
@@ -55,175 +50,49 @@ function saveSize(size: PanelSize): void {
   }
 }
 
-// Sphere mesh for points
-let sphereMesh: SphereGeometry | null = null;
-function getSphereMesh(): SphereGeometry {
-  if (!sphereMesh) {
-    sphereMesh = new SphereGeometry({ radius: 1, nlat: 16, nlong: 16 });
-  }
-  return sphereMesh;
+// Create sphere mesh fresh each time (don't cache to avoid WebGL context issues)
+function createSphereMesh(): SphereGeometry {
+  return new SphereGeometry({ radius: 1, nlat: 16, nlong: 16 });
 }
 
-export function ExtractedView() {
-  const {
-    layerData,
-    activeLayers,
-    selectionPolygon,
-    isExtractedViewOpen,
-    setExtractedViewOpen,
-    layerOrder,
-  } = useStore();
+// Isolated DeckGL component that fully mounts/unmounts
+interface DeckGLViewProps {
+  viewState: ViewState;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  onViewStateChange: (params: any) => void;
+  selectionPolygon: { geometry: Polygon | MultiPolygon };
+  layerData: Map<string, LayerData>;
+  activeLayers: string[];
+  layerOrder: LayerOrderConfig;
+  layerSpacing: number;
+}
 
-  // Panel size and position
-  const [size, setSize] = useState<PanelSize>(loadSavedSize);
-  const [position, setPosition] = useState({ x: 100, y: 100 });
-  const [isResizing, setIsResizing] = useState(false);
-  const [isDragging, setIsDragging] = useState(false);
-  const [resizeDirection, setResizeDirection] = useState<'right' | 'bottom' | 'corner' | null>(null);
+const DeckGLView = memo(function DeckGLView({
+  viewState,
+  onViewStateChange,
+  selectionPolygon,
+  layerData,
+  activeLayers,
+  layerOrder,
+  layerSpacing,
+}: DeckGLViewProps) {
+  const [isReady, setIsReady] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const panelRef = useRef<HTMLDivElement>(null);
-  const startRef = useRef({ x: 0, y: 0, width: 0, height: 0, posX: 0, posY: 0 });
+  // Handle WebGL initialization
+  const handleWebGLInitialized = useCallback(() => {
+    setIsReady(true);
+    setError(null);
+  }, []);
 
-  // Calculate bounds and zoom limits from selection
-  const viewBounds = useMemo(() => {
-    if (!selectionPolygon) return null;
-    return getBoundsFromPolygon(selectionPolygon.geometry);
-  }, [selectionPolygon]);
-
-  const { center, minZoom, maxZoom } = useMemo(() => {
-    if (!selectionPolygon || !viewBounds) {
-      return { center: [0, 0] as [number, number], minZoom: 14, maxZoom: 20 };
-    }
-    const centerPoint = getCentroid(selectionPolygon.geometry);
-    // Calculate appropriate zoom based on selection size
-    const { minLon, maxLon, minLat, maxLat } = viewBounds;
-    const lonSpan = maxLon - minLon;
-    const latSpan = maxLat - minLat;
-    const maxSpan = Math.max(lonSpan, latSpan);
-
-    // Approximate zoom level calculation
-    // At zoom 0, the world is ~360 degrees wide
-    // Each zoom level halves the span
-    const calculatedZoom = Math.floor(Math.log2(360 / maxSpan)) - 1;
-    const idealZoom = Math.max(12, Math.min(18, calculatedZoom));
-
-    return {
-      center: centerPoint,
-      minZoom: Math.max(idealZoom - 2, 12),
-      maxZoom: Math.min(idealZoom + 3, 20),
-    };
-  }, [selectionPolygon, viewBounds]);
-
-  // Local view state for extracted view (always exploded)
-  const [localViewState, setLocalViewState] = useState<ViewState>({
-    longitude: center[0],
-    latitude: center[1],
-    zoom: 16,
-    pitch: 60,
-    bearing: -30,
-    maxPitch: 89,
-    minPitch: 0,
-  });
-
-  // Exploded view config (always on)
-  const [layerSpacing, setLayerSpacing] = useState(80);
-
-  // Update view center and zoom when selection changes
-  useEffect(() => {
-    if (selectionPolygon && isExtractedViewOpen && viewBounds) {
-      const [lon, lat] = center;
-      const idealZoom = Math.floor((minZoom + maxZoom) / 2);
-      setLocalViewState((prev) => ({
-        ...prev,
-        longitude: lon,
-        latitude: lat,
-        zoom: Math.max(prev.zoom, idealZoom),
-      }));
-    }
-  }, [selectionPolygon, isExtractedViewOpen, viewBounds, center, minZoom, maxZoom]);
-
-  // Handle mouse move during resize/drag
-  const handleMouseMove = useCallback((e: MouseEvent) => {
-    if (isResizing && resizeDirection) {
-      const deltaX = e.clientX - startRef.current.x;
-      const deltaY = e.clientY - startRef.current.y;
-
-      let newWidth = startRef.current.width;
-      let newHeight = startRef.current.height;
-
-      if (resizeDirection === 'right' || resizeDirection === 'corner') {
-        newWidth = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, startRef.current.width + deltaX));
-      }
-      if (resizeDirection === 'bottom' || resizeDirection === 'corner') {
-        newHeight = Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, startRef.current.height + deltaY));
-      }
-
-      setSize({ width: newWidth, height: newHeight });
-    } else if (isDragging) {
-      const deltaX = e.clientX - startRef.current.x;
-      const deltaY = e.clientY - startRef.current.y;
-
-      setPosition({
-        x: Math.max(0, startRef.current.posX + deltaX),
-        y: Math.max(0, startRef.current.posY + deltaY),
-      });
-    }
-  }, [isResizing, isDragging, resizeDirection]);
-
-  // Handle mouse up
-  const handleMouseUp = useCallback(() => {
-    if (isResizing) {
-      setIsResizing(false);
-      setResizeDirection(null);
-      saveSize(size);
-    }
-    if (isDragging) {
-      setIsDragging(false);
-    }
-  }, [isResizing, isDragging, size]);
-
-  // Add/remove global mouse listeners
-  useEffect(() => {
-    if (isResizing || isDragging) {
-      document.addEventListener('mousemove', handleMouseMove);
-      document.addEventListener('mouseup', handleMouseUp);
-      document.body.style.userSelect = 'none';
-      if (isResizing) {
-        document.body.style.cursor = resizeDirection === 'corner' ? 'nwse-resize' : resizeDirection === 'right' ? 'ew-resize' : 'ns-resize';
-      } else {
-        document.body.style.cursor = 'move';
-      }
-    }
-
-    return () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-    };
-  }, [isResizing, isDragging, handleMouseMove, handleMouseUp, resizeDirection]);
-
-  // Start resize
-  const startResize = useCallback((e: React.MouseEvent, direction: 'right' | 'bottom' | 'corner') => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsResizing(true);
-    setResizeDirection(direction);
-    startRef.current = { x: e.clientX, y: e.clientY, width: size.width, height: size.height, posX: position.x, posY: position.y };
-  }, [size, position]);
-
-  // Start drag
-  const startDrag = useCallback((e: React.MouseEvent) => {
-    if ((e.target as HTMLElement).closest('button, input, .deck-canvas')) return;
-    e.preventDefault();
-    setIsDragging(true);
-    startRef.current = { x: e.clientX, y: e.clientY, width: size.width, height: size.height, posX: position.x, posY: position.y };
-  }, [size, position]);
+  // Handle errors
+  const handleError = useCallback((err: Error) => {
+    console.error('DeckGL Error:', err);
+    setError(err.message);
+  }, []);
 
   // Build layers for the extracted view
   const extractedLayers = useMemo((): Layer[] => {
-    if (!selectionPolygon) return [];
-
     const layers: Layer[] = [];
     const sortedLayers = getLayersByCustomOrder(layerOrder);
     const activeLayerConfigs = sortedLayers.filter((layer) => activeLayers.includes(layer.id));
@@ -307,6 +176,245 @@ export function ExtractedView() {
     return layers;
   }, [selectionPolygon, layerData, activeLayers, layerOrder, layerSpacing]);
 
+  if (error) {
+    return (
+      <div style={{
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        width: '100%',
+        height: '100%',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: '#1a1a2e',
+        color: 'rgba(255,100,100,0.9)',
+        fontSize: '12px',
+        padding: '20px',
+        textAlign: 'center',
+      }}>
+        WebGL Error: {error}
+      </div>
+    );
+  }
+
+  return (
+    <>
+      {!isReady && (
+        <div style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          width: '100%',
+          height: '100%',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: '#1a1a2e',
+          color: 'rgba(255,255,255,0.6)',
+          fontSize: '12px',
+          zIndex: 1,
+        }}>
+          Initializing 3D view...
+        </div>
+      )}
+      <DeckGL
+        viewState={viewState}
+        onViewStateChange={onViewStateChange}
+        onWebGLInitialized={handleWebGLInitialized}
+        onError={handleError}
+        controller={{ dragRotate: true, touchRotate: true, keyboard: true }}
+        layers={extractedLayers}
+        style={{ position: 'absolute', top: '0', left: '0', width: '100%', height: '100%' }}
+      />
+    </>
+  );
+});
+
+export function ExtractedView() {
+  const {
+    layerData,
+    activeLayers,
+    selectionPolygon,
+    isExtractedViewOpen,
+    setExtractedViewOpen,
+    layerOrder,
+  } = useStore();
+
+  // Panel size and position
+  const [size, setSize] = useState<PanelSize>(loadSavedSize);
+  const [position, setPosition] = useState({ x: 100, y: 100 });
+  const [isResizing, setIsResizing] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const [resizeDirection, setResizeDirection] = useState<'right' | 'bottom' | 'corner' | null>(null);
+
+  // Track how many times the view has been opened (used as key to force fresh DeckGL)
+  const [openCount, setOpenCount] = useState(0);
+  const wasOpenRef = useRef(false);
+
+  const panelRef = useRef<HTMLDivElement>(null);
+  const startRef = useRef({ x: 0, y: 0, width: 0, height: 0, posX: 0, posY: 0 });
+
+  // Increment openCount when transitioning from closed to open
+  useEffect(() => {
+    if (isExtractedViewOpen && !wasOpenRef.current) {
+      setOpenCount((c) => c + 1);
+    }
+    wasOpenRef.current = isExtractedViewOpen;
+  }, [isExtractedViewOpen]);
+
+  // Calculate bounds and zoom limits from selection
+  const viewBounds = useMemo(() => {
+    if (!selectionPolygon) return null;
+    return getBoundsFromPolygon(selectionPolygon.geometry);
+  }, [selectionPolygon]);
+
+  const { center, minZoom, maxZoom } = useMemo(() => {
+    if (!selectionPolygon || !viewBounds) {
+      return { center: [0, 0] as [number, number], minZoom: 14, maxZoom: 20 };
+    }
+    const centerPoint = getCentroid(selectionPolygon.geometry);
+    // Calculate appropriate zoom based on selection size
+    const { minLon, maxLon, minLat, maxLat } = viewBounds;
+    const lonSpan = maxLon - minLon;
+    const latSpan = maxLat - minLat;
+    const maxSpan = Math.max(lonSpan, latSpan);
+
+    // Approximate zoom level calculation
+    // At zoom 0, the world is ~360 degrees wide
+    // Each zoom level halves the span
+    const calculatedZoom = Math.floor(Math.log2(360 / maxSpan)) - 1;
+    const idealZoom = Math.max(12, Math.min(18, calculatedZoom));
+
+    return {
+      center: centerPoint,
+      minZoom: Math.max(idealZoom - 2, 12),
+      maxZoom: Math.min(idealZoom + 3, 20),
+    };
+  }, [selectionPolygon, viewBounds]);
+
+  // Local view state for extracted view (always exploded)
+  const [localViewState, setLocalViewState] = useState<ViewState>({
+    longitude: center[0],
+    latitude: center[1],
+    zoom: 16,
+    pitch: 60,
+    bearing: -30,
+    maxPitch: 89,
+    minPitch: 0,
+  });
+
+  // Exploded view config (always on)
+  const [layerSpacing, setLayerSpacing] = useState(80);
+
+  // Reset view state when extracted view is opened
+  useEffect(() => {
+    if (isExtractedViewOpen && selectionPolygon && viewBounds) {
+      const [lon, lat] = center;
+      const idealZoom = Math.floor((minZoom + maxZoom) / 2);
+      // Fully reset view state when opening
+      setLocalViewState({
+        longitude: lon,
+        latitude: lat,
+        zoom: idealZoom,
+        pitch: 60,
+        bearing: -30,
+        maxPitch: 89,
+        minPitch: 0,
+      });
+    }
+  }, [isExtractedViewOpen]); // Only trigger on open/close
+
+  // Update view center when selection polygon changes (while view is open)
+  useEffect(() => {
+    if (selectionPolygon && isExtractedViewOpen && viewBounds) {
+      const [lon, lat] = center;
+      setLocalViewState((prev) => ({
+        ...prev,
+        longitude: lon,
+        latitude: lat,
+      }));
+    }
+  }, [selectionPolygon, viewBounds, center]);
+
+  // Handle mouse move during resize/drag
+  const handleMouseMove = useCallback((e: MouseEvent) => {
+    if (isResizing && resizeDirection) {
+      const deltaX = e.clientX - startRef.current.x;
+      const deltaY = e.clientY - startRef.current.y;
+
+      let newWidth = startRef.current.width;
+      let newHeight = startRef.current.height;
+
+      if (resizeDirection === 'right' || resizeDirection === 'corner') {
+        newWidth = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, startRef.current.width + deltaX));
+      }
+      if (resizeDirection === 'bottom' || resizeDirection === 'corner') {
+        newHeight = Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, startRef.current.height + deltaY));
+      }
+
+      setSize({ width: newWidth, height: newHeight });
+    } else if (isDragging) {
+      const deltaX = e.clientX - startRef.current.x;
+      const deltaY = e.clientY - startRef.current.y;
+
+      setPosition({
+        x: Math.max(0, startRef.current.posX + deltaX),
+        y: Math.max(0, startRef.current.posY + deltaY),
+      });
+    }
+  }, [isResizing, isDragging, resizeDirection]);
+
+  // Handle mouse up
+  const handleMouseUp = useCallback(() => {
+    if (isResizing) {
+      setIsResizing(false);
+      setResizeDirection(null);
+      saveSize(size);
+    }
+    if (isDragging) {
+      setIsDragging(false);
+    }
+  }, [isResizing, isDragging, size]);
+
+  // Add/remove global mouse listeners
+  useEffect(() => {
+    if (isResizing || isDragging) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      document.body.style.userSelect = 'none';
+      if (isResizing) {
+        document.body.style.cursor = resizeDirection === 'corner' ? 'nwse-resize' : resizeDirection === 'right' ? 'ew-resize' : 'ns-resize';
+      } else {
+        document.body.style.cursor = 'move';
+      }
+    }
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, [isResizing, isDragging, handleMouseMove, handleMouseUp, resizeDirection]);
+
+  // Start resize
+  const startResize = useCallback((e: React.MouseEvent, direction: 'right' | 'bottom' | 'corner') => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsResizing(true);
+    setResizeDirection(direction);
+    startRef.current = { x: e.clientX, y: e.clientY, width: size.width, height: size.height, posX: position.x, posY: position.y };
+  }, [size, position]);
+
+  // Start drag
+  const startDrag = useCallback((e: React.MouseEvent) => {
+    if ((e.target as HTMLElement).closest('button, input, .deck-canvas')) return;
+    e.preventDefault();
+    setIsDragging(true);
+    startRef.current = { x: e.clientX, y: e.clientY, width: size.width, height: size.height, posX: position.x, posY: position.y };
+  }, [size, position]);
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const handleViewStateChange = useCallback((params: any) => {
     const vs = params.viewState;
@@ -330,6 +438,7 @@ export function ExtractedView() {
     }
   }, [viewBounds, minZoom, maxZoom]);
 
+  // Don't render anything if closed or no selection
   if (!isExtractedViewOpen || !selectionPolygon) return null;
 
   return (
@@ -471,16 +580,17 @@ export function ExtractedView() {
       </div>
 
       {/* 3D View */}
-      <div style={{ flex: 1, position: 'relative' }}>
-        <DeckGL
+      <div style={{ flex: 1, position: 'relative', backgroundColor: '#1a1a2e' }}>
+        <DeckGLView
+          key={`deck-${openCount}`}
           viewState={localViewState}
           onViewStateChange={handleViewStateChange}
-          controller={{ dragRotate: true, touchRotate: true, keyboard: true }}
-          layers={extractedLayers}
-          style={{ position: 'absolute', top: '0', left: '0', width: '100%', height: '100%' }}
-        >
-          <Map mapStyle={MAP_STYLE} maxPitch={89} minPitch={0} />
-        </DeckGL>
+          selectionPolygon={selectionPolygon}
+          layerData={layerData}
+          activeLayers={activeLayers}
+          layerOrder={layerOrder}
+          layerSpacing={layerSpacing}
+        />
       </div>
 
       {/* Resize handles */}
@@ -705,7 +815,7 @@ function createExtractedPointLayer(config: LayerConfig, features: FeatureCollect
   return new SimpleMeshLayer({
     id: `extracted-${config.id}`,
     data: pointData,
-    mesh: getSphereMesh(),
+    mesh: createSphereMesh(),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     getPosition: (d: any) => d.position,
     getColor: fillColor,

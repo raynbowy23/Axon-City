@@ -20,7 +20,6 @@ import './App.css';
 function App() {
   const containerRef = useRef<HTMLDivElement>(null);
   const lastFetchedPolygonRef = useRef<string | null>(null);
-  const isEditingRef = useRef(false);
   const mouseDownPosRef = useRef<{ x: number; y: number } | null>(null);
 
   const {

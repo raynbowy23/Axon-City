@@ -9,7 +9,6 @@ export function usePolygonDrawing() {
     setSelectionPolygon,
     setIsDrawing,
     viewState,
-    drawingPoints: storeDrawingPoints,
     setDrawingPoints: setStoreDrawingPoints,
   } = useStore();
   const [drawingPoints, setDrawingPoints] = useState<[number, number][]>([]);
