@@ -1,14 +1,19 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import Map from 'react-map-gl/maplibre';
 import DeckGL from '@deck.gl/react';
 import { GeoJsonLayer, PathLayer, PolygonLayer } from '@deck.gl/layers';
 import { SimpleMeshLayer } from '@deck.gl/mesh-layers';
 import { SphereGeometry } from '@luma.gl/engine';
 import type { Layer } from '@deck.gl/core';
 import type { FeatureCollection, Polygon, MultiPolygon, LineString, Point } from 'geojson';
+import 'maplibre-gl/dist/maplibre-gl.css';
 
 import { useStore } from '../store/useStore';
 import { getLayersByCustomOrder, layerManifest } from '../data/layerManifest';
 import type { LayerConfig, LayerGroup, ViewState } from '../types';
+
+// Map style
+const MAP_STYLE = 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json';
 
 // Size constraints
 const MIN_WIDTH = 400;
@@ -79,10 +84,40 @@ export function ExtractedView() {
   const panelRef = useRef<HTMLDivElement>(null);
   const startRef = useRef({ x: 0, y: 0, width: 0, height: 0, posX: 0, posY: 0 });
 
+  // Calculate bounds and zoom limits from selection
+  const viewBounds = useMemo(() => {
+    if (!selectionPolygon) return null;
+    return getBoundsFromPolygon(selectionPolygon.geometry);
+  }, [selectionPolygon]);
+
+  const { center, minZoom, maxZoom } = useMemo(() => {
+    if (!selectionPolygon || !viewBounds) {
+      return { center: [0, 0] as [number, number], minZoom: 14, maxZoom: 20 };
+    }
+    const centerPoint = getCentroid(selectionPolygon.geometry);
+    // Calculate appropriate zoom based on selection size
+    const { minLon, maxLon, minLat, maxLat } = viewBounds;
+    const lonSpan = maxLon - minLon;
+    const latSpan = maxLat - minLat;
+    const maxSpan = Math.max(lonSpan, latSpan);
+
+    // Approximate zoom level calculation
+    // At zoom 0, the world is ~360 degrees wide
+    // Each zoom level halves the span
+    const calculatedZoom = Math.floor(Math.log2(360 / maxSpan)) - 1;
+    const idealZoom = Math.max(12, Math.min(18, calculatedZoom));
+
+    return {
+      center: centerPoint,
+      minZoom: Math.max(idealZoom - 2, 12),
+      maxZoom: Math.min(idealZoom + 3, 20),
+    };
+  }, [selectionPolygon, viewBounds]);
+
   // Local view state for extracted view (always exploded)
   const [localViewState, setLocalViewState] = useState<ViewState>({
-    longitude: selectionPolygon ? getCentroid(selectionPolygon.geometry)[0] : 0,
-    latitude: selectionPolygon ? getCentroid(selectionPolygon.geometry)[1] : 0,
+    longitude: center[0],
+    latitude: center[1],
     zoom: 16,
     pitch: 60,
     bearing: -30,
@@ -93,17 +128,19 @@ export function ExtractedView() {
   // Exploded view config (always on)
   const [layerSpacing, setLayerSpacing] = useState(80);
 
-  // Update view center when selection changes
+  // Update view center and zoom when selection changes
   useEffect(() => {
-    if (selectionPolygon && isExtractedViewOpen) {
-      const [lon, lat] = getCentroid(selectionPolygon.geometry);
+    if (selectionPolygon && isExtractedViewOpen && viewBounds) {
+      const [lon, lat] = center;
+      const idealZoom = Math.floor((minZoom + maxZoom) / 2);
       setLocalViewState((prev) => ({
         ...prev,
         longitude: lon,
         latitude: lat,
+        zoom: Math.max(prev.zoom, idealZoom),
       }));
     }
-  }, [selectionPolygon, isExtractedViewOpen]);
+  }, [selectionPolygon, isExtractedViewOpen, viewBounds, center, minZoom, maxZoom]);
 
   // Handle mouse move during resize/drag
   const handleMouseMove = useCallback((e: MouseEvent) => {
@@ -273,18 +310,25 @@ export function ExtractedView() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const handleViewStateChange = useCallback((params: any) => {
     const vs = params.viewState;
-    if (vs) {
+    if (vs && viewBounds) {
+      // Clamp longitude and latitude within selection bounds (with small padding)
+      const padding = 0.001; // Small padding to allow slight movement
+      const clampedLon = Math.max(viewBounds.minLon - padding, Math.min(viewBounds.maxLon + padding, vs.longitude));
+      const clampedLat = Math.max(viewBounds.minLat - padding, Math.min(viewBounds.maxLat + padding, vs.latitude));
+      // Clamp zoom within allowed range
+      const clampedZoom = Math.max(minZoom, Math.min(maxZoom, vs.zoom));
+
       setLocalViewState({
-        longitude: vs.longitude,
-        latitude: vs.latitude,
-        zoom: vs.zoom,
+        longitude: clampedLon,
+        latitude: clampedLat,
+        zoom: clampedZoom,
         pitch: vs.pitch || 0,
         bearing: vs.bearing || 0,
         maxPitch: 89,
         minPitch: 0,
       });
     }
-  }, []);
+  }, [viewBounds, minZoom, maxZoom]);
 
   if (!isExtractedViewOpen || !selectionPolygon) return null;
 
@@ -434,7 +478,9 @@ export function ExtractedView() {
           controller={{ dragRotate: true, touchRotate: true, keyboard: true }}
           layers={extractedLayers}
           style={{ position: 'absolute', top: '0', left: '0', width: '100%', height: '100%' }}
-        />
+        >
+          <Map mapStyle={MAP_STYLE} maxPitch={89} minPitch={0} />
+        </DeckGL>
       </div>
 
       {/* Resize handles */}
@@ -501,6 +547,25 @@ function getCentroid(polygon: Polygon | MultiPolygon): [number, number] {
   return [sumX / coords.length, sumY / coords.length];
 }
 
+// Helper to get bounds from polygon
+function getBoundsFromPolygon(polygon: Polygon | MultiPolygon): { minLon: number; maxLon: number; minLat: number; maxLat: number } {
+  const coords = polygon.type === 'MultiPolygon'
+    ? polygon.coordinates[0][0]
+    : polygon.coordinates[0];
+
+  let minLon = Infinity, maxLon = -Infinity;
+  let minLat = Infinity, maxLat = -Infinity;
+
+  for (const coord of coords) {
+    minLon = Math.min(minLon, coord[0]);
+    maxLon = Math.max(maxLon, coord[0]);
+    minLat = Math.min(minLat, coord[1]);
+    maxLat = Math.max(maxLat, coord[1]);
+  }
+
+  return { minLon, maxLon, minLat, maxLat };
+}
+
 // Helper to get coordinates for PolygonLayer
 function getPolygonCoordinates(polygon: Polygon | MultiPolygon): number[][][] {
   if (polygon.type === 'MultiPolygon') {
@@ -508,6 +573,10 @@ function getPolygonCoordinates(polygon: Polygon | MultiPolygon): number[][][] {
   }
   return polygon.coordinates;
 }
+
+// Park height constants (same as MapView)
+const PARK_FLOAT_HEIGHT = 40;
+const PARK_THICKNESS = 5;
 
 // Layer creation helpers
 function createExtractedPolygonLayer(config: LayerConfig, features: FeatureCollection, zOffset: number): Layer {
@@ -540,6 +609,35 @@ function createExtractedPolygonLayer(config: LayerConfig, features: FeatureColle
       lineWidthUnits: 'pixels',
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       getElevation: (d: any) => d.height,
+      extruded: true,
+      pickable: true,
+    });
+  }
+
+  if (config.id === 'parks') {
+    // Special handling for parks - floating with thickness (same as MapView)
+    const parkData = features.features
+      .filter((f) => f.geometry.type === 'Polygon')
+      .map((f, index) => {
+        const coords = (f.geometry as Polygon).coordinates[0];
+        const baseElevation = Math.max(PARK_FLOAT_HEIGHT, zOffset) + (index % 10) * 0.3;
+        return {
+          polygon: coords.map((c) => [c[0], c[1], baseElevation]),
+          properties: f.properties,
+          id: f.id || index,
+        };
+      });
+
+    return new PolygonLayer({
+      id: `extracted-${config.id}`,
+      data: parkData,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      getPolygon: (d: any) => d.polygon,
+      getFillColor: fillColor,
+      getLineColor: style.strokeColor,
+      getLineWidth: 2,
+      lineWidthUnits: 'pixels',
+      getElevation: PARK_THICKNESS,
       extruded: true,
       pickable: true,
     });
