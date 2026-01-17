@@ -3,6 +3,8 @@ import type { Polygon } from 'geojson';
 import { MapView } from './components/MapView';
 import { ControlPanel } from './components/ControlPanel';
 import { StatsPanel } from './components/StatsPanel';
+import { SearchBar } from './components/SearchBar';
+import { SelectionPanel } from './components/SelectionPanel';
 import { usePolygonDrawing } from './hooks/usePolygonDrawing';
 import { useStore } from './store/useStore';
 import { layerManifest } from './data/layerManifest';
@@ -16,6 +18,9 @@ import './App.css';
 
 function App() {
   const containerRef = useRef<HTMLDivElement>(null);
+  const lastFetchedPolygonRef = useRef<string | null>(null);
+  const isEditingRef = useRef(false);
+  const mouseDownPosRef = useRef<{ x: number; y: number } | null>(null);
 
   const {
     isDrawing,
@@ -26,6 +31,8 @@ function App() {
     activeLayers,
     selectionPolygon,
     setSelectionPolygon,
+    layerData,
+    draggingVertexIndex,
   } = useStore();
 
   const {
@@ -91,6 +98,9 @@ function App() {
         }
 
         setLoadingMessage('Complete!');
+
+        // Track that we've fetched data for this polygon
+        lastFetchedPolygonRef.current = JSON.stringify(polygon.coordinates);
       } catch (error) {
         console.error('Error fetching data:', error);
         setLoadingMessage('Error fetching data. Please try again.');
@@ -101,10 +111,60 @@ function App() {
     [activeLayers, clearLayerData, setIsLoading, setLayerData, setLoadingMessage]
   );
 
-  // Handle map clicks for drawing
+  // Re-fetch data when polygon is edited (dragged)
+  useEffect(() => {
+    // Only re-fetch if:
+    // 1. We have a selection polygon
+    // 2. We're not currently drawing
+    // 3. We've finished dragging (draggingVertexIndex is null)
+    // 4. The polygon has changed from what we last fetched
+    // 5. We have already loaded data (layerData is not empty)
+    if (
+      selectionPolygon &&
+      !isDrawing &&
+      draggingVertexIndex === null &&
+      layerData.size > 0
+    ) {
+      const currentPolygonStr = JSON.stringify(selectionPolygon.geometry.coordinates);
+
+      if (lastFetchedPolygonRef.current && lastFetchedPolygonRef.current !== currentPolygonStr) {
+        // Polygon was edited, re-fetch data
+        handlePolygonComplete(selectionPolygon.geometry as Polygon);
+      }
+    }
+  }, [selectionPolygon, isDrawing, draggingVertexIndex, layerData.size, handlePolygonComplete]);
+
+  // Track mouse down position to distinguish clicks from drags
+  const handleMouseDown = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      if (!isDrawing) return;
+      if (e.button !== 0) return; // Only track left-click
+      mouseDownPosRef.current = { x: e.clientX, y: e.clientY };
+    },
+    [isDrawing]
+  );
+
+  // Handle map clicks for drawing (left-click only, distinguish from drag)
   const handleContainerClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
       if (!isDrawing) return;
+
+      // Only add points on left-click (button 0)
+      if (e.button !== 0) return;
+
+      // Check if this was a drag (mouse moved more than 5 pixels)
+      if (mouseDownPosRef.current) {
+        const dx = e.clientX - mouseDownPosRef.current.x;
+        const dy = e.clientY - mouseDownPosRef.current.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+
+        // If mouse moved more than 5 pixels, it was a drag, not a click
+        if (distance > 5) {
+          mouseDownPosRef.current = null;
+          return;
+        }
+      }
+      mouseDownPosRef.current = null;
 
       // Don't capture clicks on UI elements
       if ((e.target as HTMLElement).closest('button, input, .control-panel, .stats-panel')) {
@@ -164,6 +224,7 @@ function App() {
         position: 'relative',
         overflow: 'hidden',
       }}
+      onMouseDown={handleMouseDown}
       onClick={handleContainerClick}
     >
       <MapView />
@@ -292,7 +353,7 @@ function App() {
         )}
       </div>
 
-      {/* Title */}
+      {/* Title and Search */}
       <div
         style={{
           position: 'absolute',
@@ -300,20 +361,31 @@ function App() {
           left: '50%',
           transform: 'translateX(-50%)',
           zIndex: 1000,
-          backgroundColor: 'rgba(0, 0, 0, 0.8)',
-          color: 'white',
-          padding: '8px 20px',
-          borderRadius: '20px',
-          fontSize: '16px',
-          fontWeight: '600',
-          letterSpacing: '1px',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          gap: '10px',
         }}
       >
-        AxonCity - Exploded Axonometric Map
+        <div
+          style={{
+            backgroundColor: 'rgba(0, 0, 0, 0.8)',
+            color: 'white',
+            padding: '8px 20px',
+            borderRadius: '20px',
+            fontSize: '16px',
+            fontWeight: '600',
+            letterSpacing: '1px',
+          }}
+        >
+          AxonCity - Exploded Axonometric Map
+        </div>
+        <SearchBar />
       </div>
 
       <ControlPanel />
       <StatsPanel />
+      <SelectionPanel />
 
       {/* Loading animation keyframes */}
       <style>

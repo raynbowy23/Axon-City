@@ -75,6 +75,8 @@ export interface ViewState {
   zoom: number;
   pitch: number;
   bearing: number;
+  maxPitch?: number;
+  minPitch?: number;
 }
 
 export interface ExplodedViewConfig {
@@ -82,6 +84,14 @@ export interface ExplodedViewConfig {
   layerSpacing: number; // vertical distance between layers in meters
   baseElevation: number;
   animationDuration: number;
+}
+
+// Selected feature with color for visual differentiation
+export interface SelectedFeature {
+  id: string | number;
+  feature: Feature;
+  layerId: string;
+  color: [number, number, number, number]; // Unique color for this selection
 }
 
 export interface AppState {
@@ -94,6 +104,16 @@ export interface AppState {
   setSelectionPolygon: (polygon: SelectionPolygon | null) => void;
   isDrawing: boolean;
   setIsDrawing: (isDrawing: boolean) => void;
+  drawingPoints: [number, number][];
+  setDrawingPoints: (points: [number, number][]) => void;
+  addDrawingPoint: (point: [number, number]) => void;
+
+  // Polygon editing
+  editableVertices: [number, number][];
+  setEditableVertices: (vertices: [number, number][]) => void;
+  updateVertex: (index: number, position: [number, number]) => void;
+  draggingVertexIndex: number | null;
+  setDraggingVertexIndex: (index: number | null) => void;
 
   // Layers
   layerData: Map<string, LayerData>;
@@ -114,6 +134,12 @@ export interface AppState {
   setHoveredLayerId: (layerId: string | null) => void;
   isolatedLayerId: string | null;
   setIsolatedLayerId: (layerId: string | null) => void;
+
+  // Feature selection (for comparing features within same layer)
+  selectedFeatures: SelectedFeature[];
+  addSelectedFeature: (feature: Feature, layerId: string) => void;
+  removeSelectedFeature: (id: string | number) => void;
+  clearSelectedFeatures: () => void;
 
   // Loading states
   isLoading: boolean;

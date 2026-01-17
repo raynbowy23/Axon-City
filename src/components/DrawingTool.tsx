@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import type { Polygon } from 'geojson';
 import { useStore } from '../store/useStore';
 import { calculatePolygonArea } from '../utils/geometryUtils';
@@ -8,8 +8,7 @@ interface DrawingToolProps {
 }
 
 export function DrawingTool({ onComplete }: DrawingToolProps) {
-  const { isDrawing, setIsDrawing, setSelectionPolygon, viewState } = useStore();
-  const [points, setPoints] = useState<[number, number][]>([]);
+  const { isDrawing, setIsDrawing, setSelectionPolygon, drawingPoints, setDrawingPoints } = useStore();
   const [previewPolygon, setPreviewPolygon] = useState<Polygon | null>(null);
 
   // Handle keyboard shortcuts
@@ -18,21 +17,21 @@ export function DrawingTool({ onComplete }: DrawingToolProps) {
       if (e.key === 'Escape') {
         cancelDrawing();
       }
-      if (e.key === 'Enter' && points.length >= 3) {
+      if (e.key === 'Enter' && drawingPoints.length >= 3) {
         completeDrawing();
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [points]);
+  }, [drawingPoints]);
 
-  // Update preview polygon when points change
+  // Update preview polygon when drawing points change (points are added by MapView via DeckGL onClick)
   useEffect(() => {
-    if (points.length >= 3) {
+    if (drawingPoints.length >= 3) {
       const polygon: Polygon = {
         type: 'Polygon',
-        coordinates: [[...points, points[0]]],
+        coordinates: [[...drawingPoints, drawingPoints[0]]],
       };
       setPreviewPolygon(polygon);
       setSelectionPolygon({
@@ -44,76 +43,37 @@ export function DrawingTool({ onComplete }: DrawingToolProps) {
       setPreviewPolygon(null);
       setSelectionPolygon(null);
     }
-  }, [points, setSelectionPolygon]);
-
-  const handleMapClick = useCallback(
-    (e: MouseEvent) => {
-      if (!isDrawing) return;
-
-      // Get click coordinates from the map container
-      const mapContainer = document.querySelector('.deck-canvas');
-      if (!mapContainer) return;
-
-      const rect = mapContainer.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const y = e.clientY - rect.top;
-
-      // Convert pixel coordinates to lng/lat using viewport
-      // This is a simplified conversion - in production you'd use deck.gl's viewport unproject
-      const { longitude, latitude, zoom } = viewState;
-      const scale = Math.pow(2, zoom);
-      const worldSize = 512 * scale;
-
-      const lng =
-        longitude +
-        ((x - rect.width / 2) / worldSize) * 360;
-      const lat =
-        latitude -
-        ((y - rect.height / 2) / worldSize) * 180;
-
-      setPoints((prev) => [...prev, [lng, lat]]);
-    },
-    [isDrawing, viewState]
-  );
-
-  useEffect(() => {
-    if (isDrawing) {
-      document.addEventListener('click', handleMapClick);
-    }
-    return () => {
-      document.removeEventListener('click', handleMapClick);
-    };
-  }, [isDrawing, handleMapClick]);
+  }, [drawingPoints, setSelectionPolygon]);
 
   const startDrawing = () => {
     setIsDrawing(true);
-    setPoints([]);
+    setDrawingPoints([]);
     setPreviewPolygon(null);
     setSelectionPolygon(null);
   };
 
   const cancelDrawing = () => {
     setIsDrawing(false);
-    setPoints([]);
+    setDrawingPoints([]);
     setPreviewPolygon(null);
     setSelectionPolygon(null);
   };
 
   const completeDrawing = () => {
-    if (points.length < 3) return;
+    if (drawingPoints.length < 3) return;
 
     const polygon: Polygon = {
       type: 'Polygon',
-      coordinates: [[...points, points[0]]],
+      coordinates: [[...drawingPoints, drawingPoints[0]]],
     };
 
     setIsDrawing(false);
-    setPoints([]);
+    setDrawingPoints([]);
     onComplete(polygon);
   };
 
   const undoLastPoint = () => {
-    setPoints((prev) => prev.slice(0, -1));
+    setDrawingPoints(drawingPoints.slice(0, -1));
   };
 
   return (
@@ -160,7 +120,7 @@ export function DrawingTool({ onComplete }: DrawingToolProps) {
             Drawing Mode
           </div>
           <div style={{ fontSize: '12px', opacity: 0.8, marginBottom: '12px' }}>
-            Click to add points ({points.length} added)
+            Click to add points ({drawingPoints.length} added)
             <br />
             Press Enter to complete
             <br />
@@ -184,14 +144,14 @@ export function DrawingTool({ onComplete }: DrawingToolProps) {
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             <button
               onClick={undoLastPoint}
-              disabled={points.length === 0}
+              disabled={drawingPoints.length === 0}
               style={{
                 padding: '8px 12px',
-                backgroundColor: points.length === 0 ? '#444' : '#666',
+                backgroundColor: drawingPoints.length === 0 ? '#444' : '#666',
                 color: 'white',
                 border: 'none',
                 borderRadius: '4px',
-                cursor: points.length === 0 ? 'not-allowed' : 'pointer',
+                cursor: drawingPoints.length === 0 ? 'not-allowed' : 'pointer',
                 fontSize: '12px',
               }}
             >
@@ -199,14 +159,14 @@ export function DrawingTool({ onComplete }: DrawingToolProps) {
             </button>
             <button
               onClick={completeDrawing}
-              disabled={points.length < 3}
+              disabled={drawingPoints.length < 3}
               style={{
                 padding: '8px 12px',
-                backgroundColor: points.length < 3 ? '#444' : '#4A90D9',
+                backgroundColor: drawingPoints.length < 3 ? '#444' : '#4A90D9',
                 color: 'white',
                 border: 'none',
                 borderRadius: '4px',
-                cursor: points.length < 3 ? 'not-allowed' : 'pointer',
+                cursor: drawingPoints.length < 3 ? 'not-allowed' : 'pointer',
                 fontSize: '12px',
               }}
             >

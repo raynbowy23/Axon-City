@@ -23,10 +23,12 @@ interface OverpassResponse {
 
 /**
  * Fetch OSM data for a specific layer within a bounding box
+ * Includes retry logic with exponential backoff for rate limiting
  */
 export async function fetchLayerData(
   layer: LayerConfig,
-  bbox: [number, number, number, number] // [minLon, minLat, maxLon, maxLat]
+  bbox: [number, number, number, number], // [minLon, minLat, maxLon, maxLat]
+  maxRetries: number = 3
 ): Promise<FeatureCollection> {
   const [minLon, minLat, maxLon, maxLat] = bbox;
   const bboxStr = `${minLat},${minLon},${maxLat},${maxLon}`;
@@ -34,25 +36,53 @@ export async function fetchLayerData(
   // Build Overpass query based on layer config
   const query = buildOverpassQuery(layer, bboxStr);
 
-  try {
-    const response = await fetch(OVERPASS_API, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: `data=${encodeURIComponent(query)}`,
-    });
+  let lastError: Error | null = null;
 
-    if (!response.ok) {
-      throw new Error(`Overpass API error: ${response.status}`);
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      const response = await fetch(OVERPASS_API, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: `data=${encodeURIComponent(query)}`,
+      });
+
+      if (response.status === 429) {
+        // Rate limited - wait with exponential backoff
+        const waitTime = Math.pow(2, attempt + 1) * 1000; // 2s, 4s, 8s
+        console.warn(`Rate limited for ${layer.id}, waiting ${waitTime}ms before retry...`);
+        await new Promise((resolve) => setTimeout(resolve, waitTime));
+        continue;
+      }
+
+      if (response.status === 504) {
+        // Gateway timeout - retry with backoff
+        const waitTime = Math.pow(2, attempt) * 1000; // 1s, 2s, 4s
+        console.warn(`Timeout for ${layer.id}, waiting ${waitTime}ms before retry...`);
+        await new Promise((resolve) => setTimeout(resolve, waitTime));
+        continue;
+      }
+
+      if (!response.ok) {
+        throw new Error(`Overpass API error: ${response.status}`);
+      }
+
+      const data: OverpassResponse = await response.json();
+      return convertToGeoJSON(data, layer);
+    } catch (error) {
+      lastError = error as Error;
+      console.error(`Attempt ${attempt + 1} failed for layer ${layer.id}:`, error);
+
+      if (attempt < maxRetries - 1) {
+        const waitTime = Math.pow(2, attempt) * 1000;
+        await new Promise((resolve) => setTimeout(resolve, waitTime));
+      }
     }
-
-    const data: OverpassResponse = await response.json();
-    return convertToGeoJSON(data, layer);
-  } catch (error) {
-    console.error(`Failed to fetch layer ${layer.id}:`, error);
-    return { type: 'FeatureCollection', features: [] };
   }
+
+  console.error(`Failed to fetch layer ${layer.id} after ${maxRetries} attempts:`, lastError);
+  return { type: 'FeatureCollection', features: [] };
 }
 
 /**
@@ -61,19 +91,17 @@ export async function fetchLayerData(
 function buildOverpassQuery(layer: LayerConfig, bboxStr: string): string {
   const { osmQuery, geometryType } = layer;
 
-  // Parse the osmQuery which can have multiple parts separated by |
-  const queryParts = osmQuery.split('|').map((part) => part.trim());
+  // Parse the osmQuery - split on | only when it's between queries (not inside quotes)
+  // Pattern: split on | that is followed by 'node', 'way', or 'relation'
+  const queryParts = splitQueryParts(osmQuery);
 
   let output = '[out:json][timeout:30];\n(\n';
 
   for (const part of queryParts) {
+    const trimmed = part.trim();
     // Handle different element types
-    if (part.startsWith('node')) {
-      output += `  ${part}(${bboxStr});\n`;
-    } else if (part.startsWith('way')) {
-      output += `  ${part}(${bboxStr});\n`;
-    } else if (part.startsWith('relation')) {
-      output += `  ${part}(${bboxStr});\n`;
+    if (trimmed.startsWith('node') || trimmed.startsWith('way') || trimmed.startsWith('relation')) {
+      output += `  ${trimmed}(${bboxStr});\n`;
     }
   }
 
@@ -87,6 +115,39 @@ function buildOverpassQuery(layer: LayerConfig, bboxStr: string): string {
   }
 
   return output;
+}
+
+/**
+ * Split query string on | but only between separate queries, not inside regex patterns
+ */
+function splitQueryParts(osmQuery: string): string[] {
+  const parts: string[] = [];
+  let current = '';
+  let inQuotes = false;
+
+  for (let i = 0; i < osmQuery.length; i++) {
+    const char = osmQuery[i];
+
+    if (char === '"') {
+      inQuotes = !inQuotes;
+      current += char;
+    } else if (char === '|' && !inQuotes) {
+      // Only split on | outside of quotes
+      if (current.trim()) {
+        parts.push(current.trim());
+      }
+      current = '';
+    } else {
+      current += char;
+    }
+  }
+
+  // Add the last part
+  if (current.trim()) {
+    parts.push(current.trim());
+  }
+
+  return parts;
 }
 
 /**
@@ -188,7 +249,7 @@ function elementToFeature(
 }
 
 /**
- * Fetch multiple layers in parallel
+ * Fetch multiple layers sequentially to avoid rate limiting
  */
 export async function fetchMultipleLayers(
   layers: LayerConfig[],
@@ -198,22 +259,17 @@ export async function fetchMultipleLayers(
   const results = new Map<string, FeatureCollection>();
   const total = layers.length;
 
-  // Fetch layers in batches to avoid overwhelming the API
-  const batchSize = 3;
-  for (let i = 0; i < layers.length; i += batchSize) {
-    const batch = layers.slice(i, i + batchSize);
-    const promises = batch.map(async (layer) => {
-      const data = await fetchLayerData(layer, bbox);
-      results.set(layer.id, data);
-      onProgress?.(layer.id, results.size, total);
-      return { layerId: layer.id, data };
-    });
+  // Fetch layers one at a time to avoid rate limiting
+  for (let i = 0; i < layers.length; i++) {
+    const layer = layers[i];
 
-    await Promise.all(promises);
+    const data = await fetchLayerData(layer, bbox);
+    results.set(layer.id, data);
+    onProgress?.(layer.id, results.size, total);
 
-    // Small delay between batches to be nice to the API
-    if (i + batchSize < layers.length) {
-      await new Promise((resolve) => setTimeout(resolve, 500));
+    // Delay between requests to respect API rate limits
+    if (i < layers.length - 1) {
+      await new Promise((resolve) => setTimeout(resolve, 1000)); // 1 second between requests
     }
   }
 

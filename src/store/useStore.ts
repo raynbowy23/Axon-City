@@ -1,5 +1,17 @@
 import { create } from 'zustand';
-import type { AppState, ViewState, LayerData, ExplodedViewConfig } from '../types';
+import type { AppState, ViewState, LayerData, ExplodedViewConfig, SelectedFeature, Feature } from '../types';
+
+// Distinct colors for selected features (colorblind-friendly palette)
+const SELECTION_COLORS: [number, number, number, number][] = [
+  [255, 99, 71, 255],   // Tomato red
+  [50, 205, 50, 255],   // Lime green
+  [255, 215, 0, 255],   // Gold
+  [138, 43, 226, 255],  // Blue violet
+  [0, 191, 255, 255],   // Deep sky blue
+  [255, 105, 180, 255], // Hot pink
+  [255, 165, 0, 255],   // Orange
+  [0, 255, 127, 255],   // Spring green
+];
 
 // Default view centered on Seattle (you can change this to any city)
 const defaultViewState: ViewState = {
@@ -8,11 +20,13 @@ const defaultViewState: ViewState = {
   zoom: 14,
   pitch: 45,
   bearing: 0,
+  maxPitch: 89,
+  minPitch: 0,
 };
 
 const defaultExplodedView: ExplodedViewConfig = {
   enabled: false,
-  layerSpacing: 50, // meters between layers
+  layerSpacing: 100, // meters between groups (increased for better separation)
   baseElevation: 0,
   animationDuration: 500,
 };
@@ -27,6 +41,20 @@ export const useStore = create<AppState>((set) => ({
   setSelectionPolygon: (polygon) => set({ selectionPolygon: polygon }),
   isDrawing: false,
   setIsDrawing: (isDrawing) => set({ isDrawing }),
+  drawingPoints: [],
+  setDrawingPoints: (points) => set({ drawingPoints: points }),
+  addDrawingPoint: (point) => set((state) => ({ drawingPoints: [...state.drawingPoints, point] })),
+
+  // Polygon editing
+  editableVertices: [],
+  setEditableVertices: (vertices) => set({ editableVertices: vertices }),
+  updateVertex: (index, position) => set((state) => {
+    const newVertices = [...state.editableVertices];
+    newVertices[index] = position;
+    return { editableVertices: newVertices };
+  }),
+  draggingVertexIndex: null,
+  setDraggingVertexIndex: (index) => set({ draggingVertexIndex: index }),
 
   // Layer data
   layerData: new Map<string, LayerData>(),
@@ -68,6 +96,43 @@ export const useStore = create<AppState>((set) => ({
   setHoveredLayerId: (layerId) => set({ hoveredLayerId: layerId }),
   isolatedLayerId: null,
   setIsolatedLayerId: (layerId) => set({ isolatedLayerId: layerId }),
+
+  // Feature selection
+  selectedFeatures: [],
+  addSelectedFeature: (feature: Feature, layerId: string) =>
+    set((state) => {
+      const featureId = feature.id ?? feature.properties?.id ?? `${layerId}-${Date.now()}`;
+
+      // Check if already selected - if so, remove it (toggle behavior)
+      const existingIndex = state.selectedFeatures.findIndex(
+        (sf) => sf.id === featureId && sf.layerId === layerId
+      );
+
+      if (existingIndex !== -1) {
+        // Remove the feature (deselect)
+        return {
+          selectedFeatures: state.selectedFeatures.filter((_, i) => i !== existingIndex),
+        };
+      }
+
+      // Add new selection with unique color
+      const colorIndex = state.selectedFeatures.length % SELECTION_COLORS.length;
+      const newSelection: SelectedFeature = {
+        id: featureId,
+        feature,
+        layerId,
+        color: SELECTION_COLORS[colorIndex],
+      };
+
+      return {
+        selectedFeatures: [...state.selectedFeatures, newSelection],
+      };
+    }),
+  removeSelectedFeature: (id: string | number) =>
+    set((state) => ({
+      selectedFeatures: state.selectedFeatures.filter((sf) => sf.id !== id),
+    })),
+  clearSelectedFeatures: () => set({ selectedFeatures: [] }),
 
   // Loading
   isLoading: false,

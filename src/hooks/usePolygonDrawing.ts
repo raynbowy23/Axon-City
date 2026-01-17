@@ -5,14 +5,26 @@ import { useStore } from '../store/useStore';
 import { calculatePolygonArea } from '../utils/geometryUtils';
 
 export function usePolygonDrawing() {
-  const { setSelectionPolygon, setIsDrawing, viewState } = useStore();
+  const {
+    setSelectionPolygon,
+    setIsDrawing,
+    viewState,
+    drawingPoints: storeDrawingPoints,
+    setDrawingPoints: setStoreDrawingPoints,
+  } = useStore();
   const [drawingPoints, setDrawingPoints] = useState<[number, number][]>([]);
+
+  // Sync local drawing points to store for MapView visualization
+  const updatePoints = useCallback((newPoints: [number, number][]) => {
+    setDrawingPoints(newPoints);
+    setStoreDrawingPoints(newPoints);
+  }, [setStoreDrawingPoints]);
 
   const startDrawing = useCallback(() => {
     setIsDrawing(true);
-    setDrawingPoints([]);
+    updatePoints([]);
     setSelectionPolygon(null);
-  }, [setIsDrawing, setSelectionPolygon]);
+  }, [setIsDrawing, setSelectionPolygon, updatePoints]);
 
   const addPoint = useCallback(
     (screenX: number, screenY: number, containerElement: HTMLDivElement | null) => {
@@ -36,32 +48,10 @@ export function usePolygonDrawing() {
       // Unproject screen coordinates to [lng, lat]
       const [lng, lat] = viewport.unproject([x, y]);
 
-      setDrawingPoints((prev) => {
-        const newPoints = [...prev, [lng, lat] as [number, number]];
+      const newPoints = [...drawingPoints, [lng, lat] as [number, number]];
+      updatePoints(newPoints);
 
-        // Update preview polygon if we have 3+ points
-        if (newPoints.length >= 3) {
-          const polygon: Polygon = {
-            type: 'Polygon',
-            coordinates: [[...newPoints, newPoints[0]]],
-          };
-          setSelectionPolygon({
-            id: 'preview',
-            geometry: polygon,
-            area: calculatePolygonArea(polygon) * 1_000_000,
-          });
-        }
-
-        return newPoints;
-      });
-    },
-    [viewState, setSelectionPolygon]
-  );
-
-  const undoLastPoint = useCallback(() => {
-    setDrawingPoints((prev) => {
-      const newPoints = prev.slice(0, -1);
-
+      // Update preview polygon if we have 3+ points
       if (newPoints.length >= 3) {
         const polygon: Polygon = {
           type: 'Polygon',
@@ -72,18 +62,34 @@ export function usePolygonDrawing() {
           geometry: polygon,
           area: calculatePolygonArea(polygon) * 1_000_000,
         });
-      } else {
-        setSelectionPolygon(null);
       }
+    },
+    [viewState, setSelectionPolygon, drawingPoints, updatePoints]
+  );
 
-      return newPoints;
-    });
-  }, [setSelectionPolygon]);
+  const undoLastPoint = useCallback(() => {
+    const newPoints = drawingPoints.slice(0, -1);
+    updatePoints(newPoints);
+
+    if (newPoints.length >= 3) {
+      const polygon: Polygon = {
+        type: 'Polygon',
+        coordinates: [[...newPoints, newPoints[0]]],
+      };
+      setSelectionPolygon({
+        id: 'preview',
+        geometry: polygon,
+        area: calculatePolygonArea(polygon) * 1_000_000,
+      });
+    } else {
+      setSelectionPolygon(null);
+    }
+  }, [setSelectionPolygon, drawingPoints, updatePoints]);
 
   const completeDrawing = useCallback((): Polygon | null => {
     if (drawingPoints.length < 3) {
       setIsDrawing(false);
-      setDrawingPoints([]);
+      updatePoints([]);
       setSelectionPolygon(null);
       return null;
     }
@@ -94,7 +100,7 @@ export function usePolygonDrawing() {
     };
 
     setIsDrawing(false);
-    setDrawingPoints([]);
+    updatePoints([]);
 
     // Update selection with final polygon
     setSelectionPolygon({
@@ -104,13 +110,13 @@ export function usePolygonDrawing() {
     });
 
     return polygon;
-  }, [drawingPoints, setIsDrawing, setSelectionPolygon]);
+  }, [drawingPoints, setIsDrawing, setSelectionPolygon, updatePoints]);
 
   const cancelDrawing = useCallback(() => {
     setIsDrawing(false);
-    setDrawingPoints([]);
+    updatePoints([]);
     setSelectionPolygon(null);
-  }, [setIsDrawing, setSelectionPolygon]);
+  }, [setIsDrawing, setSelectionPolygon, updatePoints]);
 
   return {
     drawingPoints,
