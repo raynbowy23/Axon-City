@@ -44,7 +44,7 @@ function saveSize(size: PanelSize): void {
 }
 
 export function StatsPanel() {
-  const { layerData, activeLayers, selectionPolygon, isLoading, loadingMessage } = useStore();
+  const { layerData, activeLayers, selectionPolygon, isLoading, loadingMessage, setExtractedViewOpen, isExtractedViewOpen } = useStore();
 
   // Panel size state
   const [size, setSize] = useState<PanelSize>(loadSavedSize);
@@ -257,9 +257,27 @@ export function StatsPanel() {
         <h3 style={{ margin: 0, fontSize: '14px' }}>
           Selection Statistics
         </h3>
-        <span style={{ fontSize: '10px', opacity: 0.5 }}>
-          {size.width}×{size.height}
-        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <button
+            onClick={() => setExtractedViewOpen(!isExtractedViewOpen)}
+            style={{
+              padding: '4px 10px',
+              backgroundColor: isExtractedViewOpen ? '#4A90D9' : 'rgba(74, 144, 217, 0.3)',
+              color: 'white',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              fontSize: '11px',
+              fontWeight: '500',
+            }}
+            title="Open extracted 3D view of selection"
+          >
+            {isExtractedViewOpen ? 'Hide 3D' : 'Extract 3D'}
+          </button>
+          <span style={{ fontSize: '10px', opacity: 0.5 }}>
+            {size.width}×{size.height}
+          </span>
+        </div>
       </div>
 
       {selectionPolygon && (

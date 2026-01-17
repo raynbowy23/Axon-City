@@ -158,6 +158,10 @@ export interface AppState {
   setIsLoading: (isLoading: boolean) => void;
   loadingMessage: string;
   setLoadingMessage: (message: string) => void;
+
+  // Extracted view
+  isExtractedViewOpen: boolean;
+  setExtractedViewOpen: (isOpen: boolean) => void;
 }
 
 // Re-export GeoJSON types for convenience

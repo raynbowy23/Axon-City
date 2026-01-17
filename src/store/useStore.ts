@@ -186,4 +186,8 @@ export const useStore = create<AppState>((set) => ({
   setIsLoading: (isLoading) => set({ isLoading }),
   loadingMessage: '',
   setLoadingMessage: (message) => set({ loadingMessage: message }),
+
+  // Extracted view
+  isExtractedViewOpen: false,
+  setExtractedViewOpen: (isOpen) => set({ isExtractedViewOpen: isOpen }),
 }));

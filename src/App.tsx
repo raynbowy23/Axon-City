@@ -5,6 +5,7 @@ import { ControlPanel } from './components/ControlPanel';
 import { StatsPanel } from './components/StatsPanel';
 import { SearchBar } from './components/SearchBar';
 import { SelectionPanel } from './components/SelectionPanel';
+import { ExtractedView } from './components/ExtractedView';
 import { usePolygonDrawing } from './hooks/usePolygonDrawing';
 import { useStore } from './store/useStore';
 import { layerManifest } from './data/layerManifest';
@@ -386,6 +387,7 @@ function App() {
       <ControlPanel />
       <StatsPanel />
       <SelectionPanel />
+      <ExtractedView />
 
       {/* Loading animation keyframes */}
       <style>
