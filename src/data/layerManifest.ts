@@ -5,34 +5,34 @@ import type { LayerManifest, LayerOrderConfig, LayerConfig, LayerGroup } from '.
 export const layerManifest: LayerManifest = {
   groups: [
     {
+      id: 'environment',
+      name: 'Environment',
+      priority: 1,
+      color: [46, 139, 87], // Sea green
+    },
+    {
       id: 'usage',
       name: 'Land Use',
-      priority: 1,
+      priority: 2,
       color: [102, 51, 153], // Purple
     },
     {
       id: 'infrastructure',
       name: 'Infrastructure',
-      priority: 2,
+      priority: 3,
       color: [51, 102, 204], // Blue
     },
     {
       id: 'access',
       name: 'Access & Transit',
-      priority: 3,
+      priority: 4,
       color: [34, 139, 34], // Green
     },
     {
       id: 'safety',
       name: 'Safety',
-      priority: 4,
-      color: [220, 20, 60], // Crimson
-    },
-    {
-      id: 'environment',
-      name: 'Environment',
       priority: 5,
-      color: [46, 139, 87], // Sea green
+      color: [220, 20, 60], // Crimson
     },
   ],
   layers: [
