@@ -3,11 +3,11 @@ import DeckGL from '@deck.gl/react';
 import { GeoJsonLayer, PathLayer, PolygonLayer } from '@deck.gl/layers';
 import { SimpleMeshLayer } from '@deck.gl/mesh-layers';
 import { SphereGeometry } from '@luma.gl/engine';
-import type { Layer } from '@deck.gl/core';
-import type { FeatureCollection, Polygon, MultiPolygon, LineString, Point } from 'geojson';
+import type { Layer, PickingInfo } from '@deck.gl/core';
+import type { Feature, FeatureCollection, Polygon, MultiPolygon, LineString, Point } from 'geojson';
 
 import { useStore } from '../store/useStore';
-import { getLayersByCustomOrder, layerManifest } from '../data/layerManifest';
+import { getLayersByCustomOrder, getLayerById, layerManifest } from '../data/layerManifest';
 import type { LayerConfig, LayerGroup, LayerData, LayerOrderConfig, ViewState } from '../types';
 
 // Size constraints
@@ -78,6 +78,9 @@ const DeckGLView = memo(function DeckGLView({
 }: DeckGLViewProps) {
   const [isReady, setIsReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [hoveredFeature, setHoveredFeature] = useState<Feature | null>(null);
+  const [hoveredLayerId, setHoveredLayerId] = useState<string | null>(null);
+  const [cursorPosition, setCursorPosition] = useState<{ x: number; y: number } | null>(null);
 
   // Handle WebGL initialization
   const handleWebGLInitialized = useCallback(() => {
@@ -89,6 +92,21 @@ const DeckGLView = memo(function DeckGLView({
   const handleError = useCallback((err: Error) => {
     console.error('DeckGL Error:', err);
     setError(err.message);
+  }, []);
+
+  // Handle hover
+  const onHover = useCallback((info: PickingInfo) => {
+    if (info.layer) {
+      // Extract layer ID from the deck layer id (e.g., "extracted-buildings" -> "buildings")
+      const layerId = info.layer.id.replace('extracted-', '');
+      setHoveredLayerId(layerId);
+      setHoveredFeature(info.object?.feature || info.object || null);
+      setCursorPosition({ x: info.x, y: info.y });
+    } else {
+      setHoveredLayerId(null);
+      setHoveredFeature(null);
+      setCursorPosition(null);
+    }
   }, []);
 
   // Build layers for the extracted view
@@ -223,10 +241,47 @@ const DeckGLView = memo(function DeckGLView({
         onViewStateChange={onViewStateChange}
         onWebGLInitialized={handleWebGLInitialized}
         onError={handleError}
+        onHover={onHover}
         controller={{ dragRotate: true, touchRotate: true, keyboard: true }}
         layers={extractedLayers}
         style={{ position: 'absolute', top: '0', left: '0', width: '100%', height: '100%' }}
       />
+
+      {/* Tooltip */}
+      {hoveredFeature && cursorPosition && (
+        <div
+          style={{
+            position: 'absolute',
+            left: cursorPosition.x + 10,
+            top: cursorPosition.y + 10,
+            backgroundColor: 'rgba(0, 0, 0, 0.9)',
+            color: 'white',
+            padding: '8px 12px',
+            borderRadius: '4px',
+            fontSize: '11px',
+            pointerEvents: 'none',
+            maxWidth: '250px',
+            zIndex: 10,
+            border: '1px solid rgba(255,255,255,0.2)',
+          }}
+        >
+          <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>
+            {getLayerById(hoveredLayerId || '')?.name || 'Feature'}
+          </div>
+          {hoveredFeature.properties && (
+            <div>
+              {Object.entries(hoveredFeature.properties)
+                .filter(([key]) => !['id', 'type'].includes(key))
+                .slice(0, 5)
+                .map(([key, value]) => (
+                  <div key={key} style={{ opacity: 0.8 }}>
+                    <span style={{ color: '#aaa' }}>{key}:</span> {String(value)}
+                  </div>
+                ))}
+            </div>
+          )}
+        </div>
+      )}
     </>
   );
 });
@@ -704,6 +759,7 @@ function createExtractedPolygonLayer(config: LayerConfig, features: FeatureColle
           polygon: coords.map((c) => [c[0], c[1], zOffset + 50]),
           height: height * 0.5,
           properties: f.properties,
+          feature: f,
           id: f.id || index,
         };
       });
@@ -721,6 +777,8 @@ function createExtractedPolygonLayer(config: LayerConfig, features: FeatureColle
       getElevation: (d: any) => d.height,
       extruded: true,
       pickable: true,
+      autoHighlight: true,
+      highlightColor: [255, 255, 100, 100],
     });
   }
 
@@ -734,6 +792,7 @@ function createExtractedPolygonLayer(config: LayerConfig, features: FeatureColle
         return {
           polygon: coords.map((c) => [c[0], c[1], baseElevation]),
           properties: f.properties,
+          feature: f,
           id: f.id || index,
         };
       });
@@ -750,6 +809,8 @@ function createExtractedPolygonLayer(config: LayerConfig, features: FeatureColle
       getElevation: PARK_THICKNESS,
       extruded: true,
       pickable: true,
+      autoHighlight: true,
+      highlightColor: [255, 255, 100, 100],
     });
   }
 
@@ -766,6 +827,8 @@ function createExtractedPolygonLayer(config: LayerConfig, features: FeatureColle
     getElevation: zOffset + 10,
     extruded: true,
     pickable: true,
+    autoHighlight: true,
+    highlightColor: [255, 255, 100, 100],
   });
 }
 
@@ -780,12 +843,14 @@ function createExtractedLineLayer(config: LayerConfig, features: FeatureCollecti
         return [{
           path: (f.geometry as LineString).coordinates.map((c) => [...c, zOffset]),
           properties: f.properties,
+          feature: f,
         }];
       }
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       return (f.geometry as any).coordinates.map((coords: number[][]) => ({
         path: coords.map((c: number[]) => [...c, zOffset]),
         properties: f.properties,
+        feature: f,
       }));
     });
 
@@ -798,6 +863,8 @@ function createExtractedLineLayer(config: LayerConfig, features: FeatureCollecti
     getWidth: style.strokeWidth * 1.5,
     widthUnits: 'pixels',
     pickable: true,
+    autoHighlight: true,
+    highlightColor: [255, 255, 100, 255],
   });
 }
 
@@ -810,6 +877,7 @@ function createExtractedPointLayer(config: LayerConfig, features: FeatureCollect
     .map((f) => ({
       position: [...(f.geometry as Point).coordinates, zOffset + 20],
       properties: f.properties,
+      feature: f,
     }));
 
   return new SimpleMeshLayer({
@@ -821,6 +889,8 @@ function createExtractedPointLayer(config: LayerConfig, features: FeatureCollect
     getColor: fillColor,
     getScale: [12, 12, 12],
     pickable: true,
+    autoHighlight: true,
+    highlightColor: [255, 255, 100, 255],
   });
 }
 
