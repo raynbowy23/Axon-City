@@ -3,6 +3,7 @@ import type { Polygon } from 'geojson';
 import { MapView } from './components/MapView';
 import { ControlPanel } from './components/ControlPanel';
 import { StatsPanel } from './components/StatsPanel';
+import { SearchBar } from './components/SearchBar';
 import { usePolygonDrawing } from './hooks/usePolygonDrawing';
 import { useStore } from './store/useStore';
 import { layerManifest } from './data/layerManifest';
@@ -351,7 +352,7 @@ function App() {
         )}
       </div>
 
-      {/* Title */}
+      {/* Title and Search */}
       <div
         style={{
           position: 'absolute',
@@ -359,16 +360,26 @@ function App() {
           left: '50%',
           transform: 'translateX(-50%)',
           zIndex: 1000,
-          backgroundColor: 'rgba(0, 0, 0, 0.8)',
-          color: 'white',
-          padding: '8px 20px',
-          borderRadius: '20px',
-          fontSize: '16px',
-          fontWeight: '600',
-          letterSpacing: '1px',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          gap: '10px',
         }}
       >
-        AxonCity - Exploded Axonometric Map
+        <div
+          style={{
+            backgroundColor: 'rgba(0, 0, 0, 0.8)',
+            color: 'white',
+            padding: '8px 20px',
+            borderRadius: '20px',
+            fontSize: '16px',
+            fontWeight: '600',
+            letterSpacing: '1px',
+          }}
+        >
+          AxonCity - Exploded Axonometric Map
+        </div>
+        <SearchBar />
       </div>
 
       <ControlPanel />
