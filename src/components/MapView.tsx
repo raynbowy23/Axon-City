@@ -9,21 +9,12 @@ import type { Feature, FeatureCollection, Polygon, LineString, Point } from 'geo
 import 'maplibre-gl/dist/maplibre-gl.css';
 
 import { useStore } from '../store/useStore';
-import { layerManifest, getLayerById, getSortedLayers } from '../data/layerManifest';
+import { layerManifest, getLayerById, getLayersByCustomOrder } from '../data/layerManifest';
 import type { LayerConfig, LayerData, LayerGroup } from '../types';
 
 // Free MapLibre style - OpenStreetMap Carto
 const MAP_STYLE = 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json';
 
-// Group spacing configuration for better visual separation
-// All groups start from 1 to ensure proper floating in exploded view
-const GROUP_BASE_HEIGHTS: Record<LayerGroup, number> = {
-  usage: 1,        // Base layer (land use, buildings) - now floats
-  infrastructure: 2, // Roads, bike lanes
-  access: 3,       // Transit, parking
-  safety: 4,       // Signals, crosswalks
-  environment: 5,  // Parks, water, trees (top)
-};
 
 interface LayerRenderInfo {
   config: LayerConfig;
@@ -53,6 +44,7 @@ export function MapView() {
     setSelectionPolygon,
     selectedFeatures,
     addSelectedFeature,
+    layerOrder,
   } = useStore();
 
   const [hoveredFeature, setHoveredFeature] = useState<Feature | null>(null);
@@ -61,7 +53,8 @@ export function MapView() {
 
   // Calculate layer render order and z-offsets with group-based separation
   const layerRenderInfo = useMemo((): LayerRenderInfo[] => {
-    const sortedLayers = getSortedLayers();
+    // Use custom layer order instead of static getSortedLayers()
+    const sortedLayers = getLayersByCustomOrder(layerOrder);
     const activeLayerConfigs = sortedLayers.filter((layer) =>
       activeLayers.includes(layer.id)
     );
@@ -70,12 +63,18 @@ export function MapView() {
     const groupSpacing = explodedView.layerSpacing; // Space between groups
     const intraGroupSpacing = explodedView.layerSpacing * 0.6; // Space within groups (increased for better layer separation)
 
+    // Build dynamic group base heights from custom order (1-indexed for floating)
+    const groupBaseHeights: Record<LayerGroup, number> = {} as Record<LayerGroup, number>;
+    layerOrder.groupOrder.forEach((groupId, index) => {
+      groupBaseHeights[groupId] = index + 1;
+    });
+
     // Track layer index within each group
     const groupLayerCounts: Record<string, number> = {};
 
     return activeLayerConfigs.map((config) => {
       const data = layerData.get(config.id);
-      const groupIndex = GROUP_BASE_HEIGHTS[config.group] || 0;
+      const groupIndex = groupBaseHeights[config.group] || 0;
 
       // Get the index of this layer within its group
       if (!groupLayerCounts[config.group]) {
@@ -97,7 +96,7 @@ export function MapView() {
         groupIndex,
       };
     });
-  }, [activeLayers, layerData, explodedView]);
+  }, [activeLayers, layerData, explodedView, layerOrder]);
 
   // Handle hover
   const onHover = useCallback(
@@ -235,10 +234,16 @@ export function MapView() {
           .map(info => info.config.group)
       );
 
+      // Build dynamic group base heights from custom order
+      const groupBaseHeights: Record<LayerGroup, number> = {} as Record<LayerGroup, number>;
+      layerOrder.groupOrder.forEach((groupId, index) => {
+        groupBaseHeights[groupId] = index + 1;
+      });
+
       for (const group of layerManifest.groups) {
         if (!activeGroups.has(group.id)) continue;
 
-        const groupIndex = GROUP_BASE_HEIGHTS[group.id] || 0;
+        const groupIndex = groupBaseHeights[group.id as LayerGroup] || 0;
         const zOffset = explodedView.baseElevation + groupIndex * explodedView.layerSpacing;
 
         // Create a subtle platform for each group
@@ -624,7 +629,7 @@ export function MapView() {
     }
 
     return layers;
-  }, [layerRenderInfo, selectionPolygon, hoveredLayerId, isolatedLayerId, explodedView, isDrawing, drawingPoints, editableVertices, draggingVertexIndex, hoveredVertexIndex, selectedFeatures]);
+  }, [layerRenderInfo, selectionPolygon, hoveredLayerId, isolatedLayerId, explodedView, isDrawing, drawingPoints, editableVertices, draggingVertexIndex, hoveredVertexIndex, selectedFeatures, layerOrder]);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const onViewStateChange = useCallback(

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import type { AppState, ViewState, LayerData, ExplodedViewConfig, SelectedFeature, Feature } from '../types';
+import type { AppState, ViewState, LayerData, ExplodedViewConfig, SelectedFeature, Feature, LayerGroup, LayerOrderConfig } from '../types';
+import { layerManifest } from '../data/layerManifest';
 
 // Distinct colors for selected features (colorblind-friendly palette)
 const SELECTION_COLORS: [number, number, number, number][] = [
@@ -30,6 +31,28 @@ const defaultExplodedView: ExplodedViewConfig = {
   baseElevation: 0,
   animationDuration: 500,
 };
+
+// Helper to derive default layer order from manifest
+function getDefaultLayerOrder(): LayerOrderConfig {
+  const groupOrder = layerManifest.groups.map(g => g.id) as LayerGroup[];
+  const layerOrderByGroup: Record<LayerGroup, string[]> = {} as Record<LayerGroup, string[]>;
+
+  for (const group of layerManifest.groups) {
+    const groupLayers = layerManifest.layers
+      .filter(l => l.group === group.id)
+      .sort((a, b) => a.priority - b.priority)
+      .map(l => l.id);
+    layerOrderByGroup[group.id as LayerGroup] = groupLayers;
+  }
+
+  return {
+    groupOrder,
+    layerOrderByGroup,
+    isCustomOrder: false,
+  };
+}
+
+const defaultLayerOrder = getDefaultLayerOrder();
 
 export const useStore = create<AppState>((set) => ({
   // Map view
@@ -90,6 +113,30 @@ export const useStore = create<AppState>((set) => ({
     set((state) => ({
       explodedView: { ...state.explodedView, ...config },
     })),
+
+  // Layer ordering
+  layerOrder: defaultLayerOrder,
+  setGroupOrder: (groupOrder) =>
+    set((state) => ({
+      layerOrder: {
+        ...state.layerOrder,
+        groupOrder,
+        isCustomOrder: true,
+      },
+    })),
+  setLayerOrderInGroup: (groupId, layerIds) =>
+    set((state) => ({
+      layerOrder: {
+        ...state.layerOrder,
+        layerOrderByGroup: {
+          ...state.layerOrder.layerOrderByGroup,
+          [groupId]: layerIds,
+        },
+        isCustomOrder: true,
+      },
+    })),
+  resetLayerOrder: () =>
+    set({ layerOrder: getDefaultLayerOrder() }),
 
   // UI state
   hoveredLayerId: null,

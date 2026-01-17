@@ -1,4 +1,4 @@
-import type { LayerManifest } from '../types';
+import type { LayerManifest, LayerOrderConfig, LayerConfig, LayerGroup } from '../types';
 
 // Layer manifest defining the hierarchy and styling for all layers
 // Priority determines stacking order (higher = on top)
@@ -318,4 +318,42 @@ export const getSortedLayers = () => {
     if (groupA !== groupB) return groupA - groupB;
     return a.priority - b.priority;
   });
+};
+
+// Get layers sorted by custom order configuration
+export const getLayersByCustomOrder = (orderConfig: LayerOrderConfig): LayerConfig[] => {
+  const result: LayerConfig[] = [];
+  const layerMap = new Map(layerManifest.layers.map(l => [l.id, l]));
+
+  // Iterate through groups in the custom order
+  for (const groupId of orderConfig.groupOrder) {
+    const layerIds = orderConfig.layerOrderByGroup[groupId] || [];
+    // Add layers in the custom order within each group
+    for (const layerId of layerIds) {
+      const layer = layerMap.get(layerId);
+      if (layer) {
+        result.push(layer);
+      }
+    }
+  }
+
+  return result;
+};
+
+// Get groups sorted by custom order
+export const getGroupsByCustomOrder = (orderConfig: LayerOrderConfig) => {
+  const groupMap = new Map(layerManifest.groups.map(g => [g.id, g]));
+  return orderConfig.groupOrder
+    .map(groupId => groupMap.get(groupId))
+    .filter((g): g is typeof layerManifest.groups[number] => g !== undefined);
+};
+
+// Get layers for a specific group in custom order
+export const getLayersByGroupCustomOrder = (groupId: LayerGroup, orderConfig: LayerOrderConfig): LayerConfig[] => {
+  const layerIds = orderConfig.layerOrderByGroup[groupId] || [];
+  const layerMap = new Map(layerManifest.layers.map(l => [l.id, l]));
+
+  return layerIds
+    .map(id => layerMap.get(id))
+    .filter((l): l is LayerConfig => l !== undefined);
 };

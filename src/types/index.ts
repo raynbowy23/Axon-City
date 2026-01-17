@@ -86,6 +86,12 @@ export interface ExplodedViewConfig {
   animationDuration: number;
 }
 
+export interface LayerOrderConfig {
+  groupOrder: LayerGroup[];
+  layerOrderByGroup: Record<LayerGroup, string[]>;
+  isCustomOrder: boolean;
+}
+
 // Selected feature with color for visual differentiation
 export interface SelectedFeature {
   id: string | number;
@@ -128,6 +134,12 @@ export interface AppState {
   // Exploded view
   explodedView: ExplodedViewConfig;
   setExplodedView: (config: Partial<ExplodedViewConfig>) => void;
+
+  // Layer ordering
+  layerOrder: LayerOrderConfig;
+  setGroupOrder: (groupOrder: LayerGroup[]) => void;
+  setLayerOrderInGroup: (groupId: LayerGroup, layerIds: string[]) => void;
+  resetLayerOrder: () => void;
 
   // UI state
   hoveredLayerId: string | null;

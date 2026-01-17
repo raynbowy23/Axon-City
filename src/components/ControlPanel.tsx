@@ -1,17 +1,17 @@
 import { useStore } from '../store/useStore';
-import { layerManifest, getLayersByGroup } from '../data/layerManifest';
-import type { LayerConfig } from '../types';
+import { layerManifest } from '../data/layerManifest';
+import { DraggableLayerList } from './DraggableLayerList';
 
 export function ControlPanel() {
   const {
-    activeLayers,
-    toggleLayer,
     explodedView,
     setExplodedView,
     isolatedLayerId,
     setIsolatedLayerId,
     viewState,
     setViewState,
+    layerOrder,
+    resetLayerOrder,
   } = useStore();
 
   return (
@@ -204,8 +204,29 @@ export function ControlPanel() {
 
       {/* Layer Toggle by Group */}
       <div>
-        <div style={{ marginBottom: '8px', fontWeight: '600' }}>
-          Layers
+        <div style={{ marginBottom: '8px', fontWeight: '600', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span>Layers</span>
+          {layerOrder.isCustomOrder && (
+            <button
+              onClick={resetLayerOrder}
+              style={{
+                padding: '4px 8px',
+                fontSize: '10px',
+                backgroundColor: 'rgba(255,255,255,0.1)',
+                color: 'white',
+                border: 'none',
+                borderRadius: '3px',
+                cursor: 'pointer',
+              }}
+              title="Reset to default layer order"
+            >
+              Reset Order
+            </button>
+          )}
+        </div>
+
+        <div style={{ fontSize: '10px', opacity: 0.6, marginBottom: '8px' }}>
+          Drag &#x2630; to reorder groups or layers
         </div>
 
         {isolatedLayerId && (
@@ -227,127 +248,11 @@ export function ControlPanel() {
           </button>
         )}
 
-        {layerManifest.groups.map((group) => (
-          <LayerGroup
-            key={group.id}
-            groupName={group.name}
-            groupColor={group.color}
-            layers={getLayersByGroup(group.id)}
-            activeLayers={activeLayers}
-            onToggle={toggleLayer}
-            onIsolate={setIsolatedLayerId}
-            isolatedLayerId={isolatedLayerId}
-          />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function LayerGroup({
-  groupName,
-  groupColor,
-  layers,
-  activeLayers,
-  onToggle,
-  onIsolate,
-  isolatedLayerId,
-}: {
-  groupName: string;
-  groupColor: [number, number, number];
-  layers: LayerConfig[];
-  activeLayers: string[];
-  onToggle: (id: string) => void;
-  onIsolate: (id: string | null) => void;
-  isolatedLayerId: string | null;
-}) {
-  const activeCount = layers.filter((l) => activeLayers.includes(l.id)).length;
-
-  return (
-    <div style={{ marginBottom: '12px' }}>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '8px',
-          marginBottom: '6px',
-          paddingBottom: '4px',
-          borderBottom: '1px solid rgba(255,255,255,0.1)',
-        }}
-      >
-        <div
-          style={{
-            width: '12px',
-            height: '12px',
-            borderRadius: '2px',
-            backgroundColor: `rgb(${groupColor.join(',')})`,
-          }}
+        <DraggableLayerList
+          onIsolate={setIsolatedLayerId}
+          isolatedLayerId={isolatedLayerId}
         />
-        <span style={{ fontWeight: '600', fontSize: '12px' }}>{groupName}</span>
-        <span style={{ fontSize: '10px', opacity: 0.6, marginLeft: 'auto' }}>
-          {activeCount}/{layers.length}
-        </span>
       </div>
-
-      {layers.map((layer) => {
-        const isActive = activeLayers.includes(layer.id);
-        const isIsolated = isolatedLayerId === layer.id;
-
-        return (
-          <div
-            key={layer.id}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              padding: '4px 0 4px 20px',
-              opacity: isActive ? 1 : 0.5,
-            }}
-          >
-            <input
-              type="checkbox"
-              checked={isActive}
-              onChange={() => onToggle(layer.id)}
-              style={{ cursor: 'pointer' }}
-            />
-            <div
-              style={{
-                width: '8px',
-                height: '8px',
-                borderRadius: '50%',
-                backgroundColor: `rgba(${layer.style.fillColor.slice(0, 3).join(',')}, 1)`,
-              }}
-            />
-            <span
-              style={{
-                flex: 1,
-                fontSize: '11px',
-                cursor: 'pointer',
-              }}
-              onClick={() => onToggle(layer.id)}
-            >
-              {layer.name}
-            </span>
-            {isActive && (
-              <button
-                onClick={() => onIsolate(isIsolated ? null : layer.id)}
-                style={{
-                  padding: '2px 6px',
-                  fontSize: '9px',
-                  backgroundColor: isIsolated ? '#D94A4A' : 'rgba(255,255,255,0.1)',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '3px',
-                  cursor: 'pointer',
-                }}
-                title={isIsolated ? 'Clear isolation' : 'Isolate layer'}
-              >
-                {isIsolated ? 'SOLO' : 'solo'}
-              </button>
-            )}
-          </div>
-        );
-      })}
     </div>
   );
 }
