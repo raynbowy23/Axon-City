@@ -1,62 +1,65 @@
-# AxonCity
+<p align="center">
+  <img src="public/AxonCityWideLogo.png" alt="AxonCity Logo" width="400" />
+</p>
 
-An interactive exploded axonometric map visualization tool for exploring urban spatial data. Draw selection areas on any location, fetch OpenStreetMap data, and visualize city layers in a stunning 3D exploded view.
+<p align="center">
+  <strong>An interactive exploded axonometric map visualization tool for exploring urban spatial data</strong>
+</p>
 
-![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)
-![React](https://img.shields.io/badge/react-19.x-61dafb.svg)
-![TypeScript](https://img.shields.io/badge/typescript-5.x-3178c6.svg)
-![Vite](https://img.shields.io/badge/vite-7.x-646cff.svg)
+<p align="center">
+  <a href="#features">Features</a> •
+  <a href="#quick-start">Quick Start</a> •
+  <a href="#usage">Usage</a> •
+  <a href="#for-developers">For Developers</a> •
+  <a href="#license">License</a>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="License" />
+  <img src="https://img.shields.io/badge/react-19.x-61dafb.svg" alt="React" />
+  <img src="https://img.shields.io/badge/typescript-5.x-3178c6.svg" alt="TypeScript" />
+  <img src="https://img.shields.io/badge/vite-7.x-646cff.svg" alt="Vite" />
+</p>
+
+---
+
+<p align="center">
+  <img src="public/main.png" alt="AxonCity Screenshot" width="100%" />
+</p>
 
 ## Features
 
-### Interactive Map Selection
+### 🗺️ Interactive Map Selection
 - Draw custom polygon areas on the map to define your region of interest
 - Edit selection by dragging vertices, adding new points, or removing existing ones
 - Search for any location worldwide using the integrated search bar
 
-### Exploded Axonometric View
+### 🏙️ Exploded Axonometric View
 - Visualize urban layers separated vertically in an exploded diagram style
 - Toggle between flat and exploded views with adjustable layer spacing
-- Layers are grouped by category: Environment, Land Use, Infrastructure, Access & Transit, and Traffic Control
+- Layers grouped by category: Environment, Land Use, Infrastructure, Access & Transit, and Traffic Control
 
-### 3D Extracted View
+### 🎮 3D Extracted View
 - Dedicated 3D viewer with orbit controls for detailed exploration
 - Interactive layer group toggles
-- Click features to pin information cards that follow the 3D geometry
-- Platform indicators show layer group boundaries
+- Click features to pin information cards
+- Save high-quality screenshots with location labels
 
-### Real-time OSM Data
+### 📡 Real-time OpenStreetMap Data
 - Fetches live data from OpenStreetMap's Overpass API
 - Automatic feature clipping to selection polygon
 - Statistics calculation (count, density, area, length) per layer
 
-### Custom Data Import
+### 📂 Custom Data Import
 - Upload your own GeoJSON or CSV files as custom layers
 - Auto-detection of coordinate columns in CSV files
-- Custom layers appear at the top of the layer stack
 - Zoom-to-extent functionality for imported data
 
-### Layer Management
-- Drag-and-drop layer reordering
-- Per-layer visibility toggles
-- Layer isolation mode for focused analysis
-- Customizable layer groups and priorities
+---
 
-## Tech Stack
-
-- **React 19** - UI framework
-- **TypeScript** - Type safety
-- **Vite** - Build tool and dev server
-- **deck.gl** - WebGL-powered map visualization
-- **MapLibre GL** - Base map rendering
-- **Turf.js** - Geospatial analysis
-- **Zustand** - State management
-- **dnd-kit** - Drag and drop functionality
-
-## Getting Started
+## Quick Start
 
 ### Prerequisites
-
 - Node.js 18+
 - npm or yarn
 
@@ -64,8 +67,8 @@ An interactive exploded axonometric map visualization tool for exploring urban s
 
 ```bash
 # Clone the repository
-git clone https://github.com/raynbowy23/AxonCity.git
-cd AxonCity
+git clone https://github.com/raynbowy23/Axon-City.git
+cd Axon-City
 
 # Install dependencies
 npm install
@@ -76,28 +79,21 @@ npm run dev
 
 The application will be available at `http://localhost:5173`
 
-### Build for Production
-
-```bash
-npm run build
-npm run preview
-```
+---
 
 ## Usage
 
-The app opens centered on Madison, WI by default and remembers your last viewed location.
-
 1. **Search for a location** using the search bar at the top
 2. **Click "Draw Selection Area"** to start drawing a polygon
-3. **Click on the map** to add points (minimum 3 points required)
-4. **Press Enter** or click "Complete" to finish drawing
+3. **Click on the map** to add points (minimum 3 required)
+4. **Press Enter** to complete drawing
 5. **Wait for data to load** from OpenStreetMap
-6. **Explore the data** using the control panel on the right:
+6. **Explore** using the control panel:
    - Toggle layer visibility
    - Adjust exploded view settings
    - Reorder layers via drag-and-drop
-7. **Open the Extracted View** for a dedicated 3D exploration experience
-8. **Import custom data** using the "Import Data" button
+7. **Open Extracted View** for 3D exploration
+8. **Save screenshots** with the Save Image button
 
 ### Keyboard Shortcuts
 
@@ -113,6 +109,8 @@ The app opens centered on Madison, WI by default and remembers your last viewed 
 - **Click blue midpoints** to add new vertices
 - **Double-click vertices** to remove them
 
+---
+
 ## Layer Groups
 
 | Group | Description | Example Layers |
@@ -123,31 +121,53 @@ The app opens centered on Madison, WI by default and remembers your last viewed 
 | Access & Transit | Transportation | Transit stops, rail lines, parking |
 | Traffic Control | Traffic devices | Traffic signals |
 
-## Project Structure
+---
+
+## For Developers
+
+### Tech Stack
+
+- **React 19** - UI framework
+- **TypeScript** - Type safety
+- **Vite** - Build tool and dev server
+- **deck.gl** - WebGL-powered map visualization
+- **MapLibre GL** - Base map rendering
+- **Turf.js** - Geospatial analysis
+- **Zustand** - State management
+- **dnd-kit** - Drag and drop functionality
+
+### Project Structure
 
 ```
 src/
-├── components/          # React components
-│   ├── MapView.tsx      # Main map with deck.gl layers
-│   ├── ExtractedView.tsx# 3D extracted view
-│   ├── ControlPanel.tsx # Layer controls
-│   ├── StatsPanel.tsx   # Statistics display
+├── components/           # React components
+│   ├── MapView.tsx       # Main map with deck.gl layers
+│   ├── ExtractedView.tsx # 3D extracted view
+│   ├── ControlPanel.tsx  # Layer controls
+│   ├── StatsPanel.tsx    # Statistics display
 │   ├── DataInputPanel.tsx# Custom data import
 │   └── ...
 ├── data/
-│   └── layerManifest.ts # Layer definitions
-├── hooks/               # Custom React hooks
+│   └── layerManifest.ts  # Layer definitions
+├── hooks/                # Custom React hooks
 ├── store/
-│   └── useStore.ts      # Zustand state management
+│   └── useStore.ts       # Zustand state management
 ├── types/
-│   └── index.ts         # TypeScript definitions
+│   └── index.ts          # TypeScript definitions
 └── utils/
-    ├── osmFetcher.ts    # Overpass API client
-    ├── geometryUtils.ts # Spatial operations
-    └── csvParser.ts     # CSV to GeoJSON converter
+    ├── osmFetcher.ts     # Overpass API client
+    ├── geometryUtils.ts  # Spatial operations
+    └── csvParser.ts      # CSV to GeoJSON converter
 ```
 
-## Contributing
+### Build for Production
+
+```bash
+npm run build
+npm run preview
+```
+
+### Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
 
@@ -156,6 +176,8 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 3. Commit your changes (`git commit -m 'Add some amazing feature'`)
 4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
+
+---
 
 ## License
 
@@ -167,10 +189,14 @@ This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENS
 - Base map tiles from [MapLibre](https://maplibre.org/)
 - Visualization powered by [deck.gl](https://deck.gl/)
 
-## Contact
-
-Rei Tamaru ([@raynbowy23](https://github.com/raynbowy23))
-
 ---
 
-Made with deck.gl and OpenStreetMap
+<p align="center">
+  Created by <a href="https://github.com/raynbowy23">Rei Tamaru</a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/raynbowy23/Axon-City">
+    <img src="https://img.shields.io/github/stars/raynbowy23/Axon-City?style=social" alt="GitHub Stars" />
+  </a>
+</p>
