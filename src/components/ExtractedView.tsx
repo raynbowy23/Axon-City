@@ -112,6 +112,80 @@ const DeckGLView = memo(function DeckGLView({
   const [hoveredLayerId, setHoveredLayerId] = useState<string | null>(null);
   const [cursorPosition, setCursorPosition] = useState<{ x: number; y: number } | null>(null);
 
+  // Custom drag handling: drag=pan, Ctrl+drag=rotate
+  const isDraggingRef = useRef(false);
+  const lastMouseRef = useRef<{ x: number; y: number } | null>(null);
+  const isCtrlRef = useRef(false);
+
+  // Mouse event handlers for custom pan/rotate
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    // Only handle left mouse button and not on UI elements
+    if (e.button !== 0) return;
+    isDraggingRef.current = true;
+    lastMouseRef.current = { x: e.clientX, y: e.clientY };
+    isCtrlRef.current = e.ctrlKey || e.metaKey;
+  }, []);
+
+  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    if (!isDraggingRef.current || !lastMouseRef.current) return;
+
+    const dx = e.clientX - lastMouseRef.current.x;
+    const dy = e.clientY - lastMouseRef.current.y;
+    lastMouseRef.current = { x: e.clientX, y: e.clientY };
+
+    // Update Ctrl state in case it changed during drag
+    const isCtrl = e.ctrlKey || e.metaKey;
+
+    if (isCtrl) {
+      // Ctrl+drag = rotate (inverted for natural feel)
+      onViewStateChange({
+        viewState: {
+          ...viewState,
+          rotationOrbit: viewState.rotationOrbit + dx * 0.5,
+          rotationX: Math.max(0, Math.min(90, viewState.rotationX - dy * 0.5)),
+        },
+      });
+    } else {
+      // Drag = pan (move target)
+      // Convert screen movement to world movement based on current rotation
+      const angle = (viewState.rotationOrbit * Math.PI) / 180;
+      const cosA = Math.cos(angle);
+      const sinA = Math.sin(angle);
+
+      // Scale pan speed based on zoom
+      const panScale = Math.pow(2, -viewState.zoom) * 2;
+      const worldDx = (dx * cosA - dy * sinA) * panScale;
+      const worldDy = (dx * sinA + dy * cosA) * panScale;
+
+      onViewStateChange({
+        viewState: {
+          ...viewState,
+          target: [
+            viewState.target[0] - worldDx,
+            viewState.target[1] + worldDy,
+            viewState.target[2],
+          ],
+        },
+      });
+    }
+  }, [viewState, onViewStateChange]);
+
+  const handleMouseUp = useCallback(() => {
+    isDraggingRef.current = false;
+    lastMouseRef.current = null;
+  }, []);
+
+  const handleWheel = useCallback((e: React.WheelEvent) => {
+    e.preventDefault();
+    const zoomDelta = e.deltaY > 0 ? -0.1 : 0.1;
+    onViewStateChange({
+      viewState: {
+        ...viewState,
+        zoom: Math.max(-2, Math.min(5, viewState.zoom + zoomDelta)),
+      },
+    });
+  }, [viewState, onViewStateChange]);
+
   // Reference to DeckGL for coordinate projection
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const deckRef = useRef<any>(null);
@@ -126,8 +200,8 @@ const DeckGLView = memo(function DeckGLView({
   }
   const [pinnedInfos, setPinnedInfos] = useState<PinnedInfo[]>([]);
 
-  // Track current screen positions of pinned features (updated when viewState changes)
-  const [pinnedScreenPositions, setPinnedScreenPositions] = useState<Record<string, { x: number; y: number }>>({});
+  // Track current screen positions of pinned features using ref to avoid re-renders during drag
+  const pinnedScreenPositionsRef = useRef<Record<string, { x: number; y: number }>>({});
 
   // Calculate z-offset for a given layer in the extracted view (always exploded)
   // This must match the logic in extractedLayers exactly
@@ -180,40 +254,60 @@ const DeckGLView = memo(function DeckGLView({
     return zOffset;
   }, [layerOrder, layerSpacing, activeLayers]);
 
-  // Update pinned screen positions when viewState or layer spacing changes
+  // Update pinned screen positions continuously using rAF (doesn't trigger re-renders)
   useEffect(() => {
     if (pinnedInfos.length === 0) return;
 
-    // Use requestAnimationFrame to ensure DeckGL has updated its viewport
-    const updatePositions = () => {
-      if (!deckRef.current?.deck) return;
-      const viewport = deckRef.current.deck.getViewports()[0];
-      if (!viewport) return;
+    let animationFrameId: number;
 
-      const newPositions: Record<string, { x: number; y: number }> = {};
+    const updatePositions = () => {
+      if (!deckRef.current?.deck) {
+        animationFrameId = requestAnimationFrame(updatePositions);
+        return;
+      }
+      const viewport = deckRef.current.deck.getViewports()[0];
+      if (!viewport) {
+        animationFrameId = requestAnimationFrame(updatePositions);
+        return;
+      }
+
+      // Update positions directly in ref (no state update = no re-render)
       for (const pinned of pinnedInfos) {
         try {
-          // Get z-offset for this layer
           const zOffset = getLayerZOffset(pinned.layerId);
-          // Convert geographic coordinates to local coordinates for OrbitView
           const [localX, localY] = geoToLocal(pinned.coordinates[0], pinned.coordinates[1], center[0], center[1]);
-          // Project with 3D local coordinates [x, y, z]
           const [x, y] = viewport.project([localX, localY, zOffset]);
-          newPositions[pinned.id] = { x, y };
+          pinnedScreenPositionsRef.current[pinned.id] = { x, y };
+
+          // Directly update DOM element position for smooth movement
+          const cardEl = document.getElementById(`pinned-card-${pinned.id}`);
+          const lineEl = document.getElementById(`pinned-line-${pinned.id}`);
+          if (cardEl) {
+            cardEl.style.transform = `translate(${x + 20}px, ${y - 10}px)`;
+          }
+          if (lineEl) {
+            lineEl.setAttribute('x1', String(x));
+            lineEl.setAttribute('y1', String(y));
+            lineEl.setAttribute('x2', String(x + 20));
+            lineEl.setAttribute('y2', String(y + 10));
+            const circle = lineEl.nextElementSibling as SVGCircleElement;
+            if (circle) {
+              circle.setAttribute('cx', String(x));
+              circle.setAttribute('cy', String(y));
+            }
+          }
         } catch {
-          // Fall back to initial position if projection fails
-          newPositions[pinned.id] = pinned.initialScreenPos;
+          // Keep existing position on error
         }
       }
-      setPinnedScreenPositions(newPositions);
+
+      animationFrameId = requestAnimationFrame(updatePositions);
     };
 
-    // Run immediately and also after a frame for DeckGL to update
-    updatePositions();
-    const frameId = requestAnimationFrame(updatePositions);
+    animationFrameId = requestAnimationFrame(updatePositions);
 
-    return () => cancelAnimationFrame(frameId);
-  }, [viewState, pinnedInfos, layerSpacing, getLayerZOffset, center]);
+    return () => cancelAnimationFrame(animationFrameId);
+  }, [pinnedInfos, getLayerZOffset, center]); // Note: removed viewState dependency
 
   // Helper to get centroid of a feature
   const getFeatureCentroid = useCallback((feature: Feature): [number, number] => {
@@ -589,19 +683,28 @@ const DeckGLView = memo(function DeckGLView({
           Initializing 3D view...
         </div>
       )}
-      <DeckGL
-        ref={deckRef}
-        views={new OrbitView({ id: 'orbit', orbitAxis: 'Z' })}
-        viewState={viewState}
-        onViewStateChange={onViewStateChange}
-        onWebGLInitialized={handleWebGLInitialized}
-        onError={handleError}
-        onHover={onHover}
-        onClick={onClick}
-        controller={true}
-        layers={extractedLayers}
-        style={{ position: 'absolute', top: '0', left: '0', width: '100%', height: '100%' }}
-      />
+      <div
+        style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' }}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseUp}
+        onWheel={handleWheel}
+      >
+        <DeckGL
+          ref={deckRef}
+          views={new OrbitView({ id: 'orbit', orbitAxis: 'Z' })}
+          viewState={viewState}
+          onViewStateChange={onViewStateChange}
+          onWebGLInitialized={handleWebGLInitialized}
+          onError={handleError}
+          onHover={onHover}
+          onClick={onClick}
+          controller={false}
+          layers={extractedLayers}
+          style={{ position: 'absolute', top: '0', left: '0', width: '100%', height: '100%' }}
+        />
+      </div>
 
       {/* Hover Tooltip */}
       {hoveredFeature && cursorPosition && (
@@ -644,13 +747,10 @@ const DeckGLView = memo(function DeckGLView({
 
       {/* Pinned Info Cards with connector lines */}
       {pinnedInfos.map((pinned) => {
-        // Use tracked screen position, fall back to initial position
-        const screenPos = pinnedScreenPositions[pinned.id] || pinned.initialScreenPos;
-
-        // Calculate card position (offset from object)
-        const cardOffset = { x: 20, y: -10 };
-        const cardX = screenPos.x + cardOffset.x;
-        const cardY = screenPos.y + cardOffset.y;
+        // Get initial position from ref or fallback
+        const initialPos = pinnedScreenPositionsRef.current[pinned.id] || pinned.initialScreenPos;
+        const cardX = initialPos.x + 20;
+        const cardY = initialPos.y - 10;
 
         return (
           <div key={pinned.id}>
@@ -667,8 +767,9 @@ const DeckGLView = memo(function DeckGLView({
               }}
             >
               <line
-                x1={screenPos.x}
-                y1={screenPos.y}
+                id={`pinned-line-${pinned.id}`}
+                x1={initialPos.x}
+                y1={initialPos.y}
                 x2={cardX}
                 y2={cardY + 20}
                 stroke="rgba(255, 200, 50, 0.8)"
@@ -677,8 +778,8 @@ const DeckGLView = memo(function DeckGLView({
               />
               {/* Small circle at object location */}
               <circle
-                cx={screenPos.x}
-                cy={screenPos.y}
+                cx={initialPos.x}
+                cy={initialPos.y}
                 r="5"
                 fill="rgba(255, 200, 50, 1)"
                 stroke="white"
@@ -686,12 +787,15 @@ const DeckGLView = memo(function DeckGLView({
               />
             </svg>
 
-            {/* Info Card */}
+            {/* Info Card - uses transform for smooth updates */}
             <div
+              id={`pinned-card-${pinned.id}`}
               style={{
                 position: 'absolute',
-                left: cardX,
-                top: cardY,
+                left: 0,
+                top: 0,
+                transform: `translate(${cardX}px, ${cardY}px)`,
+                willChange: 'transform',
                 backgroundColor: 'rgba(0, 0, 0, 0.95)',
                 color: 'white',
                 padding: '10px 12px',
@@ -938,17 +1042,16 @@ export function ExtractedView() {
   const handleViewStateChange = useCallback((params: any) => {
     const vs = params.viewState;
     if (vs) {
-      // OrbitView viewState update
-      setLocalViewState({
-        target: vs.target || [0, 0, totalHeight / 2],
-        rotationX: Math.max(0, Math.min(90, vs.rotationX || 0)),
-        rotationOrbit: vs.rotationOrbit || 0,
-        zoom: Math.max(-2, Math.min(5, vs.zoom || 0)),
-        minZoom: -2,
-        maxZoom: 5,
-      });
+      // OrbitView viewState update - pass through directly for responsiveness
+      setLocalViewState((prev) => ({
+        ...prev,
+        target: vs.target ?? prev.target,
+        rotationX: vs.rotationX ?? prev.rotationX,
+        rotationOrbit: vs.rotationOrbit ?? prev.rotationOrbit,
+        zoom: vs.zoom ?? prev.zoom,
+      }));
     }
-  }, [totalHeight]);
+  }, []);
 
   // Don't render anything if closed or no selection
   if (!isExtractedViewOpen || !selectionPolygon) return null;
@@ -1306,8 +1409,7 @@ function createExtractedPolygonLayer(
       getElevation: (d: any) => d.height,
       extruded: true,
       pickable: true,
-      autoHighlight: true,
-      highlightColor: [255, 255, 100, 100],
+      autoHighlight: false,
     });
   }
 
@@ -1341,8 +1443,7 @@ function createExtractedPolygonLayer(
       getElevation: PARK_THICKNESS,
       extruded: true,
       pickable: true,
-      autoHighlight: true,
-      highlightColor: [255, 255, 100, 100],
+      autoHighlight: false,
     });
   }
 
@@ -1420,8 +1521,7 @@ function createExtractedLineLayer(
     getWidth: style.strokeWidth * 1.5,
     widthUnits: 'pixels',
     pickable: true,
-    autoHighlight: true,
-    highlightColor: [255, 255, 100, 255],
+    autoHighlight: false,
   });
 }
 
@@ -1455,8 +1555,7 @@ function createExtractedPointLayer(
     getColor: fillColor,
     getScale: [12, 12, 12],
     pickable: true,
-    autoHighlight: true,
-    highlightColor: [255, 255, 100, 255],
+    autoHighlight: false,
   });
 }
 

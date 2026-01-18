@@ -211,7 +211,7 @@ export function StatsPanel() {
       style={{
         position: 'absolute',
         bottom: '20px',
-        left: '20px',
+        left: '10px',
         zIndex: 1000,
         backgroundColor: 'rgba(0, 0, 0, 0.9)',
         color: 'white',
