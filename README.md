@@ -17,7 +17,7 @@ An interactive exploded axonometric map visualization tool for exploring urban s
 ### Exploded Axonometric View
 - Visualize urban layers separated vertically in an exploded diagram style
 - Toggle between flat and exploded views with adjustable layer spacing
-- Layers are grouped by category: Environment, Land Use, Infrastructure, Access & Transit, and Safety
+- Layers are grouped by category: Environment, Land Use, Infrastructure, Access & Transit, and Traffic Control
 
 ### 3D Extracted View
 - Dedicated 3D viewer with orbit controls for detailed exploration
@@ -119,9 +119,9 @@ The app opens centered on Madison, WI by default and remembers your last viewed 
 |-------|-------------|----------------|
 | Environment | Natural features | Parks, water bodies, trees |
 | Land Use | Buildings by type | Residential, commercial, industrial |
-| Infrastructure | Built structures | Roads, railways, bridges |
-| Access & Transit | Transportation | Bus stops, bike lanes, crosswalks |
-| Safety | Emergency services | Fire stations, hospitals, police |
+| Infrastructure | Roads and crossings | Primary roads, residential streets, bike lanes, crosswalks |
+| Access & Transit | Transportation | Transit stops, rail lines, parking |
+| Traffic Control | Traffic devices | Traffic signals |
 
 ## Project Structure
 
