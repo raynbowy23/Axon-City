@@ -1,4 +1,4 @@
-import type { Feature, FeatureCollection, Polygon, MultiPolygon, LineString, MultiLineString, Point } from 'geojson';
+import type { Feature, FeatureCollection, Polygon, MultiPolygon, LineString, MultiLineString, Point, Geometry } from 'geojson';
 
 // Layer categories matching the poster aesthetic
 export type LayerGroup =
@@ -93,6 +93,21 @@ export interface LayerOrderConfig {
   isCustomOrder: boolean;
 }
 
+// Custom layer extends LayerConfig but without osmQuery (user-uploaded data)
+export interface CustomLayerConfig extends Omit<LayerConfig, 'osmQuery'> {
+  isCustom: true;
+  sourceType: 'geojson' | 'csv';
+  fileName: string;
+}
+
+// Union type for all layers
+export type AnyLayerConfig = LayerConfig | CustomLayerConfig;
+
+// Helper type guard to check if a layer is custom
+export function isCustomLayer(layer: AnyLayerConfig): layer is CustomLayerConfig {
+  return 'isCustom' in layer && layer.isCustom === true;
+}
+
 // Selected feature with color for visual differentiation
 export interface SelectedFeature {
   id: string | number;
@@ -128,6 +143,7 @@ export interface AppState {
   layerData: Map<string, LayerData>;
   setLayerData: (layerId: string, data: LayerData) => void;
   clearLayerData: () => void;
+  clearManifestLayerData: () => void;
 
   // Active layers (selected by user)
   activeLayers: string[];
@@ -165,6 +181,16 @@ export interface AppState {
   // Extracted view
   isExtractedViewOpen: boolean;
   setExtractedViewOpen: (isOpen: boolean) => void;
+
+  // Custom layers (user-uploaded data)
+  customLayers: CustomLayerConfig[];
+  addCustomLayer: (layer: CustomLayerConfig, features: FeatureCollection) => void;
+  removeCustomLayer: (layerId: string) => void;
+  clearCustomLayers: () => void;
+
+  // Data input panel
+  isDataInputOpen: boolean;
+  setDataInputOpen: (isOpen: boolean) => void;
 }
 
 // Re-export GeoJSON types for convenience
@@ -176,4 +202,5 @@ export type {
   LineString,
   MultiLineString,
   Point,
+  Geometry,
 };

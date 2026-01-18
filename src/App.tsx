@@ -6,6 +6,7 @@ import { StatsPanel } from './components/StatsPanel';
 import { SearchBar } from './components/SearchBar';
 import { SelectionPanel } from './components/SelectionPanel';
 import { ExtractedView } from './components/ExtractedView';
+import { DataInputPanel } from './components/DataInputPanel';
 import { usePolygonDrawing } from './hooks/usePolygonDrawing';
 import { useStore } from './store/useStore';
 import { layerManifest } from './data/layerManifest';
@@ -15,6 +16,7 @@ import {
   calculateLayerStats,
   calculatePolygonArea,
 } from './utils/geometryUtils';
+import type { CustomLayerConfig } from './types';
 import './App.css';
 
 function App() {
@@ -28,12 +30,13 @@ function App() {
     setIsLoading,
     setLoadingMessage,
     setLayerData,
-    clearLayerData,
+    clearManifestLayerData,
     activeLayers,
     selectionPolygon,
     setSelectionPolygon,
     layerData,
     draggingVertexIndex,
+    customLayers,
   } = useStore();
 
   const {
@@ -50,7 +53,7 @@ function App() {
     async (polygon: Polygon) => {
       setIsLoading(true);
       setLoadingMessage('Preparing to fetch data...');
-      clearLayerData();
+      clearManifestLayerData(); // Only clear manifest layers, preserve custom layers
 
       try {
         // Get bbox from polygon
@@ -109,7 +112,7 @@ function App() {
         setIsLoading(false);
       }
     },
-    [activeLayers, clearLayerData, setIsLoading, setLayerData, setLoadingMessage]
+    [activeLayers, clearManifestLayerData, setIsLoading, setLayerData, setLoadingMessage]
   );
 
   // Re-fetch data when polygon is edited (dragged)
@@ -134,6 +137,51 @@ function App() {
       }
     }
   }, [selectionPolygon, isDrawing, draggingVertexIndex, layerData.size, handlePolygonComplete]);
+
+  // Track last processed polygon for custom layers
+  const lastProcessedPolygonRef = useRef<string | null>(null);
+
+  // Process custom layers when selection polygon changes or custom layers are added
+  useEffect(() => {
+    if (selectionPolygon && customLayers.length > 0 && !isDrawing && draggingVertexIndex === null) {
+      const currentPolygonStr = JSON.stringify(selectionPolygon.geometry.coordinates);
+      const polygonChanged = lastProcessedPolygonRef.current !== currentPolygonStr;
+
+      // Process each custom layer that has data in layerData
+      const polygonAreaKm2 = calculatePolygonArea(selectionPolygon.geometry as Polygon);
+
+      for (const layer of customLayers) {
+        const existingData = layerData.get(layer.id);
+        if (!existingData) continue;
+
+        // Skip if already processed and polygon hasn't changed
+        if (!polygonChanged && existingData.clippedFeatures && existingData.stats) continue;
+
+        // Clip features to polygon
+        const clippedFeatures = clipFeaturesToPolygon(
+          existingData.features,
+          selectionPolygon.geometry as Polygon,
+          layer.geometryType
+        );
+
+        // Calculate stats
+        const stats = calculateLayerStats(
+          clippedFeatures,
+          layer as CustomLayerConfig & { osmQuery: string },
+          polygonAreaKm2
+        );
+
+        setLayerData(layer.id, {
+          layerId: layer.id,
+          features: existingData.features,
+          clippedFeatures,
+          stats,
+        });
+      }
+
+      lastProcessedPolygonRef.current = currentPolygonStr;
+    }
+  }, [selectionPolygon, customLayers, layerData, isDrawing, draggingVertexIndex, setLayerData]);
 
   // Track mouse down position to distinguish clicks from drags
   const handleMouseDown = useCallback(
@@ -199,7 +247,7 @@ function App() {
   }, [isDrawing, pointCount, cancelDrawing, completeDrawing, undoLastPoint, handlePolygonComplete]);
 
   const handleStartDrawing = () => {
-    clearLayerData();
+    clearManifestLayerData(); // Preserve custom layers
     setSelectionPolygon(null);
     startDrawing();
   };
@@ -213,7 +261,7 @@ function App() {
 
   const handleClearSelection = () => {
     setSelectionPolygon(null);
-    clearLayerData();
+    clearManifestLayerData(); // Preserve custom layers
   };
 
   return (
@@ -414,6 +462,7 @@ function App() {
       <StatsPanel />
       <SelectionPanel />
       <ExtractedView />
+      <DataInputPanel />
 
       {/* Loading animation keyframes */}
       <style>

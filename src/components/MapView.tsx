@@ -9,15 +9,15 @@ import type { Feature, FeatureCollection, Polygon, LineString, Point } from 'geo
 import 'maplibre-gl/dist/maplibre-gl.css';
 
 import { useStore } from '../store/useStore';
-import { layerManifest, getLayerById, getLayersByCustomOrder } from '../data/layerManifest';
-import type { LayerConfig, LayerData, LayerGroup } from '../types';
+import { layerManifest, getLayersByCustomOrder } from '../data/layerManifest';
+import type { LayerData, LayerGroup, AnyLayerConfig } from '../types';
 
 // Free MapLibre style - OpenStreetMap Carto
 const MAP_STYLE = 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json';
 
 
 interface LayerRenderInfo {
-  config: LayerConfig;
+  config: AnyLayerConfig;
   data: LayerData;
   zOffset: number;
   groupIndex: number;
@@ -46,6 +46,7 @@ export function MapView() {
     setSelectionPolygon,
     selectedFeatures,
     layerOrder,
+    customLayers,
   } = useStore();
 
   const [hoveredFeature, setHoveredFeature] = useState<Feature | null>(null);
@@ -65,12 +66,22 @@ export function MapView() {
   }
   const [pinnedInfos, setPinnedInfos] = useState<PinnedInfo[]>([]);
 
+  // Helper to get layer config by ID (from manifest or custom layers)
+  const getLayerConfigById = useCallback((layerId: string): AnyLayerConfig | undefined => {
+    // Check manifest layers first
+    const manifestLayer = layerManifest.layers.find(l => l.id === layerId);
+    if (manifestLayer) return manifestLayer;
+
+    // Check custom layers
+    return customLayers.find(l => l.id === layerId);
+  }, [customLayers]);
+
   // Calculate z-offset for a given layer based on current exploded view settings
   // This must match the logic in layerRenderInfo exactly
   const getLayerZOffset = useCallback((layerId: string): number => {
     if (!explodedView.enabled) return 0;
 
-    const layerConfig = layerManifest.layers.find(l => l.id === layerId);
+    const layerConfig = getLayerConfigById(layerId);
     if (!layerConfig) return 0;
 
     const groupSpacing = explodedView.layerSpacing;
@@ -117,7 +128,7 @@ export function MapView() {
     }
 
     return zOffset;
-  }, [explodedView, layerOrder, activeLayers]);
+  }, [explodedView, layerOrder, activeLayers, getLayerConfigById]);
 
   // Track current screen positions of pinned features (updated when viewState changes)
   const [pinnedScreenPositions, setPinnedScreenPositions] = useState<Record<string, { x: number; y: number }>>({});
@@ -199,7 +210,14 @@ export function MapView() {
   const layerRenderInfo = useMemo((): LayerRenderInfo[] => {
     // Use custom layer order instead of static getSortedLayers()
     const sortedLayers = getLayersByCustomOrder(layerOrder);
-    const activeLayerConfigs = sortedLayers.filter((layer) =>
+
+    // Combine manifest layers with custom layers
+    const allLayers: AnyLayerConfig[] = [
+      ...sortedLayers,
+      ...customLayers,
+    ];
+
+    const activeLayerConfigs = allLayers.filter((layer) =>
       activeLayers.includes(layer.id)
     );
 
@@ -252,7 +270,7 @@ export function MapView() {
         groupIndex,
       };
     });
-  }, [activeLayers, layerData, explodedView, layerOrder]);
+  }, [activeLayers, layerData, explodedView, layerOrder, customLayers]);
 
   // Handle hover
   const onHover = useCallback(
@@ -549,9 +567,23 @@ export function MapView() {
         continue;
       }
 
-      const features = selectionPolygon && data.clippedFeatures
-        ? data.clippedFeatures
-        : data.features;
+      // Check if this is a custom layer
+      const isCustom = 'isCustom' in config && config.isCustom;
+
+      // Determine which features to use
+      // Custom layers: show clipped features if selection exists and has clipped data, otherwise show all features
+      // Manifest layers: show clipped features if selection exists, otherwise show fetched features
+      let features;
+      if (isCustom) {
+        // Custom layers: use clipped features when available, otherwise use all features
+        features = (selectionPolygon && data.clippedFeatures && data.clippedFeatures.features.length > 0)
+          ? data.clippedFeatures
+          : data.features;
+      } else {
+        features = selectionPolygon && data.clippedFeatures
+          ? data.clippedFeatures
+          : data.features;
+      }
 
       if (!features || features.features.length === 0) continue;
 
@@ -1128,7 +1160,7 @@ export function MapView() {
           }}
         >
           <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>
-            {getLayerById(hoveredLayerId || '')?.name || 'Feature'}
+            {getLayerConfigById(hoveredLayerId || '')?.name || 'Feature'}
           </div>
           {hoveredFeature.properties && (
             <div>
@@ -1211,7 +1243,7 @@ export function MapView() {
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '6px' }}>
                 <div style={{ fontWeight: 'bold', color: 'rgba(255, 200, 50, 1)' }}>
-                  {getLayerById(pinned.layerId)?.name || 'Feature'}
+                  {getLayerConfigById(pinned.layerId)?.name || 'Feature'}
                 </div>
                 <button
                   onClick={() => removePinnedInfo(pinned.id)}
@@ -1283,7 +1315,7 @@ function calculatePolygonAreaFromCoords(coords: [number, number][]): number {
 
 // Helper functions to create layers
 function createPolygonLayer(
-  config: LayerConfig,
+  config: AnyLayerConfig,
   features: FeatureCollection,
   zOffset: number,
   opacity: number,
@@ -1319,7 +1351,7 @@ function createPolygonLayer(
 }
 
 function createLineLayer(
-  config: LayerConfig,
+  config: AnyLayerConfig,
   features: FeatureCollection,
   zOffset: number,
   opacity: number,
@@ -1376,7 +1408,7 @@ function getSphereMesh(): SphereGeometry {
 }
 
 function createPointLayer(
-  config: LayerConfig,
+  config: AnyLayerConfig,
   features: FeatureCollection,
   zOffset: number,
   opacity: number,
@@ -1415,7 +1447,7 @@ function createPointLayer(
 }
 
 function createGroundShadowLayer(
-  config: LayerConfig,
+  config: AnyLayerConfig,
   features: FeatureCollection,
   opacity: number
 ): Layer {
@@ -1432,7 +1464,7 @@ function createGroundShadowLayer(
 }
 
 function createVerticalConnectors(
-  config: LayerConfig,
+  config: AnyLayerConfig,
   features: FeatureCollection,
   zOffset: number,
   geometryType: 'polygon' | 'line' | 'point'
@@ -1534,7 +1566,7 @@ const BUILDING_FLOAT_HEIGHT = 80; // meters above ground
 
 // Specialized layer for buildings - floating in exploded view
 function createBuildingLayer(
-  config: LayerConfig,
+  config: AnyLayerConfig,
   features: FeatureCollection,
   zOffset: number,
   opacity: number,
@@ -1615,7 +1647,7 @@ function getParkingHeight(props: Record<string, unknown>): number {
 
 // Specialized layer for parking - floating in exploded view (same height as buildings)
 function createParkingLayer(
-  config: LayerConfig,
+  config: AnyLayerConfig,
   features: FeatureCollection,
   zOffset: number,
   opacity: number,
@@ -1686,7 +1718,7 @@ const PARK_THICKNESS = 5; // meters thick
 
 // Specialized layer for parks - floating in exploded view (below buildings, with thickness)
 function createParkLayer(
-  config: LayerConfig,
+  config: AnyLayerConfig,
   features: FeatureCollection,
   zOffset: number,
   opacity: number,

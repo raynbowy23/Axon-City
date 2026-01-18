@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { AppState, ViewState, LayerData, ExplodedViewConfig, SelectedFeature, Feature, LayerGroup, LayerOrderConfig } from '../types';
+import type { AppState, ViewState, LayerData, ExplodedViewConfig, SelectedFeature, Feature, LayerGroup, LayerOrderConfig, CustomLayerConfig, FeatureCollection } from '../types';
 import { layerManifest } from '../data/layerManifest';
 
 // Distinct colors for selected features (colorblind-friendly palette)
@@ -100,6 +100,18 @@ export const useStore = create<AppState>((set) => ({
       return { layerData: newMap };
     }),
   clearLayerData: () => set({ layerData: new Map() }),
+  clearManifestLayerData: () =>
+    set((state) => {
+      // Only clear non-custom layer data (preserve custom layers)
+      const customLayerIds = new Set(state.customLayers.map((l) => l.id));
+      const newMap = new Map<string, LayerData>();
+      for (const [layerId, data] of state.layerData.entries()) {
+        if (customLayerIds.has(layerId)) {
+          newMap.set(layerId, data);
+        }
+      }
+      return { layerData: newMap };
+    }),
 
   // Active layers
   activeLayers: [
@@ -205,4 +217,70 @@ export const useStore = create<AppState>((set) => ({
   // Extracted view
   isExtractedViewOpen: false,
   setExtractedViewOpen: (isOpen) => set({ isExtractedViewOpen: isOpen }),
+
+  // Custom layers (user-uploaded data)
+  customLayers: [],
+  addCustomLayer: (layer: CustomLayerConfig, features: FeatureCollection) =>
+    set((state) => {
+      // Add layer to customLayers
+      const newCustomLayers = [...state.customLayers, layer];
+
+      // Add to active layers
+      const newActiveLayers = [...state.activeLayers, layer.id];
+
+      // Store features in layerData
+      const newLayerData = new Map(state.layerData);
+      newLayerData.set(layer.id, {
+        layerId: layer.id,
+        features,
+      });
+
+      return {
+        customLayers: newCustomLayers,
+        activeLayers: newActiveLayers,
+        layerData: newLayerData,
+      };
+    }),
+  removeCustomLayer: (layerId: string) =>
+    set((state) => {
+      // Remove from customLayers
+      const newCustomLayers = state.customLayers.filter((l) => l.id !== layerId);
+
+      // Remove from active layers
+      const newActiveLayers = state.activeLayers.filter((id) => id !== layerId);
+
+      // Remove from layerData
+      const newLayerData = new Map(state.layerData);
+      newLayerData.delete(layerId);
+
+      return {
+        customLayers: newCustomLayers,
+        activeLayers: newActiveLayers,
+        layerData: newLayerData,
+      };
+    }),
+  clearCustomLayers: () =>
+    set((state) => {
+      // Get all custom layer IDs
+      const customLayerIds = new Set(state.customLayers.map((l) => l.id));
+
+      // Remove from active layers
+      const newActiveLayers = state.activeLayers.filter((id) => !customLayerIds.has(id));
+
+      // Remove from layerData
+      const newLayerData = new Map(state.layerData);
+      for (const id of customLayerIds) {
+        newLayerData.delete(id);
+      }
+
+      return {
+        customLayers: [],
+        activeLayers: newActiveLayers,
+        layerData: newLayerData,
+      };
+    }),
+
+  // Data input panel
+  isDataInputOpen: false,
+  setDataInputOpen: (isOpen) => set({ isDataInputOpen: isOpen }),
 }));

@@ -1,7 +1,7 @@
 import { useMemo, useState, useCallback, useEffect, useRef } from 'react';
 import { useStore } from '../store/useStore';
 import { getLayerById, getGroupById } from '../data/layerManifest';
-import type { LayerStats, LayerGroup } from '../types';
+import type { LayerStats, LayerGroup, AnyLayerConfig } from '../types';
 
 // Size constraints
 const MIN_WIDTH = 280;
@@ -44,7 +44,7 @@ function saveSize(size: PanelSize): void {
 }
 
 export function StatsPanel() {
-  const { layerData, activeLayers, selectionPolygon, isLoading, loadingMessage, setExtractedViewOpen, isExtractedViewOpen } = useStore();
+  const { layerData, activeLayers, selectionPolygon, isLoading, loadingMessage, setExtractedViewOpen, isExtractedViewOpen, customLayers } = useStore();
 
   // Panel size state
   const [size, setSize] = useState<PanelSize>(loadSavedSize);
@@ -114,19 +114,27 @@ export function StatsPanel() {
     };
   }, [size]);
 
+  // Helper to get layer config (manifest or custom)
+  const getLayerConfig = useCallback((layerId: string): AnyLayerConfig | undefined => {
+    const manifestLayer = getLayerById(layerId);
+    if (manifestLayer) return manifestLayer;
+    return customLayers.find((l) => l.id === layerId);
+  }, [customLayers]);
+
   // Group stats by layer group
   const groupedStats = useMemo(() => {
     const groups = new Map<
       LayerGroup,
-      { layerId: string; name: string; stats: LayerStats | undefined }[]
+      { layerId: string; name: string; stats: LayerStats | undefined; isCustom?: boolean; fillColor?: [number, number, number, number] }[]
     >();
 
     for (const layerId of activeLayers) {
-      const layer = getLayerById(layerId);
+      const layer = getLayerConfig(layerId);
       if (!layer) continue;
 
       const data = layerData.get(layerId);
       const stats = data?.stats;
+      const isCustom = 'isCustom' in layer && layer.isCustom;
 
       if (!groups.has(layer.group)) {
         groups.set(layer.group, []);
@@ -135,11 +143,13 @@ export function StatsPanel() {
         layerId,
         name: layer.name,
         stats,
+        isCustom,
+        fillColor: layer.style.fillColor,
       });
     }
 
     return groups;
-  }, [layerData, activeLayers]);
+  }, [layerData, activeLayers, getLayerConfig]);
 
   const hasStats = Array.from(groupedStats.values()).some((layers) =>
     layers.some((l) => l.stats)
@@ -360,8 +370,15 @@ export function StatsPanel() {
                   </span>
                 </div>
 
-                {layersWithStats.map(({ layerId, name, stats }) => (
-                  <LayerStatsRow key={layerId} layerId={layerId} name={name} stats={stats!} />
+                {layersWithStats.map(({ layerId, name, stats, isCustom, fillColor }) => (
+                  <LayerStatsRow
+                    key={layerId}
+                    layerId={layerId}
+                    name={name}
+                    stats={stats!}
+                    isCustom={isCustom}
+                    fillColor={fillColor}
+                  />
                 ))}
               </div>
             );
@@ -376,13 +393,17 @@ function LayerStatsRow({
   layerId,
   name,
   stats,
+  isCustom,
+  fillColor,
 }: {
   layerId: string;
   name: string;
   stats: LayerStats;
+  isCustom?: boolean;
+  fillColor?: [number, number, number, number];
 }) {
   const layer = getLayerById(layerId);
-  if (!layer) return null;
+  const color = fillColor || layer?.style.fillColor || [180, 180, 180, 200];
 
   return (
     <div
@@ -391,11 +412,24 @@ function LayerStatsRow({
         marginBottom: '4px',
         backgroundColor: 'rgba(255, 255, 255, 0.05)',
         borderRadius: '4px',
-        borderLeft: `3px solid rgba(${layer.style.fillColor.slice(0, 3).join(',')}, 0.8)`,
+        borderLeft: `3px solid rgba(${color.slice(0, 3).join(',')}, 0.8)`,
       }}
     >
-      <div style={{ fontWeight: '500', marginBottom: '4px', fontSize: '12px' }}>
+      <div style={{ fontWeight: '500', marginBottom: '4px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
         {name}
+        {isCustom && (
+          <span
+            style={{
+              fontSize: '9px',
+              backgroundColor: 'rgba(255, 255, 255, 0.15)',
+              padding: '1px 4px',
+              borderRadius: '3px',
+              opacity: 0.7,
+            }}
+          >
+            Custom
+          </span>
+        )}
       </div>
       <div
         style={{
