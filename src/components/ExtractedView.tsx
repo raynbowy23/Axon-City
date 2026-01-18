@@ -111,6 +111,16 @@ const DeckGLView = memo(function DeckGLView({
   const [hoveredFeature, setHoveredFeature] = useState<Feature | null>(null);
   const [hoveredLayerId, setHoveredLayerId] = useState<string | null>(null);
   const [cursorPosition, setCursorPosition] = useState<{ x: number; y: number } | null>(null);
+  const [isHoveringObject, setIsHoveringObject] = useState(false);
+
+  // Clicked/highlighted object with its 3D geometry data
+  interface HighlightedObject {
+    layerId: string;
+    polygon?: number[][];  // For polygon layers (already in local coords with z)
+    path?: number[][];     // For line layers
+    position?: number[];   // For point layers
+  }
+  const [highlightedObject, setHighlightedObject] = useState<HighlightedObject | null>(null);
 
   // Custom drag handling: drag=pan, Ctrl+drag=rotate
   const isDraggingRef = useRef(false);
@@ -362,23 +372,36 @@ const DeckGLView = memo(function DeckGLView({
 
   // Handle hover
   const onHover = useCallback((info: PickingInfo) => {
-    if (info.layer) {
+    if (info.layer && info.object) {
       // Extract layer ID from the deck layer id (e.g., "extracted-buildings" -> "buildings")
       const layerId = info.layer.id.replace('extracted-', '');
       setHoveredLayerId(layerId);
       setHoveredFeature(info.object?.feature || info.object || null);
       setCursorPosition({ x: info.x, y: info.y });
+      setIsHoveringObject(true);
     } else {
       setHoveredLayerId(null);
       setHoveredFeature(null);
       setCursorPosition(null);
+      setIsHoveringObject(false);
     }
   }, []);
 
-  // Handle click to pin feature info
+  // Handle click to pin feature info and highlight object
   const onClick = useCallback((info: PickingInfo) => {
     if (info.object && info.layer && info.x !== undefined && info.y !== undefined) {
       const layerId = info.layer.id.replace('extracted-', '');
+
+      // Capture 3D geometry for highlighting
+      if (info.object.polygon) {
+        setHighlightedObject({ layerId, polygon: info.object.polygon as number[][] });
+      } else if (info.object.path) {
+        setHighlightedObject({ layerId, path: info.object.path as number[][] });
+      } else if (info.object.position) {
+        setHighlightedObject({ layerId, position: info.object.position as number[] });
+      } else {
+        setHighlightedObject(null);
+      }
 
       // Get the feature and coordinates (handle different data formats)
       let feature: Feature | null = null;
@@ -469,6 +492,9 @@ const DeckGLView = memo(function DeckGLView({
           ]);
         }
       }
+    } else {
+      // Clicked on empty space - clear highlight
+      setHighlightedObject(null);
     }
   }, [pinnedInfos, getFeatureCentroid]);
 
@@ -638,8 +664,59 @@ const DeckGLView = memo(function DeckGLView({
       }
     });
 
+    // Add highlight layer for clicked object
+    if (highlightedObject) {
+      const highlightColor: [number, number, number, number] = [255, 200, 50, 200];
+      const highlightLineColor: [number, number, number, number] = [255, 200, 50, 255];
+
+      if (highlightedObject.polygon) {
+        layers.push(
+          new PolygonLayer({
+            id: 'highlight-polygon',
+            data: [{ polygon: highlightedObject.polygon }],
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            getPolygon: (d: any) => d.polygon,
+            getFillColor: highlightColor,
+            getLineColor: highlightLineColor,
+            getLineWidth: 3,
+            lineWidthUnits: 'pixels',
+            filled: true,
+            stroked: true,
+            extruded: false,
+            pickable: false,
+          })
+        );
+      } else if (highlightedObject.path) {
+        layers.push(
+          new PathLayer({
+            id: 'highlight-path',
+            data: [{ path: highlightedObject.path }],
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            getPath: (d: any) => d.path,
+            getColor: highlightLineColor,
+            getWidth: 6,
+            widthUnits: 'pixels',
+            pickable: false,
+          })
+        );
+      } else if (highlightedObject.position) {
+        layers.push(
+          new SimpleMeshLayer({
+            id: 'highlight-point',
+            data: [{ position: highlightedObject.position }],
+            mesh: createSphereMesh(),
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            getPosition: (d: any) => d.position,
+            getColor: highlightLineColor,
+            getScale: [18, 18, 18],
+            pickable: false,
+          })
+        );
+      }
+    }
+
     return layers;
-  }, [selectionPolygon, layerData, activeLayers, layerOrder, layerSpacing, pinnedInfos, enabledGroups, center, showPlatforms]);
+  }, [selectionPolygon, layerData, activeLayers, layerOrder, layerSpacing, pinnedInfos, enabledGroups, center, showPlatforms, highlightedObject]);
 
   if (error) {
     return (
@@ -684,7 +761,14 @@ const DeckGLView = memo(function DeckGLView({
         </div>
       )}
       <div
-        style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' }}
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          width: '100%',
+          height: '100%',
+          cursor: isHoveringObject ? 'pointer' : 'grab',
+        }}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
