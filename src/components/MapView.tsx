@@ -131,7 +131,8 @@ export function MapView() {
 
     if (isCustom) {
       // Custom layers go at the top, above all manifest groups
-      const customLayerBaseHeight = cumulativeHeight + (activeCustomLayers.length > 0 ? groupSpacing : 0);
+      // cumulativeHeight already includes spacing after the last group, so just use it directly
+      const customLayerBaseHeight = cumulativeHeight;
       const customLayerIndex = activeCustomLayers.findIndex(l => l.id === layerId);
       zOffset = explodedView.baseElevation + customLayerBaseHeight + Math.max(0, customLayerIndex) * intraGroupSpacing;
     } else {
@@ -275,7 +276,8 @@ export function MapView() {
     }
 
     // Custom layers go at the TOP - above all manifest groups
-    const customLayerBaseHeight = cumulativeHeight + (activeCustomLayers.length > 0 ? groupSpacing : 0);
+    // cumulativeHeight already includes spacing after the last group, so just use it directly
+    const customLayerBaseHeight = cumulativeHeight;
 
     // Track layer index within each group
     const groupLayerCounts: Record<string, number> = {};
