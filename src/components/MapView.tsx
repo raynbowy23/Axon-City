@@ -87,15 +87,18 @@ export function MapView() {
     const groupSpacing = explodedView.layerSpacing;
     const intraGroupSpacing = explodedView.layerSpacing * explodedView.intraGroupRatio;
 
-    // Get active layer configs in custom order (same as layerRenderInfo)
+    // Check if this is a custom layer
+    const isCustom = 'isCustom' in layerConfig && layerConfig.isCustom;
+
+    // Get active manifest layer configs in custom order (same as layerRenderInfo)
     const sortedLayers = getLayersByCustomOrder(layerOrder);
-    const activeLayerConfigs = sortedLayers.filter((layer) =>
+    const activeManifestLayers = sortedLayers.filter((layer) =>
       activeLayers.includes(layer.id)
     );
 
-    // Count active layers per group
+    // Count active manifest layers per group
     const activeLayersPerGroup: Record<string, number> = {};
-    for (const config of activeLayerConfigs) {
+    for (const config of activeManifestLayers) {
       activeLayersPerGroup[config.group] = (activeLayersPerGroup[config.group] || 0) + 1;
     }
 
@@ -103,32 +106,40 @@ export function MapView() {
     let cumulativeHeight = 0;
     let groupBaseHeight = 0;
     for (const groupId of layerOrder.groupOrder) {
-      if (groupId === layerConfig.group) {
+      if (!isCustom && groupId === layerConfig.group) {
         groupBaseHeight = cumulativeHeight;
-        break;
       }
       const layerCount = activeLayersPerGroup[groupId] || 0;
       cumulativeHeight += groupSpacing + layerCount * intraGroupSpacing;
     }
 
-    // Get layer index within group (only counting active layers)
-    const activeLayersInGroup = activeLayerConfigs.filter(l => l.group === layerConfig.group);
-    const layerIndexInGroup = activeLayersInGroup.findIndex(l => l.id === layerId);
+    let zOffset: number;
 
-    let zOffset = explodedView.baseElevation + groupBaseHeight + layerIndexInGroup * intraGroupSpacing;
+    if (isCustom) {
+      // Custom layers go at the top, above all manifest groups
+      const customLayerBaseHeight = cumulativeHeight + groupSpacing;
+      const activeCustomLayers = customLayers.filter(l => activeLayers.includes(l.id));
+      const customLayerIndex = activeCustomLayers.findIndex(l => l.id === layerId);
+      zOffset = explodedView.baseElevation + customLayerBaseHeight + Math.max(0, customLayerIndex) * intraGroupSpacing;
+    } else {
+      // Get layer index within group (only counting active manifest layers)
+      const activeLayersInGroup = activeManifestLayers.filter(l => l.group === layerConfig.group);
+      const layerIndexInGroup = activeLayersInGroup.findIndex(l => l.id === layerId);
+      zOffset = explodedView.baseElevation + groupBaseHeight + Math.max(0, layerIndexInGroup) * intraGroupSpacing;
 
-    // Special handling for floating layers - match actual layer elevations
-    const isBuildingLayer = layerId.startsWith('buildings-') || layerId === 'buildings';
-    if (isBuildingLayer || layerId === 'parking') {
-      // Buildings and parking float at minimum BUILDING_FLOAT_HEIGHT (80m) or zOffset
-      zOffset = Math.max(80, zOffset);
-    } else if (layerId === 'parks') {
-      // Parks float at minimum 40m, or higher based on layer stacking
-      zOffset = Math.max(40, zOffset);
+      // Special handling for floating layers - match actual layer elevations
+      const isBuildingLayer = layerId.startsWith('buildings-') || layerId === 'buildings';
+      if (isBuildingLayer || layerId === 'parking') {
+        // Buildings and parking float at minimum BUILDING_FLOAT_HEIGHT (80m) or zOffset
+        zOffset = Math.max(80, zOffset);
+      } else if (layerId === 'parks') {
+        // Parks float at minimum 40m, or higher based on layer stacking
+        zOffset = Math.max(40, zOffset);
+      }
     }
 
     return zOffset;
-  }, [explodedView, layerOrder, activeLayers, getLayerConfigById]);
+  }, [explodedView, layerOrder, activeLayers, customLayers, getLayerConfigById]);
 
   // Track current screen positions of pinned features (updated when viewState changes)
   const [pinnedScreenPositions, setPinnedScreenPositions] = useState<Record<string, { x: number; y: number }>>({});
@@ -211,13 +222,11 @@ export function MapView() {
     // Use custom layer order instead of static getSortedLayers()
     const sortedLayers = getLayersByCustomOrder(layerOrder);
 
-    // Combine manifest layers with custom layers
-    const allLayers: AnyLayerConfig[] = [
-      ...sortedLayers,
-      ...customLayers,
-    ];
-
-    const activeLayerConfigs = allLayers.filter((layer) =>
+    // Separate manifest and custom layers
+    const activeManifestLayers = sortedLayers.filter((layer) =>
+      activeLayers.includes(layer.id)
+    );
+    const activeCustomLayers = customLayers.filter((layer) =>
       activeLayers.includes(layer.id)
     );
 
@@ -225,9 +234,9 @@ export function MapView() {
     const groupSpacing = explodedView.layerSpacing; // Base space between groups
     const intraGroupSpacing = explodedView.layerSpacing * explodedView.intraGroupRatio; // Small space within groups
 
-    // First, count how many active layers are in each group
+    // First, count how many active manifest layers are in each group
     const activeLayersPerGroup: Record<string, number> = {};
-    for (const config of activeLayerConfigs) {
+    for (const config of activeManifestLayers) {
       activeLayersPerGroup[config.group] = (activeLayersPerGroup[config.group] || 0) + 1;
     }
 
@@ -242,10 +251,14 @@ export function MapView() {
       cumulativeHeight += groupSpacing + layerCount * intraGroupSpacing;
     }
 
+    // Custom layers go at the TOP - above all manifest groups
+    const customLayerBaseHeight = cumulativeHeight + groupSpacing;
+
     // Track layer index within each group
     const groupLayerCounts: Record<string, number> = {};
 
-    return activeLayerConfigs.map((config) => {
+    // Process manifest layers first
+    const manifestLayerInfos = activeManifestLayers.map((config) => {
       const data = layerData.get(config.id);
       const groupBaseHeight = groupBaseHeights[config.group] || 0;
 
@@ -270,6 +283,26 @@ export function MapView() {
         groupIndex,
       };
     });
+
+    // Process custom layers - they go at the top
+    const customLayerInfos = activeCustomLayers.map((config, index) => {
+      const data = layerData.get(config.id);
+
+      // Custom layers stack above all manifest layers
+      const zOffset = explodedView.enabled
+        ? explodedView.baseElevation + customLayerBaseHeight + index * intraGroupSpacing
+        : 0;
+
+      return {
+        config,
+        data: data || { layerId: config.id, features: { type: 'FeatureCollection', features: [] } },
+        zOffset,
+        groupIndex: -1, // Special index for custom layers
+      };
+    });
+
+    // Return manifest layers first, then custom layers on top
+    return [...manifestLayerInfos, ...customLayerInfos];
   }, [activeLayers, layerData, explodedView, layerOrder, customLayers]);
 
   // Handle hover
