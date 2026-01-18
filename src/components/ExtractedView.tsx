@@ -89,6 +89,7 @@ interface DeckGLViewProps {
   activeLayers: string[];
   layerOrder: LayerOrderConfig;
   layerSpacing: number;
+  intraGroupRatio: number; // ratio of layer spacing for intra-group spacing
   center: [number, number]; // geographic center for coordinate conversion
   enabledGroups: Set<string>; // which groups are visible in extracted view
   showPlatforms: boolean; // whether to show transparent group platforms
@@ -102,6 +103,7 @@ const DeckGLView = memo(function DeckGLView({
   activeLayers,
   layerOrder,
   layerSpacing,
+  intraGroupRatio,
   center,
   enabledGroups,
   showPlatforms,
@@ -219,7 +221,7 @@ const DeckGLView = memo(function DeckGLView({
     if (!layerConfig) return 0;
 
     const groupSpacing = layerSpacing;
-    const intraGroupSpacing = layerSpacing * 0.15;
+    const intraGroupSpacing = layerSpacing * intraGroupRatio;
 
     // Get active layer configs in custom order (same as extractedLayers)
     const sortedLayers = getLayersByCustomOrder(layerOrder);
@@ -261,7 +263,7 @@ const DeckGLView = memo(function DeckGLView({
     }
 
     return zOffset;
-  }, [layerOrder, layerSpacing, activeLayers]);
+  }, [layerOrder, layerSpacing, intraGroupRatio, activeLayers]);
 
   // Update pinned screen positions continuously using rAF (doesn't trigger re-renders)
   useEffect(() => {
@@ -505,7 +507,7 @@ const DeckGLView = memo(function DeckGLView({
     );
 
     const groupSpacing = layerSpacing;
-    const intraGroupSpacing = layerSpacing * 0.15;
+    const intraGroupSpacing = layerSpacing * intraGroupRatio;
 
     // Count active layers per group (only enabled groups)
     const activeLayersPerGroup: Record<string, number> = {};
@@ -713,7 +715,7 @@ const DeckGLView = memo(function DeckGLView({
     }
 
     return layers;
-  }, [selectionPolygon, layerData, activeLayers, layerOrder, layerSpacing, pinnedInfos, enabledGroups, center, showPlatforms, highlightedObject]);
+  }, [selectionPolygon, layerData, activeLayers, layerOrder, layerSpacing, intraGroupRatio, pinnedInfos, enabledGroups, center, showPlatforms, highlightedObject]);
 
   if (error) {
     return (
@@ -978,6 +980,7 @@ export function ExtractedView() {
 
   // Exploded view config (always on)
   const [layerSpacing, setLayerSpacing] = useState(80);
+  const [intraGroupRatio, setIntraGroupRatio] = useState(0.3); // Ratio of layer spacing for intra-group spacing
 
   // Local group visibility state (independent from main view)
   const [enabledGroups, setEnabledGroups] = useState<Set<string>>(() => {
@@ -1181,16 +1184,31 @@ export function ExtractedView() {
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           {/* Layer spacing control */}
           <label style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'white', fontSize: '11px' }}>
-            Spacing:
+            Group:
             <input
               type="range"
               min="30"
               max="200"
               value={layerSpacing}
               onChange={(e) => setLayerSpacing(Number(e.target.value))}
-              style={{ width: '80px', cursor: 'pointer' }}
+              style={{ width: '60px', cursor: 'pointer' }}
             />
             <span style={{ width: '35px' }}>{layerSpacing}m</span>
+          </label>
+
+          {/* Intra-group spacing control */}
+          <label style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'white', fontSize: '11px' }}>
+            Layer:
+            <input
+              type="range"
+              min="0.1"
+              max="0.8"
+              step="0.05"
+              value={intraGroupRatio}
+              onChange={(e) => setIntraGroupRatio(Number(e.target.value))}
+              style={{ width: '60px', cursor: 'pointer' }}
+            />
+            <span style={{ width: '35px' }}>{Math.round(layerSpacing * intraGroupRatio)}m</span>
           </label>
 
           <button
@@ -1347,6 +1365,7 @@ export function ExtractedView() {
           activeLayers={activeLayers}
           layerOrder={layerOrder}
           layerSpacing={layerSpacing}
+          intraGroupRatio={intraGroupRatio}
           center={center}
           enabledGroups={enabledGroups}
           showPlatforms={showPlatforms}

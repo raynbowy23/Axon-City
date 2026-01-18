@@ -74,7 +74,7 @@ export function MapView() {
     if (!layerConfig) return 0;
 
     const groupSpacing = explodedView.layerSpacing;
-    const intraGroupSpacing = explodedView.layerSpacing * 0.15;
+    const intraGroupSpacing = explodedView.layerSpacing * explodedView.intraGroupRatio;
 
     // Get active layer configs in custom order (same as layerRenderInfo)
     const sortedLayers = getLayersByCustomOrder(layerOrder);
@@ -205,7 +205,7 @@ export function MapView() {
 
     // Calculate z-offsets based on group hierarchy
     const groupSpacing = explodedView.layerSpacing; // Base space between groups
-    const intraGroupSpacing = explodedView.layerSpacing * 0.15; // Small space within groups
+    const intraGroupSpacing = explodedView.layerSpacing * explodedView.intraGroupRatio; // Small space within groups
 
     // First, count how many active layers are in each group
     const activeLayersPerGroup: Record<string, number> = {};

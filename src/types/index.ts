@@ -81,7 +81,8 @@ export interface ViewState {
 
 export interface ExplodedViewConfig {
   enabled: boolean;
-  layerSpacing: number; // vertical distance between layers in meters
+  layerSpacing: number; // vertical distance between layer groups in meters
+  intraGroupRatio: number; // ratio of layerSpacing for spacing between layers in same group
   baseElevation: number;
   animationDuration: number;
 }

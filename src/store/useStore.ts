@@ -28,6 +28,7 @@ const defaultViewState: ViewState = {
 const defaultExplodedView: ExplodedViewConfig = {
   enabled: false,
   layerSpacing: 100, // meters between groups (increased for better separation)
+  intraGroupRatio: 0.3, // 30% of layerSpacing for layers within same group
   baseElevation: 0,
   animationDuration: 500,
 };

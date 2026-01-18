@@ -61,7 +61,7 @@ export function ControlPanel() {
           <>
             <div style={{ marginBottom: '8px' }}>
               <label style={{ display: 'block', marginBottom: '4px', fontSize: '12px' }}>
-                Layer Spacing: {explodedView.layerSpacing}m
+                Group Spacing: {explodedView.layerSpacing}m
               </label>
               <input
                 type="range"
@@ -71,6 +71,22 @@ export function ControlPanel() {
                 value={explodedView.layerSpacing}
                 onChange={(e) =>
                   setExplodedView({ layerSpacing: Number(e.target.value) })
+                }
+                style={{ width: '100%' }}
+              />
+            </div>
+            <div style={{ marginBottom: '8px' }}>
+              <label style={{ display: 'block', marginBottom: '4px', fontSize: '12px' }}>
+                Layer Spacing: {Math.round(explodedView.layerSpacing * explodedView.intraGroupRatio)}m
+              </label>
+              <input
+                type="range"
+                min="0.1"
+                max="0.8"
+                step="0.05"
+                value={explodedView.intraGroupRatio}
+                onChange={(e) =>
+                  setExplodedView({ intraGroupRatio: Number(e.target.value) })
                 }
                 style={{ width: '100%' }}
               />
