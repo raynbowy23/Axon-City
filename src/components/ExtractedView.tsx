@@ -90,6 +90,8 @@ interface DeckGLViewProps {
   layerOrder: LayerOrderConfig;
   layerSpacing: number;
   center: [number, number]; // geographic center for coordinate conversion
+  enabledGroups: Set<string>; // which groups are visible in extracted view
+  showPlatforms: boolean; // whether to show transparent group platforms
 }
 
 const DeckGLView = memo(function DeckGLView({
@@ -101,6 +103,8 @@ const DeckGLView = memo(function DeckGLView({
   layerOrder,
   layerSpacing,
   center,
+  enabledGroups,
+  showPlatforms,
 }: DeckGLViewProps) {
   const [isReady, setIsReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -378,12 +382,15 @@ const DeckGLView = memo(function DeckGLView({
   const extractedLayers = useMemo((): Layer[] => {
     const layers: Layer[] = [];
     const sortedLayers = getLayersByCustomOrder(layerOrder);
-    const activeLayerConfigs = sortedLayers.filter((layer) => activeLayers.includes(layer.id));
+    // Filter by both active layers AND enabled groups
+    const activeLayerConfigs = sortedLayers.filter(
+      (layer) => activeLayers.includes(layer.id) && enabledGroups.has(layer.group)
+    );
 
     const groupSpacing = layerSpacing;
     const intraGroupSpacing = layerSpacing * 0.15;
 
-    // Count active layers per group
+    // Count active layers per group (only enabled groups)
     const activeLayersPerGroup: Record<string, number> = {};
     for (const config of activeLayerConfigs) {
       activeLayersPerGroup[config.group] = (activeLayersPerGroup[config.group] || 0) + 1;
@@ -426,33 +433,35 @@ const DeckGLView = memo(function DeckGLView({
       })
     );
 
-    // Add group platforms
-    const activeGroups = new Set(activeLayerConfigs.map((c) => c.group));
-    for (const group of layerManifest.groups) {
-      if (!activeGroups.has(group.id)) continue;
-      const zOffset = groupBaseHeights[group.id] || 0;
+    // Add group platforms (only if showPlatforms is enabled)
+    if (showPlatforms) {
+      const activeGroups = new Set(activeLayerConfigs.map((c) => c.group));
+      for (const group of layerManifest.groups) {
+        if (!activeGroups.has(group.id)) continue;
+        const zOffset = groupBaseHeights[group.id] || 0;
 
-      // Create elevated local polygon
-      const elevatedPolygon = localPolygon.map(ring =>
-        ring.map((c: number[]) => [c[0], c[1], zOffset - 5])
-      );
+        // Create elevated local polygon
+        const elevatedPolygon = localPolygon.map(ring =>
+          ring.map((c: number[]) => [c[0], c[1], zOffset - 5])
+        );
 
-      layers.push(
-        new PolygonLayer({
-          id: `extracted-platform-${group.id}`,
-          data: [{ polygon: elevatedPolygon }],
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          getPolygon: (d: any) => d.polygon,
-          getFillColor: [...group.color, 40] as [number, number, number, number],
-          getLineColor: [...group.color, 150] as [number, number, number, number],
-          getLineWidth: 2,
-          lineWidthUnits: 'pixels',
-          filled: true,
-          stroked: true,
-          extruded: false,
-          pickable: false,
-        })
-      );
+        layers.push(
+          new PolygonLayer({
+            id: `extracted-platform-${group.id}`,
+            data: [{ polygon: elevatedPolygon }],
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            getPolygon: (d: any) => d.polygon,
+            getFillColor: [...group.color, 40] as [number, number, number, number],
+            getLineColor: [...group.color, 150] as [number, number, number, number],
+            getLineWidth: 2,
+            lineWidthUnits: 'pixels',
+            filled: true,
+            stroked: true,
+            extruded: false,
+            pickable: false,
+          })
+        );
+      }
     }
 
     // Render each layer
@@ -536,7 +545,7 @@ const DeckGLView = memo(function DeckGLView({
     });
 
     return layers;
-  }, [selectionPolygon, layerData, activeLayers, layerOrder, layerSpacing, pinnedInfos]);
+  }, [selectionPolygon, layerData, activeLayers, layerOrder, layerSpacing, pinnedInfos, enabledGroups, center, showPlatforms]);
 
   if (error) {
     return (
@@ -784,6 +793,27 @@ export function ExtractedView() {
 
   // Exploded view config (always on)
   const [layerSpacing, setLayerSpacing] = useState(80);
+
+  // Local group visibility state (independent from main view)
+  const [enabledGroups, setEnabledGroups] = useState<Set<string>>(() => {
+    return new Set(layerManifest.groups.map(g => g.id));
+  });
+
+  // Toggle a group's visibility
+  const toggleGroup = useCallback((groupId: string) => {
+    setEnabledGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(groupId)) {
+        next.delete(groupId);
+      } else {
+        next.add(groupId);
+      }
+      return next;
+    });
+  }, []);
+
+  // Toggle for showing/hiding group platform rectangles
+  const [showPlatforms, setShowPlatforms] = useState(true);
 
   // Calculate estimated total height for orbit view target
   const totalHeight = useMemo(() => {
@@ -1061,6 +1091,67 @@ export function ExtractedView() {
         </div>
       </div>
 
+      {/* Group layer toggles */}
+      <div
+        style={{
+          padding: '8px 16px',
+          backgroundColor: 'rgba(0, 0, 0, 0.2)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          flexWrap: 'wrap',
+          borderBottom: '1px solid rgba(255, 255, 255, 0.05)',
+        }}
+      >
+        <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: '10px', marginRight: '4px' }}>Groups:</span>
+        {layerManifest.groups.map((group) => {
+          const isEnabled = enabledGroups.has(group.id);
+          const groupColor = `rgb(${group.color.join(',')})`;
+          return (
+            <button
+              key={group.id}
+              onClick={() => toggleGroup(group.id)}
+              style={{
+                padding: '4px 10px',
+                backgroundColor: isEnabled ? groupColor : 'rgba(60,60,60,0.8)',
+                color: isEnabled ? 'white' : 'rgba(255,255,255,0.4)',
+                border: `1px solid ${isEnabled ? groupColor : 'rgba(100,100,100,0.5)'}`,
+                borderRadius: '12px',
+                cursor: 'pointer',
+                fontSize: '10px',
+                fontWeight: isEnabled ? '600' : '400',
+                transition: 'all 0.15s ease',
+                opacity: isEnabled ? 1 : 0.6,
+              }}
+            >
+              {group.name}
+            </button>
+          );
+        })}
+
+        {/* Separator */}
+        <div style={{ width: '1px', height: '20px', backgroundColor: 'rgba(255,255,255,0.2)', margin: '0 4px' }} />
+
+        {/* Platform toggle */}
+        <button
+          onClick={() => setShowPlatforms(!showPlatforms)}
+          style={{
+            padding: '4px 10px',
+            backgroundColor: showPlatforms ? 'rgba(100, 150, 255, 0.8)' : 'rgba(60,60,60,0.8)',
+            color: showPlatforms ? 'white' : 'rgba(255,255,255,0.4)',
+            border: `1px solid ${showPlatforms ? 'rgba(100, 150, 255, 1)' : 'rgba(100,100,100,0.5)'}`,
+            borderRadius: '12px',
+            cursor: 'pointer',
+            fontSize: '10px',
+            fontWeight: showPlatforms ? '600' : '400',
+            transition: 'all 0.15s ease',
+            opacity: showPlatforms ? 1 : 0.6,
+          }}
+        >
+          Platforms
+        </button>
+      </div>
+
       {/* 3D View */}
       <div style={{ flex: 1, position: 'relative', backgroundColor: '#1a1a2e' }}>
         <DeckGLView
@@ -1073,6 +1164,8 @@ export function ExtractedView() {
           layerOrder={layerOrder}
           layerSpacing={layerSpacing}
           center={center}
+          enabledGroups={enabledGroups}
+          showPlatforms={showPlatforms}
         />
       </div>
 
