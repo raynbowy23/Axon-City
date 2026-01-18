@@ -6,7 +6,8 @@ export type LayerGroup =
   | 'access'
   | 'usage'
   | 'safety'
-  | 'environment';
+  | 'environment'
+  | 'custom';
 
 export type GeometryType = 'polygon' | 'line' | 'point';
 

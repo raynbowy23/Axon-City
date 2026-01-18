@@ -94,6 +94,7 @@ interface DeckGLViewProps {
   enabledGroups: Set<string>; // which groups are visible in extracted view
   showPlatforms: boolean; // whether to show transparent group platforms
   customLayers: CustomLayerConfig[]; // user-uploaded custom layers
+  customGroupEnabled: boolean; // whether custom layers group is visible
 }
 
 const DeckGLView = memo(function DeckGLView({
@@ -109,6 +110,7 @@ const DeckGLView = memo(function DeckGLView({
   enabledGroups,
   showPlatforms,
   customLayers,
+  customGroupEnabled,
 }: DeckGLViewProps) {
   const [isReady, setIsReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -643,14 +645,14 @@ const DeckGLView = memo(function DeckGLView({
       }
     }
 
-    // Render custom layers at the top (only those with data)
-    const activeCustomLayers = customLayers.filter(l => {
+    // Render custom layers at the top (only those with data and if custom group is enabled)
+    const activeCustomLayers = customGroupEnabled ? customLayers.filter(l => {
       if (!activeLayers.includes(l.id)) return false;
       const data = layerData.get(l.id);
       // Custom layers use clippedFeatures if available, otherwise use all features
       const hasFeatures = data?.clippedFeatures?.features?.length || data?.features?.features?.length;
       return hasFeatures;
-    });
+    }) : [];
     const customLayerBaseHeight = cumulativeHeight + (activeCustomLayers.length > 0 ? groupSpacing : 0);
 
     activeCustomLayers.forEach((config, index) => {
@@ -805,7 +807,7 @@ const DeckGLView = memo(function DeckGLView({
     }
 
     return layers;
-  }, [selectionPolygon, layerData, activeLayers, layerOrder, layerSpacing, intraGroupRatio, pinnedInfos, enabledGroups, center, showPlatforms, highlightedObject, customLayers]);
+  }, [selectionPolygon, layerData, activeLayers, layerOrder, layerSpacing, intraGroupRatio, pinnedInfos, enabledGroups, center, showPlatforms, highlightedObject, customLayers, customGroupEnabled]);
 
   if (error) {
     return (
@@ -1077,6 +1079,9 @@ export function ExtractedView() {
   const [enabledGroups, setEnabledGroups] = useState<Set<string>>(() => {
     return new Set(layerManifest.groups.map(g => g.id));
   });
+
+  // Custom group visibility (separate from manifest groups)
+  const [customGroupEnabled, setCustomGroupEnabled] = useState(true);
 
   // Toggle a group's visibility
   const toggleGroup = useCallback((groupId: string) => {
@@ -1422,6 +1427,27 @@ export function ExtractedView() {
           );
         })}
 
+        {/* Custom group toggle (only show if there are custom layers) */}
+        {customLayers.length > 0 && (
+          <button
+            onClick={() => setCustomGroupEnabled(!customGroupEnabled)}
+            style={{
+              padding: '4px 10px',
+              backgroundColor: customGroupEnabled ? 'rgb(255, 165, 0)' : 'rgba(60,60,60,0.8)',
+              color: customGroupEnabled ? 'white' : 'rgba(255,255,255,0.4)',
+              border: `1px solid ${customGroupEnabled ? 'rgb(255, 165, 0)' : 'rgba(100,100,100,0.5)'}`,
+              borderRadius: '12px',
+              cursor: 'pointer',
+              fontSize: '10px',
+              fontWeight: customGroupEnabled ? '600' : '400',
+              transition: 'all 0.15s ease',
+              opacity: customGroupEnabled ? 1 : 0.6,
+            }}
+          >
+            Custom
+          </button>
+        )}
+
         {/* Separator */}
         <div style={{ width: '1px', height: '20px', backgroundColor: 'rgba(255,255,255,0.2)', margin: '0 4px' }} />
 
@@ -1461,6 +1487,7 @@ export function ExtractedView() {
           enabledGroups={enabledGroups}
           showPlatforms={showPlatforms}
           customLayers={customLayers}
+          customGroupEnabled={customGroupEnabled}
         />
       </div>
 

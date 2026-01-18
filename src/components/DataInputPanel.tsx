@@ -46,23 +46,25 @@ export function DataInputPanel() {
 
   const [preview, setPreview] = useState<FilePreview | null>(null);
   const [layerName, setLayerName] = useState('');
-  const [selectedGroup, setSelectedGroup] = useState<LayerGroup>('usage');
+  const [selectedGroup, setSelectedGroup] = useState<LayerGroup>('custom');
   const [selectedColor, setSelectedColor] = useState(0);
   const [latColumn, setLatColumn] = useState('');
   const [lonColumn, setLonColumn] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [showOtherGroups, setShowOtherGroups] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const resetState = useCallback(() => {
     setPreview(null);
     setLayerName('');
-    setSelectedGroup('usage');
+    setSelectedGroup('custom');
     setSelectedColor((customLayers.length) % CUSTOM_LAYER_COLORS.length);
     setLatColumn('');
     setLonColumn('');
     setError(null);
+    setShowOtherGroups(false);
   }, [customLayers.length]);
 
   const handleClose = useCallback(() => {
@@ -527,25 +529,68 @@ export function DataInputPanel() {
                 >
                   Group
                 </label>
-                <select
-                  value={selectedGroup}
-                  onChange={(e) => setSelectedGroup(e.target.value as LayerGroup)}
-                  style={{
-                    width: '100%',
-                    padding: '8px',
-                    borderRadius: '4px',
-                    border: '1px solid rgba(255, 255, 255, 0.2)',
-                    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                    color: 'white',
-                    fontSize: '12px',
-                  }}
+                <div
+                  style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}
+                  onMouseLeave={() => setShowOtherGroups(false)}
                 >
-                  {layerManifest.groups.map((group) => (
-                    <option key={group.id} value={group.id}>
+                  {/* Custom group button - always visible */}
+                  <button
+                    type="button"
+                    onClick={() => setSelectedGroup('custom')}
+                    style={{
+                      padding: '6px 12px',
+                      borderRadius: '4px',
+                      border: selectedGroup === 'custom' ? '2px solid rgb(255, 165, 0)' : '1px solid rgba(255, 255, 255, 0.2)',
+                      backgroundColor: selectedGroup === 'custom' ? 'rgba(255, 165, 0, 0.3)' : 'rgba(255, 255, 255, 0.1)',
+                      color: 'white',
+                      fontSize: '12px',
+                      cursor: 'pointer',
+                      fontWeight: selectedGroup === 'custom' ? '600' : '400',
+                    }}
+                  >
+                    Custom
+                  </button>
+
+                  {/* Show more button */}
+                  {!showOtherGroups && selectedGroup === 'custom' && (
+                    <button
+                      type="button"
+                      onMouseEnter={() => setShowOtherGroups(true)}
+                      style={{
+                        padding: '6px 12px',
+                        borderRadius: '4px',
+                        border: '1px solid rgba(255, 255, 255, 0.2)',
+                        backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                        color: 'rgba(255, 255, 255, 0.5)',
+                        fontSize: '11px',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      Other groups...
+                    </button>
+                  )}
+
+                  {/* Other groups - visible on hover or when selected */}
+                  {(showOtherGroups || selectedGroup !== 'custom') && layerManifest.groups.map((group) => (
+                    <button
+                      key={group.id}
+                      type="button"
+                      onClick={() => setSelectedGroup(group.id as LayerGroup)}
+                      style={{
+                        padding: '6px 12px',
+                        borderRadius: '4px',
+                        border: selectedGroup === group.id ? `2px solid rgb(${group.color.join(',')})` : '1px solid rgba(255, 255, 255, 0.2)',
+                        backgroundColor: selectedGroup === group.id ? `rgba(${group.color.join(',')}, 0.3)` : 'rgba(255, 255, 255, 0.1)',
+                        color: 'white',
+                        fontSize: '12px',
+                        cursor: 'pointer',
+                        fontWeight: selectedGroup === group.id ? '600' : '400',
+                      }}
+                    >
                       {group.name}
-                    </option>
+                    </button>
                   ))}
-                </select>
+                </div>
               </div>
 
               {/* Color Selection */}
