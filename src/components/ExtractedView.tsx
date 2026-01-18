@@ -1036,6 +1036,7 @@ export function ExtractedView() {
     setExtractedViewOpen,
     layerOrder,
     customLayers,
+    selectionLocationName,
   } = useStore();
 
   // Panel size and position
@@ -1491,6 +1492,29 @@ export function ExtractedView() {
           customLayers={customLayers}
           customGroupEnabled={customGroupEnabled}
         />
+
+        {/* Location name overlay for screenshots */}
+        {selectionLocationName && (
+          <div
+            style={{
+              position: 'absolute',
+              bottom: '16px',
+              left: '16px',
+              backgroundColor: 'rgba(0, 0, 0, 0.75)',
+              color: 'white',
+              padding: '10px 16px',
+              borderRadius: '8px',
+              fontSize: '14px',
+              fontWeight: '500',
+              letterSpacing: '0.5px',
+              boxShadow: '0 2px 8px rgba(0, 0, 0, 0.3)',
+              border: '1px solid rgba(255, 255, 255, 0.1)',
+              pointerEvents: 'none',
+            }}
+          >
+            {selectionLocationName}
+          </div>
+        )}
       </div>
 
       {/* Resize handles */}

@@ -182,6 +182,8 @@ export interface AppState {
   // Extracted view
   isExtractedViewOpen: boolean;
   setExtractedViewOpen: (isOpen: boolean) => void;
+  selectionLocationName: string | null;
+  setSelectionLocationName: (name: string | null) => void;
 
   // Custom layers (user-uploaded data)
   customLayers: CustomLayerConfig[];
