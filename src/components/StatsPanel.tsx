@@ -440,28 +440,38 @@ function StatItem({ label, value }: { label: string; value: string }) {
 
 function formatArea(areaM2: number): string {
   const areaKm2 = areaM2 / 1_000_000;
+  const areaHa = areaKm2 * 100;
+  const areaAcres = areaM2 * 0.000247105; // 1 m² = 0.000247105 acres
+  const areaSqFt = areaM2 * 10.7639;
+
   if (areaKm2 < 0.01) {
-    return `${areaM2.toFixed(0)} m²`;
+    return `${areaM2.toFixed(0)} m² (${areaSqFt.toFixed(0)} sq ft)`;
   }
   if (areaKm2 < 1) {
-    return `${(areaKm2 * 100).toFixed(2)} ha`;
+    return `${areaHa.toFixed(2)} ha (${areaAcres.toFixed(2)} acres)`;
   }
-  return `${areaKm2.toFixed(2)} km²`;
+  return `${areaKm2.toFixed(2)} km² (${areaAcres.toFixed(0)} acres)`;
 }
 
 function formatAreaM2(areaM2: number): string {
+  const areaSqFt = areaM2 * 10.7639;
+  const areaAcres = areaM2 * 0.000247105;
+
   if (areaM2 < 1000) {
-    return `${areaM2.toFixed(0)} m²`;
+    return `${areaM2.toFixed(0)} m² (${areaSqFt.toFixed(0)} sq ft)`;
   }
   if (areaM2 < 10000) {
-    return `${(areaM2 / 1000).toFixed(1)}k m²`;
+    return `${(areaM2 / 1000).toFixed(1)}k m² (${areaAcres.toFixed(2)} acres)`;
   }
-  return `${(areaM2 / 1_000_000).toFixed(3)} km²`;
+  return `${(areaM2 / 1_000_000).toFixed(3)} km² (${areaAcres.toFixed(1)} acres)`;
 }
 
 function formatLength(meters: number): string {
+  const feet = meters * 3.28084;
+  const miles = meters * 0.000621371;
+
   if (meters < 1000) {
-    return `${meters.toFixed(0)} m`;
+    return `${meters.toFixed(0)} m (${feet.toFixed(0)} ft)`;
   }
-  return `${(meters / 1000).toFixed(2)} km`;
+  return `${(meters / 1000).toFixed(2)} km (${miles.toFixed(2)} mi)`;
 }

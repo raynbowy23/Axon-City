@@ -1193,7 +1193,7 @@ export function ExtractedView() {
               onChange={(e) => setLayerSpacing(Number(e.target.value))}
               style={{ width: '60px', cursor: 'pointer' }}
             />
-            <span style={{ width: '35px' }}>{layerSpacing}m</span>
+            <span style={{ width: '70px', fontSize: '10px' }}>{layerSpacing}m / {Math.round(layerSpacing * 3.28084)}ft</span>
           </label>
 
           {/* Intra-group spacing control */}
@@ -1208,7 +1208,7 @@ export function ExtractedView() {
               onChange={(e) => setIntraGroupRatio(Number(e.target.value))}
               style={{ width: '60px', cursor: 'pointer' }}
             />
-            <span style={{ width: '35px' }}>{Math.round(layerSpacing * intraGroupRatio)}m</span>
+            <span style={{ width: '70px', fontSize: '10px' }}>{Math.round(layerSpacing * intraGroupRatio)}m / {Math.round(layerSpacing * intraGroupRatio * 3.28084)}ft</span>
           </label>
 
           <button

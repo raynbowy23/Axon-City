@@ -61,7 +61,7 @@ export function ControlPanel() {
           <>
             <div style={{ marginBottom: '8px' }}>
               <label style={{ display: 'block', marginBottom: '4px', fontSize: '12px' }}>
-                Group Spacing: {explodedView.layerSpacing}m
+                Group Spacing: {explodedView.layerSpacing}m ({Math.round(explodedView.layerSpacing * 3.28084)}ft)
               </label>
               <input
                 type="range"
@@ -77,7 +77,7 @@ export function ControlPanel() {
             </div>
             <div style={{ marginBottom: '8px' }}>
               <label style={{ display: 'block', marginBottom: '4px', fontSize: '12px' }}>
-                Layer Spacing: {Math.round(explodedView.layerSpacing * explodedView.intraGroupRatio)}m
+                Layer Spacing: {Math.round(explodedView.layerSpacing * explodedView.intraGroupRatio)}m ({Math.round(explodedView.layerSpacing * explodedView.intraGroupRatio * 3.28084)}ft)
               </label>
               <input
                 type="range"
