@@ -26,7 +26,7 @@ interface OverpassElement {
   lat?: number;
   lon?: number;
   nodes?: number[];
-  members?: { type: string; ref: number; role: string }[];
+  members?: { type: string; ref: number; role: string; geometry?: { lat: number; lon: number }[] }[];
   tags?: Record<string, string>;
   geometry?: { lat: number; lon: number }[];
   bounds?: { minlat: number; minlon: number; maxlat: number; maxlon: number };
@@ -342,6 +342,72 @@ function elementToFeature(
     }
   }
 
+  // Handle relations (multipolygons) for polygon layers
+  if (element.type === 'relation' && geometryType === 'polygon' && element.members) {
+    const outerRings: number[][][] = [];
+    const innerRings: number[][][] = [];
+
+    for (const member of element.members) {
+      if (member.type === 'way' && member.geometry) {
+        const ring = member.geometry.map((g) => [g.lon, g.lat]);
+
+        // Close the ring if needed
+        if (ring.length >= 3) {
+          const first = ring[0];
+          const last = ring[ring.length - 1];
+          if (first[0] !== last[0] || first[1] !== last[1]) {
+            ring.push([...first]);
+          }
+        }
+
+        if (ring.length >= 4) {
+          if (member.role === 'outer') {
+            outerRings.push(ring);
+          } else if (member.role === 'inner') {
+            innerRings.push(ring);
+          }
+        }
+      }
+    }
+
+    if (outerRings.length === 0) return null;
+
+    // For simplicity, create a MultiPolygon if multiple outer rings
+    // or a Polygon with holes if single outer ring with inner rings
+    if (outerRings.length === 1) {
+      const polygonCoords = [outerRings[0], ...innerRings];
+      return {
+        type: 'Feature',
+        id: element.id,
+        properties: {
+          id: element.id,
+          type: element.type,
+          ...element.tags,
+        },
+        geometry: {
+          type: 'Polygon',
+          coordinates: polygonCoords,
+        } as Polygon,
+      };
+    } else {
+      // Multiple outer rings - create MultiPolygon
+      const multiCoords = outerRings.map((outer) => [outer]);
+      return {
+        type: 'Feature',
+        id: element.id,
+        properties: {
+          id: element.id,
+          type: element.type,
+          ...element.tags,
+        },
+        geometry: {
+          type: 'MultiPolygon',
+          coordinates: multiCoords,
+        },
+      };
+    }
+  }
+
   return null;
 }
 
@@ -381,159 +447,6 @@ export async function fetchMultipleLayers(
   }
 
   return results;
-}
-
-/**
- * Fetch multiple layers as a single batched query (more efficient for related data)
- * Combines all layer queries into one request
- */
-export async function fetchLayersBatched(
-  layers: LayerConfig[],
-  bbox: [number, number, number, number],
-  onProgress?: (progress: number, total: number) => void
-): Promise<Map<string, FeatureCollection>> {
-  const results = new Map<string, FeatureCollection>();
-  const [minLon, minLat, maxLon, maxLat] = bbox;
-  const bboxStr = `${minLat},${minLon},${maxLat},${maxLon}`;
-
-  // Group layers by geometry type for batching
-  const layersByType: Record<string, LayerConfig[]> = {
-    point: [],
-    line: [],
-    polygon: [],
-  };
-
-  for (const layer of layers) {
-    layersByType[layer.geometryType].push(layer);
-  }
-
-  let completed = 0;
-  const total = layers.length;
-
-  // Fetch each geometry type batch
-  for (const [geometryType, typeLayers] of Object.entries(layersByType)) {
-    if (typeLayers.length === 0) continue;
-
-    // Build combined query for all layers of this type
-    let query = `[out:json][timeout:${QUERY_TIMEOUT}][maxsize:67108864];\n(\n`;
-
-    for (const layer of typeLayers) {
-      const queryParts = splitQueryParts(layer.osmQuery);
-      for (const part of queryParts) {
-        const trimmed = part.trim();
-        if (trimmed.startsWith('node') || trimmed.startsWith('way') || trimmed.startsWith('relation')) {
-          query += `  ${trimmed}(${bboxStr});\n`;
-        }
-      }
-    }
-
-    query += ');\n';
-    query += geometryType === 'point' ? 'out body;\n' : 'out body geom;\n';
-
-    // Fetch with failover
-    let data: OverpassResponse | null = null;
-    for (let endpointIndex = 0; endpointIndex < OVERPASS_ENDPOINTS.length; endpointIndex++) {
-      try {
-        const response = await fetchWithTimeout(
-          OVERPASS_ENDPOINTS[endpointIndex],
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: `data=${encodeURIComponent(query)}`,
-          },
-          FETCH_TIMEOUT
-        );
-
-        if (response.ok) {
-          data = await response.json();
-          break;
-        }
-      } catch (error) {
-        console.warn(`Batch fetch failed at endpoint ${endpointIndex}:`, error);
-      }
-    }
-
-    if (data) {
-      // Distribute results back to individual layers
-      for (const layer of typeLayers) {
-        const layerFeatures = filterElementsForLayer(data.elements, layer);
-        const geojson = convertToGeoJSON({ ...data, elements: layerFeatures }, layer);
-        results.set(layer.id, geojson);
-        completed++;
-        onProgress?.(completed, total);
-      }
-    } else {
-      // Fallback to individual fetches
-      for (const layer of typeLayers) {
-        const layerData = await fetchLayerData(layer, bbox);
-        results.set(layer.id, layerData);
-        completed++;
-        onProgress?.(completed, total);
-      }
-    }
-  }
-
-  return results;
-}
-
-/**
- * Filter elements that match a specific layer's query pattern
- */
-function filterElementsForLayer(elements: OverpassElement[], layer: LayerConfig): OverpassElement[] {
-  const queryParts = splitQueryParts(layer.osmQuery);
-
-  return elements.filter((element) => {
-    if (!element.tags) return false;
-
-    // Check if element matches any of the layer's query patterns
-    for (const part of queryParts) {
-      // Extract tag conditions from query
-      const tagMatches = part.matchAll(/\["([^"]+)"(?:~"([^"]+)"|="([^"]+)")?\]/g);
-      let allMatch = true;
-      let hasConditions = false;
-
-      for (const match of tagMatches) {
-        hasConditions = true;
-        const [, key, regexValue, exactValue] = match;
-        const tagValue = element.tags[key];
-
-        if (!tagValue) {
-          // Check if just checking for tag existence (e.g., ["building"])
-          if (!regexValue && !exactValue) {
-            allMatch = false;
-            break;
-          }
-          allMatch = false;
-          break;
-        }
-
-        if (regexValue) {
-          // Regex match
-          try {
-            const regex = new RegExp(regexValue);
-            if (!regex.test(tagValue)) {
-              allMatch = false;
-              break;
-            }
-          } catch {
-            allMatch = false;
-            break;
-          }
-        } else if (exactValue) {
-          // Exact match
-          if (tagValue !== exactValue) {
-            allMatch = false;
-            break;
-          }
-        }
-        // If neither regex nor exact value, just checking tag existence (which we already verified)
-      }
-
-      if (hasConditions && allMatch) return true;
-    }
-
-    return false;
-  });
 }
 
 /**
