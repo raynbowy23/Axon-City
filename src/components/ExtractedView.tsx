@@ -8,7 +8,7 @@ import type { Feature, FeatureCollection, Polygon, MultiPolygon, LineString, Poi
 
 import { useStore } from '../store/useStore';
 import { getLayersByCustomOrder, getLayerById, layerManifest } from '../data/layerManifest';
-import type { LayerConfig, LayerGroup, LayerData, LayerOrderConfig, ViewState } from '../types';
+import type { LayerConfig, LayerData, LayerOrderConfig, ViewState } from '../types';
 
 // Size constraints
 const MIN_WIDTH = 400;
@@ -99,38 +99,31 @@ const DeckGLView = memo(function DeckGLView({
   // Track current screen positions of pinned features (updated when viewState changes)
   const [pinnedScreenPositions, setPinnedScreenPositions] = useState<Record<string, { x: number; y: number }>>({});
 
-  // Helper to get building height from properties
-  const getBuildingHeightFromProps = useCallback((props: Record<string, unknown>): number => {
-    if (props.height) {
-      const h = parseFloat(props.height as string);
-      if (!isNaN(h)) return h;
-    }
-    if (props['building:levels'] || props.levels) {
-      const levels = parseInt((props['building:levels'] || props.levels) as string);
-      if (!isNaN(levels)) return levels * 3.5;
-    }
-    const buildingType = props.building as string;
-    if (buildingType === 'yes' || !buildingType) return 8;
-    if (['apartments', 'residential', 'house'].includes(buildingType)) return 12;
-    if (['commercial', 'office', 'retail'].includes(buildingType)) return 20;
-    if (['industrial', 'warehouse'].includes(buildingType)) return 15;
-    return 8;
-  }, []);
-
   // Calculate z-offset for a given layer in the extracted view (always exploded)
-  const getLayerZOffset = useCallback((layerId: string, feature?: Feature): number => {
+  const getLayerZOffset = useCallback((layerId: string): number => {
     const layerConfig = layerManifest.layers.find(l => l.id === layerId);
     if (!layerConfig) return 0;
 
-    // Build dynamic group base heights from custom order
-    const groupBaseHeights: Record<string, number> = {};
-    layerOrder.groupOrder.forEach((groupId, index) => {
-      groupBaseHeights[groupId] = index + 1;
-    });
-
-    const groupIndex = groupBaseHeights[layerConfig.group] || 0;
     const groupSpacing = layerSpacing;
-    const intraGroupSpacing = layerSpacing * 0.5;
+    const intraGroupSpacing = layerSpacing * 0.15;
+
+    // Count layers per group
+    const layersPerGroup: Record<string, number> = {};
+    for (const layer of layerManifest.layers) {
+      layersPerGroup[layer.group] = (layersPerGroup[layer.group] || 0) + 1;
+    }
+
+    // Calculate cumulative group base heights
+    let cumulativeHeight = 0;
+    let groupBaseHeight = 0;
+    for (const groupId of layerOrder.groupOrder) {
+      if (groupId === layerConfig.group) {
+        groupBaseHeight = cumulativeHeight;
+        break;
+      }
+      const layerCount = layersPerGroup[groupId] || 0;
+      cumulativeHeight += groupSpacing + layerCount * intraGroupSpacing;
+    }
 
     // Get layer index within group
     const sortedLayers = layerManifest.layers
@@ -138,20 +131,19 @@ const DeckGLView = memo(function DeckGLView({
       .sort((a, b) => a.priority - b.priority);
     const layerIndexInGroup = sortedLayers.findIndex(l => l.id === layerId);
 
-    let zOffset = groupIndex * groupSpacing + layerIndexInGroup * intraGroupSpacing;
+    let zOffset = groupBaseHeight + layerIndexInGroup * intraGroupSpacing;
 
-    // Special handling for buildings - account for actual building height
-    if (layerId === 'buildings') {
-      const baseElevation = Math.max(80, zOffset) + 50; // Same as in createExtractedPolygonLayer
-      const buildingHeight = feature?.properties ? getBuildingHeightFromProps(feature.properties as Record<string, unknown>) : 8;
-      // Position at center of building (base + half of extruded height)
-      zOffset = baseElevation + (buildingHeight * 0.5) / 2;
+    // Special handling for floating layers
+    const isBuildingLayer = layerId.startsWith('buildings-') || layerId === 'buildings';
+    if (isBuildingLayer) {
+      // In extracted view, buildings are at zOffset + 50 (see createExtractedPolygonLayer)
+      zOffset = zOffset + 50;
     } else if (layerId === 'parks') {
-      zOffset = Math.max(40, zOffset) + 2.5; // PARK_FLOAT_HEIGHT + half thickness
+      zOffset = Math.max(40, zOffset);
     }
 
     return zOffset;
-  }, [layerOrder, layerSpacing, getBuildingHeightFromProps]);
+  }, [layerOrder, layerSpacing]);
 
   // Update pinned screen positions when viewState or layer spacing changes
   useEffect(() => {
@@ -166,8 +158,8 @@ const DeckGLView = memo(function DeckGLView({
       const newPositions: Record<string, { x: number; y: number }> = {};
       for (const pinned of pinnedInfos) {
         try {
-          // Get z-offset for this layer (pass feature for building height)
-          const zOffset = getLayerZOffset(pinned.layerId, pinned.feature);
+          // Get z-offset for this layer
+          const zOffset = getLayerZOffset(pinned.layerId);
           // Project with 3D coordinates [lon, lat, z]
           const [x, y] = viewport.project([...pinned.coordinates, zOffset]);
           newPositions[pinned.id] = { x, y };
@@ -355,14 +347,24 @@ const DeckGLView = memo(function DeckGLView({
     const sortedLayers = getLayersByCustomOrder(layerOrder);
     const activeLayerConfigs = sortedLayers.filter((layer) => activeLayers.includes(layer.id));
 
-    // Build dynamic group base heights
-    const groupBaseHeights: Record<LayerGroup, number> = {} as Record<LayerGroup, number>;
-    layerOrder.groupOrder.forEach((groupId, index) => {
-      groupBaseHeights[groupId] = index + 1;
-    });
-
     const groupSpacing = layerSpacing;
-    const intraGroupSpacing = layerSpacing * 0.5;
+    const intraGroupSpacing = layerSpacing * 0.15;
+
+    // Count active layers per group
+    const activeLayersPerGroup: Record<string, number> = {};
+    for (const config of activeLayerConfigs) {
+      activeLayersPerGroup[config.group] = (activeLayersPerGroup[config.group] || 0) + 1;
+    }
+
+    // Calculate cumulative group base heights to ensure no overlap
+    const groupBaseHeights: Record<string, number> = {};
+    let cumulativeHeight = 0;
+    for (const groupId of layerOrder.groupOrder) {
+      groupBaseHeights[groupId] = cumulativeHeight;
+      const layerCount = activeLayersPerGroup[groupId] || 0;
+      cumulativeHeight += groupSpacing + layerCount * intraGroupSpacing;
+    }
+
     const groupLayerCounts: Record<string, number> = {};
 
     // Add subtle base platform
@@ -385,8 +387,7 @@ const DeckGLView = memo(function DeckGLView({
     const activeGroups = new Set(activeLayerConfigs.map((c) => c.group));
     for (const group of layerManifest.groups) {
       if (!activeGroups.has(group.id)) continue;
-      const groupIndex = groupBaseHeights[group.id as LayerGroup] || 0;
-      const zOffset = groupIndex * groupSpacing;
+      const zOffset = groupBaseHeights[group.id] || 0;
 
       layers.push(
         new PolygonLayer({
@@ -411,11 +412,11 @@ const DeckGLView = memo(function DeckGLView({
       const data = layerData.get(config.id);
       if (!data?.clippedFeatures?.features.length) continue;
 
-      const groupIndex = groupBaseHeights[config.group] || 0;
+      const groupBaseHeight = groupBaseHeights[config.group] || 0;
       if (!groupLayerCounts[config.group]) groupLayerCounts[config.group] = 0;
       const layerIndexInGroup = groupLayerCounts[config.group]++;
 
-      const zOffset = groupIndex * groupSpacing + layerIndexInGroup * intraGroupSpacing;
+      const zOffset = groupBaseHeight + layerIndexInGroup * intraGroupSpacing;
       const features = data.clippedFeatures;
 
       switch (config.geometryType) {
@@ -1149,8 +1150,8 @@ function createExtractedPolygonLayer(config: LayerConfig, features: FeatureColle
   const { style } = config;
   const fillColor = [...style.fillColor] as [number, number, number, number];
 
-  if (config.id === 'buildings') {
-    // Special handling for buildings
+  if (config.id.startsWith('buildings-') || config.id === 'buildings') {
+    // Special handling for buildings (all building types)
     const buildingData = features.features
       .filter((f) => f.geometry.type === 'Polygon')
       .map((f, index) => {

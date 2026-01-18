@@ -102,7 +102,10 @@ export const useStore = create<AppState>((set) => ({
 
   // Active layers
   activeLayers: [
-    'buildings',
+    'buildings-residential',
+    'buildings-commercial',
+    'buildings-industrial',
+    'buildings-other',
     'roads-primary',
     'roads-residential',
     'transit-stops',

@@ -65,63 +65,54 @@ export function MapView() {
   }
   const [pinnedInfos, setPinnedInfos] = useState<PinnedInfo[]>([]);
 
-  // Helper to get building height from properties (same as layer creation)
-  const getBuildingHeightFromProps = useCallback((props: Record<string, unknown>): number => {
-    if (props.height) {
-      const h = parseFloat(props.height as string);
-      if (!isNaN(h)) return h;
-    }
-    if (props['building:levels'] || props.levels) {
-      const levels = parseInt((props['building:levels'] || props.levels) as string);
-      if (!isNaN(levels)) return levels * 3.5;
-    }
-    const buildingType = props.building as string;
-    if (buildingType === 'yes' || !buildingType) return 8;
-    if (['apartments', 'residential', 'house'].includes(buildingType)) return 12;
-    if (['commercial', 'office', 'retail'].includes(buildingType)) return 20;
-    if (['industrial', 'warehouse'].includes(buildingType)) return 15;
-    return 8;
-  }, []);
-
   // Calculate z-offset for a given layer based on current exploded view settings
-  const getLayerZOffset = useCallback((layerId: string, feature?: Feature): number => {
+  const getLayerZOffset = useCallback((layerId: string): number => {
     if (!explodedView.enabled) return 0;
 
     const layerConfig = layerManifest.layers.find(l => l.id === layerId);
     if (!layerConfig) return 0;
 
-    // Build dynamic group base heights from custom order
-    const groupBaseHeights: Record<string, number> = {};
-    layerOrder.groupOrder.forEach((groupId, index) => {
-      groupBaseHeights[groupId] = index + 1;
-    });
-
-    const groupIndex = groupBaseHeights[layerConfig.group] || 0;
     const groupSpacing = explodedView.layerSpacing;
+    const intraGroupSpacing = explodedView.layerSpacing * 0.15;
+
+    // Count active layers per group (use all layers from manifest for consistency)
+    const layersPerGroup: Record<string, number> = {};
+    for (const layer of layerManifest.layers) {
+      layersPerGroup[layer.group] = (layersPerGroup[layer.group] || 0) + 1;
+    }
+
+    // Calculate cumulative group base heights
+    let cumulativeHeight = 0;
+    let groupBaseHeight = 0;
+    for (const groupId of layerOrder.groupOrder) {
+      if (groupId === layerConfig.group) {
+        groupBaseHeight = cumulativeHeight;
+        break;
+      }
+      const layerCount = layersPerGroup[groupId] || 0;
+      cumulativeHeight += groupSpacing + layerCount * intraGroupSpacing;
+    }
 
     // Get layer index within group
     const sortedLayers = layerManifest.layers
       .filter(l => l.group === layerConfig.group)
       .sort((a, b) => a.priority - b.priority);
     const layerIndexInGroup = sortedLayers.findIndex(l => l.id === layerId);
-    const intraGroupSpacing = explodedView.layerSpacing * 0.6;
 
-    let zOffset = explodedView.baseElevation + groupIndex * groupSpacing + layerIndexInGroup * intraGroupSpacing;
+    let zOffset = explodedView.baseElevation + groupBaseHeight + layerIndexInGroup * intraGroupSpacing;
 
-    // Special handling for buildings - account for actual building height
-    if (layerId === 'buildings') {
-      const baseElevation = Math.max(80, zOffset); // BUILDING_FLOAT_HEIGHT
-      const buildingHeight = feature?.properties ? getBuildingHeightFromProps(feature.properties as Record<string, unknown>) : 8;
-      // Position at center of building (base + half of extruded height)
-      zOffset = baseElevation + (buildingHeight * 0.4) / 2;
-    } else if (layerId === 'parking') {
-      zOffset = Math.max(80, zOffset); // Same as buildings
+    // Special handling for floating layers - match actual layer elevations
+    const isBuildingLayer = layerId.startsWith('buildings-') || layerId === 'buildings';
+    if (isBuildingLayer || layerId === 'parking') {
+      // Buildings and parking float at minimum BUILDING_FLOAT_HEIGHT (80m) or zOffset
+      zOffset = Math.max(80, zOffset);
     } else if (layerId === 'parks') {
-      zOffset = Math.max(40, zOffset) + 2.5; // PARK_FLOAT_HEIGHT + half thickness
+      // Parks float at minimum 40m, or higher based on layer stacking
+      zOffset = Math.max(40, zOffset);
     }
 
     return zOffset;
-  }, [explodedView, layerOrder, getBuildingHeightFromProps]);
+  }, [explodedView, layerOrder]);
 
   // Track current screen positions of pinned features (updated when viewState changes)
   const [pinnedScreenPositions, setPinnedScreenPositions] = useState<Record<string, { x: number; y: number }>>({});
@@ -139,8 +130,8 @@ export function MapView() {
       const newPositions: Record<string, { x: number; y: number }> = {};
       for (const pinned of pinnedInfos) {
         try {
-          // Get z-offset for this layer based on exploded view settings (pass feature for building height)
-          const zOffset = getLayerZOffset(pinned.layerId, pinned.feature);
+          // Get z-offset for this layer based on exploded view settings
+          const zOffset = getLayerZOffset(pinned.layerId);
           // Project with 3D coordinates [lon, lat, z]
           const [x, y] = viewport.project([...pinned.coordinates, zOffset]);
           newPositions[pinned.id] = { x, y };
@@ -208,21 +199,32 @@ export function MapView() {
     );
 
     // Calculate z-offsets based on group hierarchy
-    const groupSpacing = explodedView.layerSpacing; // Space between groups
-    const intraGroupSpacing = explodedView.layerSpacing * 0.6; // Space within groups (increased for better layer separation)
+    const groupSpacing = explodedView.layerSpacing; // Base space between groups
+    const intraGroupSpacing = explodedView.layerSpacing * 0.15; // Small space within groups
 
-    // Build dynamic group base heights from custom order (1-indexed for floating)
+    // First, count how many active layers are in each group
+    const activeLayersPerGroup: Record<string, number> = {};
+    for (const config of activeLayerConfigs) {
+      activeLayersPerGroup[config.group] = (activeLayersPerGroup[config.group] || 0) + 1;
+    }
+
+    // Calculate cumulative group base heights to ensure no overlap
+    // Each group starts after the previous group's layers end
     const groupBaseHeights: Record<LayerGroup, number> = {} as Record<LayerGroup, number>;
-    layerOrder.groupOrder.forEach((groupId, index) => {
-      groupBaseHeights[groupId] = index + 1;
-    });
+    let cumulativeHeight = 0;
+    for (const groupId of layerOrder.groupOrder) {
+      groupBaseHeights[groupId] = cumulativeHeight;
+      const layerCount = activeLayersPerGroup[groupId] || 0;
+      // Add space for this group: base spacing + intra-group spacing for each layer
+      cumulativeHeight += groupSpacing + layerCount * intraGroupSpacing;
+    }
 
     // Track layer index within each group
     const groupLayerCounts: Record<string, number> = {};
 
     return activeLayerConfigs.map((config) => {
       const data = layerData.get(config.id);
-      const groupIndex = groupBaseHeights[config.group] || 0;
+      const groupBaseHeight = groupBaseHeights[config.group] || 0;
 
       // Get the index of this layer within its group
       if (!groupLayerCounts[config.group]) {
@@ -232,10 +234,11 @@ export function MapView() {
 
       // Calculate z-offset: group base height + layer offset within group
       const zOffset = explodedView.enabled
-        ? explodedView.baseElevation +
-          groupIndex * groupSpacing +
-          layerIndexInGroup * intraGroupSpacing
+        ? explodedView.baseElevation + groupBaseHeight + layerIndexInGroup * intraGroupSpacing
         : 0;
+
+      // Determine group index for coloring/identification
+      const groupIndex = layerOrder.groupOrder.indexOf(config.group);
 
       return {
         config,
@@ -498,23 +501,21 @@ export function MapView() {
 
     // Add group platform layers when exploded view is enabled
     if (explodedView.enabled && selectionPolygon) {
-      const activeGroups = new Set(
-        layerRenderInfo
-          .filter(info => info.data.features.features.length > 0 || info.data.clippedFeatures?.features.length)
-          .map(info => info.config.group)
-      );
+      // Get the minimum z-offset for each active group from layerRenderInfo
+      const groupMinZOffsets: Record<string, number> = {};
+      for (const info of layerRenderInfo) {
+        const hasFeatures = info.data.features.features.length > 0 || info.data.clippedFeatures?.features.length;
+        if (!hasFeatures) continue;
 
-      // Build dynamic group base heights from custom order
-      const groupBaseHeights: Record<LayerGroup, number> = {} as Record<LayerGroup, number>;
-      layerOrder.groupOrder.forEach((groupId, index) => {
-        groupBaseHeights[groupId] = index + 1;
-      });
+        if (groupMinZOffsets[info.config.group] === undefined || info.zOffset < groupMinZOffsets[info.config.group]) {
+          groupMinZOffsets[info.config.group] = info.zOffset;
+        }
+      }
 
       for (const group of layerManifest.groups) {
-        if (!activeGroups.has(group.id)) continue;
+        if (groupMinZOffsets[group.id] === undefined) continue;
 
-        const groupIndex = groupBaseHeights[group.id as LayerGroup] || 0;
-        const zOffset = explodedView.baseElevation + groupIndex * explodedView.layerSpacing;
+        const zOffset = groupMinZOffsets[group.id];
 
         // Create a subtle platform for each group
         layers.push(
@@ -563,7 +564,7 @@ export function MapView() {
       switch (config.geometryType) {
         case 'polygon':
           // Use specialized layer functions for buildings and parking
-          if (config.id === 'buildings') {
+          if (config.id.startsWith('buildings-') || config.id === 'buildings') {
             layers.push(
               ...createBuildingLayer(config, features, zOffset, opacity, isHovered, explodedView.enabled)
             );

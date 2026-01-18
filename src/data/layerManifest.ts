@@ -36,72 +36,78 @@ export const layerManifest: LayerManifest = {
     },
   ],
   layers: [
-    // Usage / Land Use layers (base)
+    // Usage / Land Use layers (buildings by type)
     {
-      id: 'landuse-residential',
-      name: 'Residential',
+      id: 'buildings-residential',
+      name: 'Residential Buildings',
       group: 'usage',
       geometryType: 'polygon',
-      priority: 10,
-      osmQuery: 'way["landuse"="residential"]',
+      priority: 13,
+      osmQuery: 'way["building"~"residential|house|apartments|detached|semidetached_house|terrace|dormitory"]',
       style: {
-        fillColor: [255, 218, 185, 180], // Peach
-        strokeColor: [210, 180, 140, 255],
-        strokeWidth: 1,
-      },
-      statsRecipes: ['area', 'area_share'],
-      visible: true,
-      description: 'Residential land use areas',
-    },
-    {
-      id: 'landuse-commercial',
-      name: 'Commercial',
-      group: 'usage',
-      geometryType: 'polygon',
-      priority: 11,
-      osmQuery: 'way["landuse"="commercial"]',
-      style: {
-        fillColor: [135, 206, 250, 180], // Light sky blue
-        strokeColor: [70, 130, 180, 255],
-        strokeWidth: 1,
-      },
-      statsRecipes: ['area', 'area_share'],
-      visible: true,
-      description: 'Commercial and business areas',
-    },
-    {
-      id: 'landuse-industrial',
-      name: 'Industrial',
-      group: 'usage',
-      geometryType: 'polygon',
-      priority: 12,
-      osmQuery: 'way["landuse"="industrial"]',
-      style: {
-        fillColor: [192, 192, 192, 180], // Silver
-        strokeColor: [128, 128, 128, 255],
-        strokeWidth: 1,
-      },
-      statsRecipes: ['area', 'area_share'],
-      visible: true,
-      description: 'Industrial zones',
-    },
-    {
-      id: 'buildings',
-      name: 'Buildings',
-      group: 'usage',
-      geometryType: 'polygon',
-      priority: 15,
-      osmQuery: 'way["building"]',
-      style: {
-        fillColor: [169, 169, 169, 200], // Dark gray
-        strokeColor: [105, 105, 105, 255],
+        fillColor: [255, 182, 139, 200], // Warm peach/salmon
+        strokeColor: [210, 140, 100, 255],
         strokeWidth: 1,
         extruded: true,
         extrusionHeight: 10,
       },
       statsRecipes: ['count', 'area', 'density'],
       visible: true,
-      description: 'Building footprints',
+      description: 'Residential buildings (houses, apartments)',
+    },
+    {
+      id: 'buildings-commercial',
+      name: 'Commercial Buildings',
+      group: 'usage',
+      geometryType: 'polygon',
+      priority: 14,
+      osmQuery: 'way["building"~"commercial|retail|office|supermarket|hotel|mall"]',
+      style: {
+        fillColor: [100, 180, 255, 200], // Sky blue
+        strokeColor: [60, 130, 200, 255],
+        strokeWidth: 1,
+        extruded: true,
+        extrusionHeight: 15,
+      },
+      statsRecipes: ['count', 'area', 'density'],
+      visible: true,
+      description: 'Commercial buildings (offices, retail, hotels)',
+    },
+    {
+      id: 'buildings-industrial',
+      name: 'Industrial Buildings',
+      group: 'usage',
+      geometryType: 'polygon',
+      priority: 15,
+      osmQuery: 'way["building"~"industrial|warehouse|factory|manufacture"]',
+      style: {
+        fillColor: [160, 160, 180, 200], // Cool gray/slate
+        strokeColor: [120, 120, 140, 255],
+        strokeWidth: 1,
+        extruded: true,
+        extrusionHeight: 12,
+      },
+      statsRecipes: ['count', 'area', 'density'],
+      visible: true,
+      description: 'Industrial buildings (warehouses, factories)',
+    },
+    {
+      id: 'buildings-other',
+      name: 'Other Buildings',
+      group: 'usage',
+      geometryType: 'polygon',
+      priority: 16,
+      osmQuery: 'way["building"]["building"!~"residential|house|apartments|detached|semidetached_house|terrace|dormitory|commercial|retail|office|supermarket|hotel|mall|industrial|warehouse|factory|manufacture"]',
+      style: {
+        fillColor: [180, 180, 180, 200], // Neutral gray
+        strokeColor: [140, 140, 140, 255],
+        strokeWidth: 1,
+        extruded: true,
+        extrusionHeight: 10,
+      },
+      statsRecipes: ['count', 'area', 'density'],
+      visible: true,
+      description: 'Other buildings (civic, religious, etc.)',
     },
 
     // Infrastructure layers
