@@ -1052,6 +1052,7 @@ export function ExtractedView() {
   const wasOpenRef = useRef(false);
 
   const panelRef = useRef<HTMLDivElement>(null);
+  const viewContainerRef = useRef<HTMLDivElement>(null);
   const startRef = useRef({ x: 0, y: 0, width: 0, height: 0, posX: 0, posY: 0 });
 
   // Increment openCount when transitioning from closed to open
@@ -1237,6 +1238,65 @@ export function ExtractedView() {
     }
   }, []);
 
+  // Save image function - captures the 3D view with location name overlay
+  const saveImage = useCallback(() => {
+    if (!viewContainerRef.current) return;
+
+    // Find the DeckGL canvas inside the container
+    const deckCanvas = viewContainerRef.current.querySelector('canvas');
+    if (!deckCanvas) return;
+
+    // Create a new canvas to composite the image
+    const outputCanvas = document.createElement('canvas');
+    const ctx = outputCanvas.getContext('2d');
+    if (!ctx) return;
+
+    // Set output canvas size to match the DeckGL canvas
+    outputCanvas.width = deckCanvas.width;
+    outputCanvas.height = deckCanvas.height;
+
+    // Draw the DeckGL canvas
+    ctx.drawImage(deckCanvas, 0, 0);
+
+    // Draw the location name if present
+    if (selectionLocationName) {
+      const scale = window.devicePixelRatio || 1;
+      const padding = 16 * scale;
+      const fontSize = 14 * scale;
+
+      // Draw background
+      ctx.font = `500 ${fontSize}px system-ui, -apple-system, sans-serif`;
+      const textMetrics = ctx.measureText(selectionLocationName);
+      const bgWidth = textMetrics.width + 24 * scale;
+      const bgHeight = fontSize + 12 * scale;
+      const bgX = padding;
+      const bgY = outputCanvas.height - padding - bgHeight;
+
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
+      ctx.beginPath();
+      ctx.roundRect(bgX, bgY, bgWidth, bgHeight, 8 * scale);
+      ctx.fill();
+
+      // Draw border
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+      ctx.lineWidth = scale;
+      ctx.stroke();
+
+      // Draw text
+      ctx.fillStyle = 'white';
+      ctx.fillText(selectionLocationName, bgX + 12 * scale, bgY + fontSize + 3 * scale);
+    }
+
+    // Create download link
+    const link = document.createElement('a');
+    const filename = selectionLocationName
+      ? `axoncity-${selectionLocationName.replace(/[^a-z0-9]/gi, '-').toLowerCase()}.png`
+      : `axoncity-extracted-view-${Date.now()}.png`;
+    link.download = filename;
+    link.href = outputCanvas.toDataURL('image/png');
+    link.click();
+  }, [selectionLocationName]);
+
   // Don't render anything if closed or no selection
   if (!isExtractedViewOpen || !selectionPolygon) return null;
 
@@ -1310,6 +1370,22 @@ export function ExtractedView() {
             />
             <span style={{ width: '70px', fontSize: '10px' }}>{Math.round(layerSpacing * intraGroupRatio)}m / {Math.round(layerSpacing * intraGroupRatio * 3.28084)}ft</span>
           </label>
+
+          <button
+            onClick={saveImage}
+            style={{
+              padding: '4px 8px',
+              backgroundColor: 'rgba(74, 144, 217, 0.8)',
+              color: 'white',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              fontSize: '12px',
+            }}
+            title="Save as PNG image"
+          >
+            Save Image
+          </button>
 
           <button
             onClick={() => setExtractedViewOpen(false)}
@@ -1476,7 +1552,7 @@ export function ExtractedView() {
       </div>
 
       {/* 3D View */}
-      <div style={{ flex: 1, position: 'relative', backgroundColor: '#1a1a2e' }}>
+      <div ref={viewContainerRef} style={{ flex: 1, position: 'relative', backgroundColor: '#1a1a2e' }}>
         <DeckGLView
           key={`deck-${openCount}`}
           viewState={localViewState}
