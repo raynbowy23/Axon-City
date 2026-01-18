@@ -111,7 +111,6 @@ const DeckGLView = memo(function DeckGLView({
   const [hoveredFeature, setHoveredFeature] = useState<Feature | null>(null);
   const [hoveredLayerId, setHoveredLayerId] = useState<string | null>(null);
   const [cursorPosition, setCursorPosition] = useState<{ x: number; y: number } | null>(null);
-  const [isHoveringObject, setIsHoveringObject] = useState(false);
 
   // Clicked/highlighted object with its 3D geometry data
   interface HighlightedObject {
@@ -378,12 +377,10 @@ const DeckGLView = memo(function DeckGLView({
       setHoveredLayerId(layerId);
       setHoveredFeature(info.object?.feature || info.object || null);
       setCursorPosition({ x: info.x, y: info.y });
-      setIsHoveringObject(true);
     } else {
       setHoveredLayerId(null);
       setHoveredFeature(null);
       setCursorPosition(null);
-      setIsHoveringObject(false);
     }
   }, []);
 
@@ -767,7 +764,6 @@ const DeckGLView = memo(function DeckGLView({
           left: 0,
           width: '100%',
           height: '100%',
-          cursor: isHoveringObject ? 'pointer' : 'grab',
         }}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
@@ -786,6 +782,7 @@ const DeckGLView = memo(function DeckGLView({
           onClick={onClick}
           controller={false}
           layers={extractedLayers}
+          getCursor={({ isHovering }) => isHovering ? 'pointer' : 'grab'}
           style={{ position: 'absolute', top: '0', left: '0', width: '100%', height: '100%' }}
         />
       </div>
