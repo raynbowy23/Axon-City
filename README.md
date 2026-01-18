@@ -85,6 +85,8 @@ npm run preview
 
 ## Usage
 
+The app opens centered on Madison, WI by default and remembers your last viewed location.
+
 1. **Search for a location** using the search bar at the top
 2. **Click "Draw Selection Area"** to start drawing a polygon
 3. **Click on the map** to add points (minimum 3 points required)

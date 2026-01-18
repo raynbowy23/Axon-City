@@ -2,6 +2,11 @@ import { create } from 'zustand';
 import type { AppState, ViewState, LayerData, ExplodedViewConfig, SelectedFeature, Feature, LayerGroup, LayerOrderConfig, CustomLayerConfig, FeatureCollection } from '../types';
 import { layerManifest } from '../data/layerManifest';
 
+// LocalStorage keys
+const STORAGE_KEYS = {
+  VIEW_STATE: 'axoncity-viewstate',
+} as const;
+
 // Distinct colors for selected features (colorblind-friendly palette)
 const SELECTION_COLORS: [number, number, number, number][] = [
   [255, 99, 71, 255],   // Tomato red
@@ -14,16 +19,49 @@ const SELECTION_COLORS: [number, number, number, number][] = [
   [0, 255, 127, 255],   // Spring green
 ];
 
-// Default view centered on Seattle (you can change this to any city)
+// Default view centered on Madison, WI
 const defaultViewState: ViewState = {
-  longitude: -122.3321,
-  latitude: 47.6062,
+  longitude: -89.4012,
+  latitude: 43.0731,
   zoom: 14,
   pitch: 45,
   bearing: 0,
   maxPitch: 89,
   minPitch: 0,
 };
+
+// Load viewState from localStorage or return default
+function getInitialViewState(): ViewState {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEYS.VIEW_STATE);
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      // Validate that essential properties exist
+      if (
+        typeof parsed.longitude === 'number' &&
+        typeof parsed.latitude === 'number' &&
+        typeof parsed.zoom === 'number'
+      ) {
+        return {
+          ...defaultViewState,
+          ...parsed,
+        };
+      }
+    }
+  } catch (e) {
+    console.warn('Failed to load viewState from localStorage:', e);
+  }
+  return defaultViewState;
+}
+
+// Save viewState to localStorage
+function saveViewState(viewState: ViewState): void {
+  try {
+    localStorage.setItem(STORAGE_KEYS.VIEW_STATE, JSON.stringify(viewState));
+  } catch (e) {
+    console.warn('Failed to save viewState to localStorage:', e);
+  }
+}
 
 const defaultExplodedView: ExplodedViewConfig = {
   enabled: false,
@@ -56,9 +94,12 @@ function getDefaultLayerOrder(): LayerOrderConfig {
 const defaultLayerOrder = getDefaultLayerOrder();
 
 export const useStore = create<AppState>((set) => ({
-  // Map view
-  viewState: defaultViewState,
-  setViewState: (viewState) => set({ viewState }),
+  // Map view (loaded from localStorage or default to Madison, WI)
+  viewState: getInitialViewState(),
+  setViewState: (viewState) => {
+    saveViewState(viewState);
+    set({ viewState });
+  },
 
   // Selection
   selectionPolygon: null,
