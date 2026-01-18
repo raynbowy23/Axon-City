@@ -23,7 +23,7 @@ export function SearchBar() {
   const containerRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const { setViewState, viewState } = useStore();
+  const { setViewState, viewState, setSelectionLocationName } = useStore();
 
   // Debounced search function
   const searchLocation = useCallback(async (searchQuery: string) => {
@@ -98,13 +98,20 @@ export function SearchBar() {
         bearing: viewState.bearing,
       });
 
+      // Get a clean location name (first 2 parts of display name)
+      const parts = result.display_name.split(',').map(p => p.trim());
+      const locationName = parts.slice(0, 2).join(', ');
+
+      // Store the location name for the extracted view
+      setSelectionLocationName(locationName);
+
       // Update input and close dropdown
-      setQuery(result.display_name.split(',')[0]); // Show short name
+      setQuery(parts[0]); // Show short name
       setIsOpen(false);
       setResults([]);
       inputRef.current?.blur();
     },
-    [viewState, setViewState]
+    [viewState, setViewState, setSelectionLocationName]
   );
 
   // Handle keyboard navigation

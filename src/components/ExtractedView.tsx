@@ -1037,6 +1037,7 @@ export function ExtractedView() {
     layerOrder,
     customLayers,
     selectionLocationName,
+    setSelectionLocationName,
   } = useStore();
 
   // Panel size and position
@@ -1493,28 +1494,49 @@ export function ExtractedView() {
           customGroupEnabled={customGroupEnabled}
         />
 
-        {/* Location name overlay for screenshots */}
-        {selectionLocationName && (
-          <div
+        {/* Location name overlay for screenshots - editable */}
+        <div
+          style={{
+            position: 'absolute',
+            bottom: '16px',
+            left: '16px',
+            backgroundColor: 'rgba(0, 0, 0, 0.75)',
+            color: 'white',
+            padding: '6px 12px',
+            borderRadius: '8px',
+            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.3)',
+            border: '1px solid rgba(255, 255, 255, 0.1)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+          }}
+        >
+          <input
+            type="text"
+            value={selectionLocationName || ''}
+            onChange={(e) => setSelectionLocationName(e.target.value || null)}
+            placeholder="Enter location name..."
             style={{
-              position: 'absolute',
-              bottom: '16px',
-              left: '16px',
-              backgroundColor: 'rgba(0, 0, 0, 0.75)',
+              backgroundColor: 'transparent',
+              border: 'none',
+              outline: 'none',
               color: 'white',
-              padding: '10px 16px',
-              borderRadius: '8px',
               fontSize: '14px',
               fontWeight: '500',
               letterSpacing: '0.5px',
-              boxShadow: '0 2px 8px rgba(0, 0, 0, 0.3)',
-              border: '1px solid rgba(255, 255, 255, 0.1)',
-              pointerEvents: 'none',
+              width: '180px',
+              fontFamily: 'inherit',
+            }}
+          />
+          <span
+            style={{
+              fontSize: '10px',
+              opacity: 0.5,
+              whiteSpace: 'nowrap',
             }}
           >
-            {selectionLocationName}
-          </div>
-        )}
+          </span>
+        </div>
       </div>
 
       {/* Resize handles */}

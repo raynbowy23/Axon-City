@@ -15,8 +15,6 @@ import {
   clipFeaturesToPolygon,
   calculateLayerStats,
   calculatePolygonArea,
-  getPolygonCentroid,
-  reverseGeocode,
 } from './utils/geometryUtils';
 import type { CustomLayerConfig } from './types';
 import './App.css';
@@ -108,12 +106,6 @@ function App() {
 
         // Track that we've fetched data for this polygon
         lastFetchedPolygonRef.current = JSON.stringify(polygon.coordinates);
-
-        // Reverse geocode the polygon centroid to get location name
-        const centroid = getPolygonCentroid(polygon);
-        reverseGeocode(centroid[0], centroid[1]).then((locationName) => {
-          setSelectionLocationName(locationName);
-        });
       } catch (error) {
         console.error('Error fetching data:', error);
         setLoadingMessage('Error fetching data. Please try again.');
@@ -121,7 +113,7 @@ function App() {
         setIsLoading(false);
       }
     },
-    [activeLayers, clearManifestLayerData, setIsLoading, setLayerData, setLoadingMessage, setSelectionLocationName]
+    [activeLayers, clearManifestLayerData, setIsLoading, setLayerData, setLoadingMessage]
   );
 
   // Re-fetch data when polygon is edited (dragged)
