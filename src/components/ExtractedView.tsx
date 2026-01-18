@@ -233,19 +233,29 @@ const DeckGLView = memo(function DeckGLView({
     const groupSpacing = layerSpacing;
     const intraGroupSpacing = layerSpacing * intraGroupRatio;
 
-    // Get active manifest layer configs in custom order
+    // Get active manifest layer configs WITH DATA (same as extractedLayers)
     const sortedLayers = getLayersByCustomOrder(layerOrder);
-    const activeManifestLayers = sortedLayers.filter((layer) =>
-      activeLayers.includes(layer.id)
-    );
+    const activeManifestLayers = sortedLayers.filter((layer) => {
+      if (!activeLayers.includes(layer.id)) return false;
+      const data = layerData.get(layer.id);
+      return data?.clippedFeatures?.features?.length;
+    });
 
-    // Count active manifest layers per group
+    // Get active custom layers WITH DATA
+    const activeCustomLayers = customLayers.filter((layer) => {
+      if (!activeLayers.includes(layer.id)) return false;
+      const data = layerData.get(layer.id);
+      const hasFeatures = data?.clippedFeatures?.features?.length || data?.features?.features?.length;
+      return hasFeatures;
+    });
+
+    // Count manifest layers WITH DATA per group
     const activeLayersPerGroup: Record<string, number> = {};
     for (const config of activeManifestLayers) {
       activeLayersPerGroup[config.group] = (activeLayersPerGroup[config.group] || 0) + 1;
     }
 
-    // Calculate cumulative group base heights
+    // Calculate cumulative group base heights (only for groups with data)
     let cumulativeHeight = 0;
     let groupBaseHeight = 0;
     for (const groupId of layerOrder.groupOrder) {
@@ -253,19 +263,20 @@ const DeckGLView = memo(function DeckGLView({
         groupBaseHeight = cumulativeHeight;
       }
       const layerCount = activeLayersPerGroup[groupId] || 0;
-      cumulativeHeight += groupSpacing + layerCount * intraGroupSpacing;
+      if (layerCount > 0) {
+        cumulativeHeight += groupSpacing + layerCount * intraGroupSpacing;
+      }
     }
 
     let zOffset: number;
 
     if (isCustom) {
       // Custom layers go at the top
-      const customLayerBaseHeight = cumulativeHeight + groupSpacing;
-      const activeCustomLayers = customLayers.filter(l => activeLayers.includes(l.id));
+      const customLayerBaseHeight = cumulativeHeight + (activeCustomLayers.length > 0 ? groupSpacing : 0);
       const customLayerIndex = activeCustomLayers.findIndex(l => l.id === layerId);
       zOffset = customLayerBaseHeight + Math.max(0, customLayerIndex) * intraGroupSpacing;
     } else {
-      // Get layer index within group (only counting active manifest layers)
+      // Get layer index within group (only counting layers with data)
       const activeLayersInGroup = activeManifestLayers.filter(l => l.group === layerConfig.group);
       const layerIndexInGroup = activeLayersInGroup.findIndex(l => l.id === layerId);
       zOffset = groupBaseHeight + Math.max(0, layerIndexInGroup) * intraGroupSpacing;
@@ -280,7 +291,7 @@ const DeckGLView = memo(function DeckGLView({
     }
 
     return zOffset;
-  }, [layerOrder, layerSpacing, intraGroupRatio, activeLayers, customLayers, getLayerConfigById]);
+  }, [layerOrder, layerSpacing, intraGroupRatio, activeLayers, customLayers, layerData, getLayerConfigById]);
 
   // Update pinned screen positions continuously using rAF (doesn't trigger re-renders)
   useEffect(() => {
@@ -518,27 +529,34 @@ const DeckGLView = memo(function DeckGLView({
   const extractedLayers = useMemo((): Layer[] => {
     const layers: Layer[] = [];
     const sortedLayers = getLayersByCustomOrder(layerOrder);
-    // Filter by both active layers AND enabled groups
-    const activeLayerConfigs = sortedLayers.filter(
-      (layer) => activeLayers.includes(layer.id) && enabledGroups.has(layer.group)
-    );
+    // Filter by active layers, enabled groups, AND has data
+    const activeLayerConfigs = sortedLayers.filter((layer) => {
+      if (!activeLayers.includes(layer.id)) return false;
+      if (!enabledGroups.has(layer.group)) return false;
+      const data = layerData.get(layer.id);
+      // Only include if has clipped features (extracted view always uses clipped)
+      return data?.clippedFeatures?.features?.length;
+    });
 
     const groupSpacing = layerSpacing;
     const intraGroupSpacing = layerSpacing * intraGroupRatio;
 
-    // Count active layers per group (only enabled groups)
+    // Count layers WITH DATA per group
     const activeLayersPerGroup: Record<string, number> = {};
     for (const config of activeLayerConfigs) {
       activeLayersPerGroup[config.group] = (activeLayersPerGroup[config.group] || 0) + 1;
     }
 
-    // Calculate cumulative group base heights to ensure no overlap
+    // Calculate cumulative group base heights (only for groups with data)
     const groupBaseHeights: Record<string, number> = {};
     let cumulativeHeight = 0;
     for (const groupId of layerOrder.groupOrder) {
       groupBaseHeights[groupId] = cumulativeHeight;
       const layerCount = activeLayersPerGroup[groupId] || 0;
-      cumulativeHeight += groupSpacing + layerCount * intraGroupSpacing;
+      // Only add space if the group has layers with data
+      if (layerCount > 0) {
+        cumulativeHeight += groupSpacing + layerCount * intraGroupSpacing;
+      }
     }
 
     const groupLayerCounts: Record<string, number> = {};
@@ -625,9 +643,16 @@ const DeckGLView = memo(function DeckGLView({
       }
     }
 
-    // Render custom layers at the top
-    const customLayerBaseHeight = cumulativeHeight + groupSpacing;
-    const activeCustomLayers = customLayers.filter(l => activeLayers.includes(l.id));
+    // Render custom layers at the top (only those with data)
+    const activeCustomLayers = customLayers.filter(l => {
+      if (!activeLayers.includes(l.id)) return false;
+      const data = layerData.get(l.id);
+      // Custom layers use clippedFeatures if available, otherwise use all features
+      const hasFeatures = data?.clippedFeatures?.features?.length || data?.features?.features?.length;
+      return hasFeatures;
+    });
+    const customLayerBaseHeight = cumulativeHeight + (activeCustomLayers.length > 0 ? groupSpacing : 0);
+
     activeCustomLayers.forEach((config, index) => {
       const data = layerData.get(config.id);
       // Custom layers use clippedFeatures if available, otherwise use all features
@@ -649,7 +674,7 @@ const DeckGLView = memo(function DeckGLView({
       }
     });
 
-    // Add custom layer platform if there are active custom layers
+    // Add custom layer platform if there are active custom layers with data
     if (showPlatforms && activeCustomLayers.length > 0) {
       const elevatedPolygon = localPolygon.map(ring =>
         ring.map((c: number[]) => [c[0], c[1], customLayerBaseHeight - 5])

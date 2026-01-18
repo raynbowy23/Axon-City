@@ -90,19 +90,30 @@ export function MapView() {
     // Check if this is a custom layer
     const isCustom = 'isCustom' in layerConfig && layerConfig.isCustom;
 
-    // Get active manifest layer configs in custom order (same as layerRenderInfo)
+    // Get active manifest layer configs WITH DATA (same as layerRenderInfo)
     const sortedLayers = getLayersByCustomOrder(layerOrder);
-    const activeManifestLayers = sortedLayers.filter((layer) =>
-      activeLayers.includes(layer.id)
-    );
+    const activeManifestLayers = sortedLayers.filter((layer) => {
+      if (!activeLayers.includes(layer.id)) return false;
+      const data = layerData.get(layer.id);
+      const hasFeatures = data?.features?.features?.length || data?.clippedFeatures?.features?.length;
+      return hasFeatures;
+    });
 
-    // Count active manifest layers per group
+    // Get active custom layers WITH DATA
+    const activeCustomLayers = customLayers.filter((layer) => {
+      if (!activeLayers.includes(layer.id)) return false;
+      const data = layerData.get(layer.id);
+      const hasFeatures = data?.features?.features?.length || data?.clippedFeatures?.features?.length;
+      return hasFeatures;
+    });
+
+    // Count manifest layers WITH DATA per group
     const activeLayersPerGroup: Record<string, number> = {};
     for (const config of activeManifestLayers) {
       activeLayersPerGroup[config.group] = (activeLayersPerGroup[config.group] || 0) + 1;
     }
 
-    // Calculate cumulative group base heights
+    // Calculate cumulative group base heights (only for groups with data)
     let cumulativeHeight = 0;
     let groupBaseHeight = 0;
     for (const groupId of layerOrder.groupOrder) {
@@ -110,19 +121,21 @@ export function MapView() {
         groupBaseHeight = cumulativeHeight;
       }
       const layerCount = activeLayersPerGroup[groupId] || 0;
-      cumulativeHeight += groupSpacing + layerCount * intraGroupSpacing;
+      // Only add space if the group has layers with data
+      if (layerCount > 0) {
+        cumulativeHeight += groupSpacing + layerCount * intraGroupSpacing;
+      }
     }
 
     let zOffset: number;
 
     if (isCustom) {
       // Custom layers go at the top, above all manifest groups
-      const customLayerBaseHeight = cumulativeHeight + groupSpacing;
-      const activeCustomLayers = customLayers.filter(l => activeLayers.includes(l.id));
+      const customLayerBaseHeight = cumulativeHeight + (activeCustomLayers.length > 0 ? groupSpacing : 0);
       const customLayerIndex = activeCustomLayers.findIndex(l => l.id === layerId);
       zOffset = explodedView.baseElevation + customLayerBaseHeight + Math.max(0, customLayerIndex) * intraGroupSpacing;
     } else {
-      // Get layer index within group (only counting active manifest layers)
+      // Get layer index within group (only counting layers with data)
       const activeLayersInGroup = activeManifestLayers.filter(l => l.group === layerConfig.group);
       const layerIndexInGroup = activeLayersInGroup.findIndex(l => l.id === layerId);
       zOffset = explodedView.baseElevation + groupBaseHeight + Math.max(0, layerIndexInGroup) * intraGroupSpacing;
@@ -139,7 +152,7 @@ export function MapView() {
     }
 
     return zOffset;
-  }, [explodedView, layerOrder, activeLayers, customLayers, getLayerConfigById]);
+  }, [explodedView, layerOrder, activeLayers, customLayers, layerData, getLayerConfigById]);
 
   // Track current screen positions of pinned features (updated when viewState changes)
   const [pinnedScreenPositions, setPinnedScreenPositions] = useState<Record<string, { x: number; y: number }>>({});
@@ -222,19 +235,27 @@ export function MapView() {
     // Use custom layer order instead of static getSortedLayers()
     const sortedLayers = getLayersByCustomOrder(layerOrder);
 
-    // Separate manifest and custom layers
-    const activeManifestLayers = sortedLayers.filter((layer) =>
-      activeLayers.includes(layer.id)
-    );
-    const activeCustomLayers = customLayers.filter((layer) =>
-      activeLayers.includes(layer.id)
-    );
+    // Separate manifest and custom layers - only include those with actual data
+    const activeManifestLayers = sortedLayers.filter((layer) => {
+      if (!activeLayers.includes(layer.id)) return false;
+      const data = layerData.get(layer.id);
+      // Check if layer has any features to render
+      const hasFeatures = data?.features?.features?.length || data?.clippedFeatures?.features?.length;
+      return hasFeatures;
+    });
+    const activeCustomLayers = customLayers.filter((layer) => {
+      if (!activeLayers.includes(layer.id)) return false;
+      const data = layerData.get(layer.id);
+      // Custom layers can show all features or clipped features
+      const hasFeatures = data?.features?.features?.length || data?.clippedFeatures?.features?.length;
+      return hasFeatures;
+    });
 
     // Calculate z-offsets based on group hierarchy
     const groupSpacing = explodedView.layerSpacing; // Base space between groups
     const intraGroupSpacing = explodedView.layerSpacing * explodedView.intraGroupRatio; // Small space within groups
 
-    // First, count how many active manifest layers are in each group
+    // Count layers WITH DATA per group (not just active layers)
     const activeLayersPerGroup: Record<string, number> = {};
     for (const config of activeManifestLayers) {
       activeLayersPerGroup[config.group] = (activeLayersPerGroup[config.group] || 0) + 1;
@@ -247,12 +268,14 @@ export function MapView() {
     for (const groupId of layerOrder.groupOrder) {
       groupBaseHeights[groupId] = cumulativeHeight;
       const layerCount = activeLayersPerGroup[groupId] || 0;
-      // Add space for this group: base spacing + intra-group spacing for each layer
-      cumulativeHeight += groupSpacing + layerCount * intraGroupSpacing;
+      // Only add space if the group has layers with data
+      if (layerCount > 0) {
+        cumulativeHeight += groupSpacing + layerCount * intraGroupSpacing;
+      }
     }
 
     // Custom layers go at the TOP - above all manifest groups
-    const customLayerBaseHeight = cumulativeHeight + groupSpacing;
+    const customLayerBaseHeight = cumulativeHeight + (activeCustomLayers.length > 0 ? groupSpacing : 0);
 
     // Track layer index within each group
     const groupLayerCounts: Record<string, number> = {};
