@@ -29,8 +29,8 @@ export const layerManifest: LayerManifest = {
       color: [34, 139, 34], // Green
     },
     {
-      id: 'safety',
-      name: 'Safety',
+      id: 'traffic',
+      name: 'Traffic Control',
       priority: 5,
       color: [220, 20, 60], // Crimson
     },
@@ -210,11 +210,11 @@ export const layerManifest: LayerManifest = {
       description: 'Parking lots and structures',
     },
 
-    // Safety layers
+    // Traffic Control layers
     {
       id: 'traffic-signals',
       name: 'Traffic Signals',
-      group: 'safety',
+      group: 'traffic',
       geometryType: 'point',
       priority: 40,
       osmQuery: 'node["highway"="traffic_signals"]',
@@ -227,12 +227,14 @@ export const layerManifest: LayerManifest = {
       visible: true,
       description: 'Traffic signal locations',
     },
+
+    // Crosswalks (Infrastructure)
     {
       id: 'crosswalks',
       name: 'Crosswalks',
-      group: 'safety',
+      group: 'infrastructure',
       geometryType: 'point',
-      priority: 41,
+      priority: 26,
       osmQuery: 'node["highway"="crossing"]|node["crossing"]|node["crossing:markings"]',
       style: {
         fillColor: [255, 215, 0, 255], // Gold

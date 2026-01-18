@@ -5,7 +5,7 @@ export type LayerGroup =
   | 'infrastructure'
   | 'access'
   | 'usage'
-  | 'safety'
+  | 'traffic'
   | 'environment'
   | 'custom';
 
