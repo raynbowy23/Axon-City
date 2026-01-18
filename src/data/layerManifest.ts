@@ -149,7 +149,7 @@ export const layerManifest: LayerManifest = {
       group: 'infrastructure',
       geometryType: 'line',
       priority: 25,
-      osmQuery: 'way["highway"="cycleway"]|way["cycleway"]',
+      osmQuery: 'way["highway"="cycleway"]|way["cycleway"~"lane|track|shared_lane"]|way["bicycle"="designated"]',
       style: {
         fillColor: [50, 205, 50, 255], // Lime green
         strokeColor: [50, 205, 50, 255],
@@ -183,7 +183,7 @@ export const layerManifest: LayerManifest = {
       group: 'access',
       geometryType: 'line',
       priority: 31,
-      osmQuery: 'way["railway"~"rail|light_rail|subway"]',
+      osmQuery: 'way["railway"~"rail|light_rail|subway|tram|narrow_gauge"]',
       style: {
         fillColor: [139, 69, 19, 255], // Saddle brown
         strokeColor: [139, 69, 19, 255],
@@ -199,7 +199,7 @@ export const layerManifest: LayerManifest = {
       group: 'access',
       geometryType: 'polygon',
       priority: 32,
-      osmQuery: 'way["amenity"="parking"]',
+      osmQuery: 'way["amenity"="parking"]|relation["amenity"="parking"]|way["parking"~"surface|underground|multi-storey"]',
       style: {
         fillColor: [70, 130, 180, 150], // Steel blue
         strokeColor: [70, 130, 180, 255],
@@ -233,7 +233,7 @@ export const layerManifest: LayerManifest = {
       group: 'safety',
       geometryType: 'point',
       priority: 41,
-      osmQuery: 'node["highway"="crossing"]',
+      osmQuery: 'node["highway"="crossing"]|node["crossing"]|node["crossing:markings"]',
       style: {
         fillColor: [255, 215, 0, 255], // Gold
         strokeColor: [255, 255, 255, 255],
@@ -267,7 +267,7 @@ export const layerManifest: LayerManifest = {
       group: 'environment',
       geometryType: 'polygon',
       priority: 51,
-      osmQuery: 'way["natural"="water"]|way["waterway"="riverbank"]',
+      osmQuery: 'way["natural"="water"]|relation["natural"="water"]|way["waterway"="riverbank"]|way["water"]|relation["water"]|way["landuse"="reservoir"]',
       style: {
         fillColor: [65, 105, 225, 180], // Royal blue
         strokeColor: [25, 25, 112, 255],

@@ -26,7 +26,7 @@ interface OverpassElement {
   lat?: number;
   lon?: number;
   nodes?: number[];
-  members?: { type: string; ref: number; role: string }[];
+  members?: { type: string; ref: number; role: string; geometry?: { lat: number; lon: number }[] }[];
   tags?: Record<string, string>;
   geometry?: { lat: number; lon: number }[];
   bounds?: { minlat: number; minlon: number; maxlat: number; maxlon: number };
@@ -338,6 +338,72 @@ function elementToFeature(
           type: 'Polygon',
           coordinates: [coordinates],
         } as Polygon,
+      };
+    }
+  }
+
+  // Handle relations (multipolygons) for polygon layers
+  if (element.type === 'relation' && geometryType === 'polygon' && element.members) {
+    const outerRings: number[][][] = [];
+    const innerRings: number[][][] = [];
+
+    for (const member of element.members) {
+      if (member.type === 'way' && member.geometry) {
+        const ring = member.geometry.map((g) => [g.lon, g.lat]);
+
+        // Close the ring if needed
+        if (ring.length >= 3) {
+          const first = ring[0];
+          const last = ring[ring.length - 1];
+          if (first[0] !== last[0] || first[1] !== last[1]) {
+            ring.push([...first]);
+          }
+        }
+
+        if (ring.length >= 4) {
+          if (member.role === 'outer') {
+            outerRings.push(ring);
+          } else if (member.role === 'inner') {
+            innerRings.push(ring);
+          }
+        }
+      }
+    }
+
+    if (outerRings.length === 0) return null;
+
+    // For simplicity, create a MultiPolygon if multiple outer rings
+    // or a Polygon with holes if single outer ring with inner rings
+    if (outerRings.length === 1) {
+      const polygonCoords = [outerRings[0], ...innerRings];
+      return {
+        type: 'Feature',
+        id: element.id,
+        properties: {
+          id: element.id,
+          type: element.type,
+          ...element.tags,
+        },
+        geometry: {
+          type: 'Polygon',
+          coordinates: polygonCoords,
+        } as Polygon,
+      };
+    } else {
+      // Multiple outer rings - create MultiPolygon
+      const multiCoords = outerRings.map((outer) => [outer]);
+      return {
+        type: 'Feature',
+        id: element.id,
+        properties: {
+          id: element.id,
+          type: element.type,
+          ...element.tags,
+        },
+        geometry: {
+          type: 'MultiPolygon',
+          coordinates: multiCoords,
+        },
       };
     }
   }
