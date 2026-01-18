@@ -65,10 +65,68 @@ export function MapView() {
   }
   const [pinnedInfos, setPinnedInfos] = useState<PinnedInfo[]>([]);
 
+  // Helper to get building height from properties (same as layer creation)
+  const getBuildingHeightFromProps = useCallback((props: Record<string, unknown>): number => {
+    if (props.height) {
+      const h = parseFloat(props.height as string);
+      if (!isNaN(h)) return h;
+    }
+    if (props['building:levels'] || props.levels) {
+      const levels = parseInt((props['building:levels'] || props.levels) as string);
+      if (!isNaN(levels)) return levels * 3.5;
+    }
+    const buildingType = props.building as string;
+    if (buildingType === 'yes' || !buildingType) return 8;
+    if (['apartments', 'residential', 'house'].includes(buildingType)) return 12;
+    if (['commercial', 'office', 'retail'].includes(buildingType)) return 20;
+    if (['industrial', 'warehouse'].includes(buildingType)) return 15;
+    return 8;
+  }, []);
+
+  // Calculate z-offset for a given layer based on current exploded view settings
+  const getLayerZOffset = useCallback((layerId: string, feature?: Feature): number => {
+    if (!explodedView.enabled) return 0;
+
+    const layerConfig = layerManifest.layers.find(l => l.id === layerId);
+    if (!layerConfig) return 0;
+
+    // Build dynamic group base heights from custom order
+    const groupBaseHeights: Record<string, number> = {};
+    layerOrder.groupOrder.forEach((groupId, index) => {
+      groupBaseHeights[groupId] = index + 1;
+    });
+
+    const groupIndex = groupBaseHeights[layerConfig.group] || 0;
+    const groupSpacing = explodedView.layerSpacing;
+
+    // Get layer index within group
+    const sortedLayers = layerManifest.layers
+      .filter(l => l.group === layerConfig.group)
+      .sort((a, b) => a.priority - b.priority);
+    const layerIndexInGroup = sortedLayers.findIndex(l => l.id === layerId);
+    const intraGroupSpacing = explodedView.layerSpacing * 0.6;
+
+    let zOffset = explodedView.baseElevation + groupIndex * groupSpacing + layerIndexInGroup * intraGroupSpacing;
+
+    // Special handling for buildings - account for actual building height
+    if (layerId === 'buildings') {
+      const baseElevation = Math.max(80, zOffset); // BUILDING_FLOAT_HEIGHT
+      const buildingHeight = feature?.properties ? getBuildingHeightFromProps(feature.properties as Record<string, unknown>) : 8;
+      // Position at center of building (base + half of extruded height)
+      zOffset = baseElevation + (buildingHeight * 0.4) / 2;
+    } else if (layerId === 'parking') {
+      zOffset = Math.max(80, zOffset); // Same as buildings
+    } else if (layerId === 'parks') {
+      zOffset = Math.max(40, zOffset) + 2.5; // PARK_FLOAT_HEIGHT + half thickness
+    }
+
+    return zOffset;
+  }, [explodedView, layerOrder, getBuildingHeightFromProps]);
+
   // Track current screen positions of pinned features (updated when viewState changes)
   const [pinnedScreenPositions, setPinnedScreenPositions] = useState<Record<string, { x: number; y: number }>>({});
 
-  // Update pinned screen positions when viewState changes
+  // Update pinned screen positions when viewState or exploded view changes
   useEffect(() => {
     if (pinnedInfos.length === 0) return;
 
@@ -81,7 +139,10 @@ export function MapView() {
       const newPositions: Record<string, { x: number; y: number }> = {};
       for (const pinned of pinnedInfos) {
         try {
-          const [x, y] = viewport.project(pinned.coordinates);
+          // Get z-offset for this layer based on exploded view settings (pass feature for building height)
+          const zOffset = getLayerZOffset(pinned.layerId, pinned.feature);
+          // Project with 3D coordinates [lon, lat, z]
+          const [x, y] = viewport.project([...pinned.coordinates, zOffset]);
           newPositions[pinned.id] = { x, y };
         } catch {
           // Fall back to initial position if projection fails
@@ -96,7 +157,7 @@ export function MapView() {
     const frameId = requestAnimationFrame(updatePositions);
 
     return () => cancelAnimationFrame(frameId);
-  }, [viewState, pinnedInfos]);
+  }, [viewState, pinnedInfos, explodedView, getLayerZOffset]);
 
   // Remove a pinned info
   const removePinnedInfo = useCallback((id: string) => {
