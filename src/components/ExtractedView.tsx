@@ -1,5 +1,6 @@
 import { useState, useMemo, useCallback, useEffect, useRef, memo } from 'react';
 import DeckGL from '@deck.gl/react';
+import { OrbitView } from '@deck.gl/core';
 import { GeoJsonLayer, PathLayer, PolygonLayer } from '@deck.gl/layers';
 import { SimpleMeshLayer } from '@deck.gl/mesh-layers';
 import { SphereGeometry } from '@luma.gl/engine';
@@ -8,7 +9,17 @@ import type { Feature, FeatureCollection, Polygon, MultiPolygon, LineString, Poi
 
 import { useStore } from '../store/useStore';
 import { getLayersByCustomOrder, getLayerById, layerManifest } from '../data/layerManifest';
-import type { LayerConfig, LayerData, LayerOrderConfig, ViewState } from '../types';
+import type { LayerConfig, LayerData, LayerOrderConfig } from '../types';
+
+// OrbitView viewState type
+interface OrbitViewState {
+  target: [number, number, number];
+  rotationX: number;
+  rotationOrbit: number;
+  zoom: number;
+  minZoom?: number;
+  maxZoom?: number;
+}
 
 // Size constraints
 const MIN_WIDTH = 400;
@@ -55,9 +66,22 @@ function createSphereMesh(): SphereGeometry {
   return new SphereGeometry({ radius: 1, nlat: 16, nlong: 16 });
 }
 
+// Convert geographic coordinates to local meter coordinates
+// Uses simple equirectangular projection (accurate for small areas)
+function geoToLocal(lon: number, lat: number, centerLon: number, centerLat: number): [number, number] {
+  const METERS_PER_DEGREE_LAT = 111320; // Approximate meters per degree latitude
+  const METERS_PER_DEGREE_LON = 111320 * Math.cos((centerLat * Math.PI) / 180);
+
+  const x = (lon - centerLon) * METERS_PER_DEGREE_LON;
+  const y = (lat - centerLat) * METERS_PER_DEGREE_LAT;
+
+  return [x, y];
+}
+
+
 // Isolated DeckGL component that fully mounts/unmounts
 interface DeckGLViewProps {
-  viewState: ViewState;
+  viewState: OrbitViewState;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   onViewStateChange: (params: any) => void;
   selectionPolygon: { geometry: Polygon | MultiPolygon };
@@ -65,6 +89,7 @@ interface DeckGLViewProps {
   activeLayers: string[];
   layerOrder: LayerOrderConfig;
   layerSpacing: number;
+  center: [number, number]; // geographic center for coordinate conversion
 }
 
 const DeckGLView = memo(function DeckGLView({
@@ -75,6 +100,7 @@ const DeckGLView = memo(function DeckGLView({
   activeLayers,
   layerOrder,
   layerSpacing,
+  center,
 }: DeckGLViewProps) {
   const [isReady, setIsReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -165,8 +191,10 @@ const DeckGLView = memo(function DeckGLView({
         try {
           // Get z-offset for this layer
           const zOffset = getLayerZOffset(pinned.layerId);
-          // Project with 3D coordinates [lon, lat, z]
-          const [x, y] = viewport.project([...pinned.coordinates, zOffset]);
+          // Convert geographic coordinates to local coordinates for OrbitView
+          const [localX, localY] = geoToLocal(pinned.coordinates[0], pinned.coordinates[1], center[0], center[1]);
+          // Project with 3D local coordinates [x, y, z]
+          const [x, y] = viewport.project([localX, localY, zOffset]);
           newPositions[pinned.id] = { x, y };
         } catch {
           // Fall back to initial position if projection fails
@@ -181,7 +209,7 @@ const DeckGLView = memo(function DeckGLView({
     const frameId = requestAnimationFrame(updatePositions);
 
     return () => cancelAnimationFrame(frameId);
-  }, [viewState, pinnedInfos, layerSpacing, getLayerZOffset]);
+  }, [viewState, pinnedInfos, layerSpacing, getLayerZOffset, center]);
 
   // Helper to get centroid of a feature
   const getFeatureCentroid = useCallback((feature: Feature): [number, number] => {
@@ -372,12 +400,22 @@ const DeckGLView = memo(function DeckGLView({
 
     const groupLayerCounts: Record<string, number> = {};
 
+    // Convert selection polygon to local coordinates for platforms
+    const localPolygonCoords = getPolygonCoordinates(selectionPolygon.geometry);
+    const localPolygon = localPolygonCoords.map(ring =>
+      ring.map((c: number[]) => {
+        const [x, y] = geoToLocal(c[0], c[1], center[0], center[1]);
+        return [x, y];
+      })
+    );
+
     // Add subtle base platform
     layers.push(
       new PolygonLayer({
         id: 'extracted-base-platform',
-        data: [selectionPolygon.geometry],
-        getPolygon: (d: Polygon | MultiPolygon) => getPolygonCoordinates(d),
+        data: [{ polygon: localPolygon }],
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        getPolygon: (d: any) => d.polygon,
         getFillColor: [40, 40, 50, 200],
         getLineColor: [100, 150, 255, 255],
         getLineWidth: 3,
@@ -394,18 +432,23 @@ const DeckGLView = memo(function DeckGLView({
       if (!activeGroups.has(group.id)) continue;
       const zOffset = groupBaseHeights[group.id] || 0;
 
+      // Create elevated local polygon
+      const elevatedPolygon = localPolygon.map(ring =>
+        ring.map((c: number[]) => [c[0], c[1], zOffset - 5])
+      );
+
       layers.push(
         new PolygonLayer({
           id: `extracted-platform-${group.id}`,
-          data: [selectionPolygon.geometry],
-          getPolygon: (d: Polygon | MultiPolygon) => getPolygonCoordinates(d),
+          data: [{ polygon: elevatedPolygon }],
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          getPolygon: (d: any) => d.polygon,
           getFillColor: [...group.color, 40] as [number, number, number, number],
           getLineColor: [...group.color, 150] as [number, number, number, number],
           getLineWidth: 2,
           lineWidthUnits: 'pixels',
           filled: true,
           stroked: true,
-          getElevation: zOffset - 5,
           extruded: false,
           pickable: false,
         })
@@ -426,13 +469,13 @@ const DeckGLView = memo(function DeckGLView({
 
       switch (config.geometryType) {
         case 'polygon':
-          layers.push(createExtractedPolygonLayer(config, features, zOffset));
+          layers.push(createExtractedPolygonLayer(config, features, zOffset, center));
           break;
         case 'line':
-          layers.push(createExtractedLineLayer(config, features, zOffset));
+          layers.push(createExtractedLineLayer(config, features, zOffset, center));
           break;
         case 'point':
-          layers.push(createExtractedPointLayer(config, features, zOffset));
+          layers.push(createExtractedPointLayer(config, features, zOffset, center));
           break;
       }
     }
@@ -539,13 +582,14 @@ const DeckGLView = memo(function DeckGLView({
       )}
       <DeckGL
         ref={deckRef}
+        views={new OrbitView({ id: 'orbit', orbitAxis: 'Z' })}
         viewState={viewState}
         onViewStateChange={onViewStateChange}
         onWebGLInitialized={handleWebGLInitialized}
         onError={handleError}
         onHover={onHover}
         onClick={onClick}
-        controller={{ dragRotate: true, touchRotate: true, keyboard: true }}
+        controller={true}
         layers={extractedLayers}
         style={{ position: 'absolute', top: '0', left: '0', width: '100%', height: '100%' }}
       />
@@ -731,73 +775,56 @@ export function ExtractedView() {
     return getBoundsFromPolygon(selectionPolygon.geometry);
   }, [selectionPolygon]);
 
-  const { center, minZoom, maxZoom } = useMemo(() => {
-    if (!selectionPolygon || !viewBounds) {
-      return { center: [0, 0] as [number, number], minZoom: 14, maxZoom: 20 };
+  const center = useMemo((): [number, number] => {
+    if (!selectionPolygon) {
+      return [0, 0];
     }
-    const centerPoint = getCentroid(selectionPolygon.geometry);
-    // Calculate appropriate zoom based on selection size
-    const { minLon, maxLon, minLat, maxLat } = viewBounds;
-    const lonSpan = maxLon - minLon;
-    const latSpan = maxLat - minLat;
-    const maxSpan = Math.max(lonSpan, latSpan);
-
-    // Approximate zoom level calculation
-    // At zoom 0, the world is ~360 degrees wide
-    // Each zoom level halves the span
-    const calculatedZoom = Math.floor(Math.log2(360 / maxSpan)) - 1;
-    const idealZoom = Math.max(12, Math.min(18, calculatedZoom));
-
-    return {
-      center: centerPoint,
-      minZoom: Math.max(idealZoom - 2, 12),
-      maxZoom: Math.min(idealZoom + 3, 20),
-    };
-  }, [selectionPolygon, viewBounds]);
-
-  // Local view state for extracted view (always exploded)
-  const [localViewState, setLocalViewState] = useState<ViewState>({
-    longitude: center[0],
-    latitude: center[1],
-    zoom: 16,
-    pitch: 60,
-    bearing: -30,
-    maxPitch: 89,
-    minPitch: 0,
-  });
+    return getCentroid(selectionPolygon.geometry);
+  }, [selectionPolygon]);
 
   // Exploded view config (always on)
   const [layerSpacing, setLayerSpacing] = useState(80);
 
+  // Calculate estimated total height for orbit view target
+  const totalHeight = useMemo(() => {
+    // Rough estimate: 5 groups * layerSpacing
+    return layerSpacing * 5;
+  }, [layerSpacing]);
+
+  // Local view state for extracted view - OrbitView for true 3D navigation
+  const [localViewState, setLocalViewState] = useState<OrbitViewState>({
+    target: [0, 0, totalHeight / 2], // Center on the middle of the exploded layers
+    rotationX: 45, // Vertical rotation (like pitch)
+    rotationOrbit: -30, // Horizontal rotation (like bearing)
+    zoom: 0, // OrbitView zoom is different - 0 is neutral
+    minZoom: -2,
+    maxZoom: 5,
+  });
+
   // Reset view state when extracted view is opened
   useEffect(() => {
     if (isExtractedViewOpen && selectionPolygon && viewBounds) {
-      const [lon, lat] = center;
-      const idealZoom = Math.floor((minZoom + maxZoom) / 2);
-      // Fully reset view state when opening
+      // Reset to default orbit view
       setLocalViewState({
-        longitude: lon,
-        latitude: lat,
-        zoom: idealZoom,
-        pitch: 60,
-        bearing: -30,
-        maxPitch: 89,
-        minPitch: 0,
+        target: [0, 0, totalHeight / 2],
+        rotationX: 45,
+        rotationOrbit: -30,
+        zoom: 0,
+        minZoom: -2,
+        maxZoom: 5,
       });
     }
-  }, [isExtractedViewOpen]); // Only trigger on open/close
+  }, [isExtractedViewOpen, totalHeight]); // Only trigger on open/close
 
-  // Update view center when selection polygon changes (while view is open)
+  // Update view target height when layer spacing changes (while view is open)
   useEffect(() => {
-    if (selectionPolygon && isExtractedViewOpen && viewBounds) {
-      const [lon, lat] = center;
+    if (isExtractedViewOpen) {
       setLocalViewState((prev) => ({
         ...prev,
-        longitude: lon,
-        latitude: lat,
+        target: [0, 0, totalHeight / 2],
       }));
     }
-  }, [selectionPolygon, viewBounds, center]);
+  }, [totalHeight, isExtractedViewOpen]);
 
   // Handle mouse move during resize/drag
   const handleMouseMove = useCallback((e: MouseEvent) => {
@@ -880,25 +907,18 @@ export function ExtractedView() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const handleViewStateChange = useCallback((params: any) => {
     const vs = params.viewState;
-    if (vs && viewBounds) {
-      // Clamp longitude and latitude within selection bounds (with small padding)
-      const padding = 0.001; // Small padding to allow slight movement
-      const clampedLon = Math.max(viewBounds.minLon - padding, Math.min(viewBounds.maxLon + padding, vs.longitude));
-      const clampedLat = Math.max(viewBounds.minLat - padding, Math.min(viewBounds.maxLat + padding, vs.latitude));
-      // Clamp zoom within allowed range
-      const clampedZoom = Math.max(minZoom, Math.min(maxZoom, vs.zoom));
-
+    if (vs) {
+      // OrbitView viewState update
       setLocalViewState({
-        longitude: clampedLon,
-        latitude: clampedLat,
-        zoom: clampedZoom,
-        pitch: vs.pitch || 0,
-        bearing: vs.bearing || 0,
-        maxPitch: 89,
-        minPitch: 0,
+        target: vs.target || [0, 0, totalHeight / 2],
+        rotationX: Math.max(0, Math.min(90, vs.rotationX || 0)),
+        rotationOrbit: vs.rotationOrbit || 0,
+        zoom: Math.max(-2, Math.min(5, vs.zoom || 0)),
+        minZoom: -2,
+        maxZoom: 5,
       });
     }
-  }, [viewBounds, minZoom, maxZoom]);
+  }, [totalHeight]);
 
   // Don't render anything if closed or no selection
   if (!isExtractedViewOpen || !selectionPolygon) return null;
@@ -988,44 +1008,44 @@ export function ExtractedView() {
         }}
       >
         <label style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'white', fontSize: '11px' }}>
-          Pitch:
+          Tilt:
           <input
             type="range"
             min="0"
-            max="89"
-            value={localViewState.pitch}
-            onChange={(e) => setLocalViewState((prev) => ({ ...prev, pitch: Number(e.target.value) }))}
+            max="90"
+            value={localViewState.rotationX}
+            onChange={(e) => setLocalViewState((prev) => ({ ...prev, rotationX: Number(e.target.value) }))}
             style={{ width: '60px', cursor: 'pointer' }}
           />
-          <span style={{ width: '25px' }}>{localViewState.pitch.toFixed(0)}°</span>
+          <span style={{ width: '25px' }}>{localViewState.rotationX.toFixed(0)}°</span>
         </label>
 
         <label style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'white', fontSize: '11px' }}>
-          Bearing:
+          Rotate:
           <input
             type="range"
-            min="0"
-            max="360"
-            value={localViewState.bearing}
-            onChange={(e) => setLocalViewState((prev) => ({ ...prev, bearing: Number(e.target.value) }))}
+            min="-180"
+            max="180"
+            value={localViewState.rotationOrbit}
+            onChange={(e) => setLocalViewState((prev) => ({ ...prev, rotationOrbit: Number(e.target.value) }))}
             style={{ width: '60px', cursor: 'pointer' }}
           />
-          <span style={{ width: '30px' }}>{localViewState.bearing.toFixed(0)}°</span>
+          <span style={{ width: '30px' }}>{localViewState.rotationOrbit.toFixed(0)}°</span>
         </label>
 
         <div style={{ display: 'flex', gap: '4px' }}>
           {[
-            { label: 'Top', pitch: 0, bearing: 0 },
-            { label: 'Axon', pitch: 60, bearing: -30 },
-            { label: 'Side', pitch: 80, bearing: 0 },
+            { label: 'Top', rotationX: 0, rotationOrbit: 0 },
+            { label: 'Axon', rotationX: 45, rotationOrbit: -30 },
+            { label: 'Side', rotationX: 85, rotationOrbit: 0 },
           ].map((preset) => (
             <button
               key={preset.label}
-              onClick={() => setLocalViewState((prev) => ({ ...prev, pitch: preset.pitch, bearing: preset.bearing }))}
+              onClick={() => setLocalViewState((prev) => ({ ...prev, rotationX: preset.rotationX, rotationOrbit: preset.rotationOrbit }))}
               style={{
                 padding: '3px 8px',
                 backgroundColor:
-                  localViewState.pitch === preset.pitch && localViewState.bearing === preset.bearing
+                  localViewState.rotationX === preset.rotationX && localViewState.rotationOrbit === preset.rotationOrbit
                     ? '#4A90D9'
                     : 'rgba(255,255,255,0.1)',
                 color: 'white',
@@ -1052,6 +1072,7 @@ export function ExtractedView() {
           activeLayers={activeLayers}
           layerOrder={layerOrder}
           layerSpacing={layerSpacing}
+          center={center}
         />
       </div>
 
@@ -1150,8 +1171,13 @@ function getPolygonCoordinates(polygon: Polygon | MultiPolygon): number[][][] {
 const PARK_FLOAT_HEIGHT = 40;
 const PARK_THICKNESS = 5;
 
-// Layer creation helpers
-function createExtractedPolygonLayer(config: LayerConfig, features: FeatureCollection, zOffset: number): Layer {
+// Layer creation helpers - now accept center for local coordinate conversion
+function createExtractedPolygonLayer(
+  config: LayerConfig,
+  features: FeatureCollection,
+  zOffset: number,
+  center: [number, number]
+): Layer {
   const { style } = config;
   const fillColor = [...style.fillColor] as [number, number, number, number];
 
@@ -1163,7 +1189,10 @@ function createExtractedPolygonLayer(config: LayerConfig, features: FeatureColle
         const coords = (f.geometry as Polygon).coordinates[0];
         const height = getBuildingHeight(f.properties || {});
         return {
-          polygon: coords.map((c) => [c[0], c[1], zOffset + 50]),
+          polygon: coords.map((c) => {
+            const [x, y] = geoToLocal(c[0], c[1], center[0], center[1]);
+            return [x, y, zOffset + 50];
+          }),
           height: height * 0.5,
           properties: f.properties,
           feature: f,
@@ -1197,7 +1226,10 @@ function createExtractedPolygonLayer(config: LayerConfig, features: FeatureColle
         const coords = (f.geometry as Polygon).coordinates[0];
         const baseElevation = Math.max(PARK_FLOAT_HEIGHT, zOffset) + (index % 10) * 0.3;
         return {
-          polygon: coords.map((c) => [c[0], c[1], baseElevation]),
+          polygon: coords.map((c) => {
+            const [x, y] = geoToLocal(c[0], c[1], center[0], center[1]);
+            return [x, y, baseElevation];
+          }),
           properties: f.properties,
           feature: f,
           id: f.id || index,
@@ -1221,25 +1253,44 @@ function createExtractedPolygonLayer(config: LayerConfig, features: FeatureColle
     });
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return new GeoJsonLayer<any>({
+  // Default polygon handling - convert to local coordinates
+  const polygonData = features.features
+    .filter((f) => f.geometry.type === 'Polygon')
+    .map((f, index) => {
+      const coords = (f.geometry as Polygon).coordinates[0];
+      return {
+        polygon: coords.map((c) => {
+          const [x, y] = geoToLocal(c[0], c[1], center[0], center[1]);
+          return [x, y, zOffset + 10];
+        }),
+        properties: f.properties,
+        feature: f,
+        id: f.id || index,
+      };
+    });
+
+  return new PolygonLayer({
     id: `extracted-${config.id}`,
-    data: features,
-    filled: true,
-    stroked: true,
+    data: polygonData,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    getPolygon: (d: any) => d.polygon,
     getFillColor: fillColor,
     getLineColor: style.strokeColor,
     getLineWidth: style.strokeWidth,
     lineWidthUnits: 'pixels',
-    getElevation: zOffset + 10,
-    extruded: true,
+    extruded: false,
     pickable: true,
     autoHighlight: true,
     highlightColor: [255, 255, 100, 100],
   });
 }
 
-function createExtractedLineLayer(config: LayerConfig, features: FeatureCollection, zOffset: number): Layer {
+function createExtractedLineLayer(
+  config: LayerConfig,
+  features: FeatureCollection,
+  zOffset: number,
+  center: [number, number]
+): Layer {
   const { style } = config;
   const color = [...style.strokeColor] as [number, number, number, number];
 
@@ -1248,14 +1299,20 @@ function createExtractedLineLayer(config: LayerConfig, features: FeatureCollecti
     .flatMap((f) => {
       if (f.geometry.type === 'LineString') {
         return [{
-          path: (f.geometry as LineString).coordinates.map((c) => [...c, zOffset]),
+          path: (f.geometry as LineString).coordinates.map((c) => {
+            const [x, y] = geoToLocal(c[0], c[1], center[0], center[1]);
+            return [x, y, zOffset];
+          }),
           properties: f.properties,
           feature: f,
         }];
       }
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       return (f.geometry as any).coordinates.map((coords: number[][]) => ({
-        path: coords.map((c: number[]) => [...c, zOffset]),
+        path: coords.map((c: number[]) => {
+          const [x, y] = geoToLocal(c[0], c[1], center[0], center[1]);
+          return [x, y, zOffset];
+        }),
         properties: f.properties,
         feature: f,
       }));
@@ -1275,17 +1332,26 @@ function createExtractedLineLayer(config: LayerConfig, features: FeatureCollecti
   });
 }
 
-function createExtractedPointLayer(config: LayerConfig, features: FeatureCollection, zOffset: number): Layer {
+function createExtractedPointLayer(
+  config: LayerConfig,
+  features: FeatureCollection,
+  zOffset: number,
+  center: [number, number]
+): Layer {
   const { style } = config;
   const fillColor = [...style.fillColor] as [number, number, number, number];
 
   const pointData = features.features
     .filter((f) => f.geometry.type === 'Point')
-    .map((f) => ({
-      position: [...(f.geometry as Point).coordinates, zOffset + 20],
-      properties: f.properties,
-      feature: f,
-    }));
+    .map((f) => {
+      const coords = (f.geometry as Point).coordinates;
+      const [x, y] = geoToLocal(coords[0], coords[1], center[0], center[1]);
+      return {
+        position: [x, y, zOffset + 20],
+        properties: f.properties,
+        feature: f,
+      };
+    });
 
   return new SimpleMeshLayer({
     id: `extracted-${config.id}`,
