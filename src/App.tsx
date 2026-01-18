@@ -293,6 +293,21 @@ function App() {
           gap: '8px',
         }}
       >
+        {/* Title */}
+        <div
+          style={{
+            backgroundColor: 'rgba(0, 0, 0, 0.8)',
+            color: 'white',
+            padding: '8px 16px',
+            borderRadius: '8px',
+            fontSize: '18px',
+            fontWeight: '700',
+            letterSpacing: '1px',
+          }}
+        >
+          AxonCity
+        </div>
+
         {!isDrawing ? (
           <>
             <button
@@ -430,7 +445,7 @@ function App() {
         )}
       </div>
 
-      {/* Title and Search */}
+      {/* Search */}
       <div
         style={{
           position: 'absolute',
@@ -438,25 +453,8 @@ function App() {
           left: '50%',
           transform: 'translateX(-50%)',
           zIndex: 1000,
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          gap: '10px',
         }}
       >
-        <div
-          style={{
-            backgroundColor: 'rgba(0, 0, 0, 0.8)',
-            color: 'white',
-            padding: '8px 20px',
-            borderRadius: '20px',
-            fontSize: '16px',
-            fontWeight: '600',
-            letterSpacing: '1px',
-          }}
-        >
-          AxonCity - Exploded Axonometric Map
-        </div>
         <SearchBar />
       </div>
 
