@@ -294,19 +294,16 @@ function App() {
         }}
       >
         {/* Title */}
-        <div
+        <a href="https://github.com/raynbowy23/Axon-City.git" target="_blank" rel="noopener noreferrer" style={{ display: 'inline-block' }}>
+        <img
+          src="/AxonCityWideLogoWhite.png"
+          alt="AxonCity"
           style={{
-            backgroundColor: 'rgba(0, 0, 0, 0.8)',
-            color: 'white',
-            padding: '8px 16px',
-            borderRadius: '8px',
-            fontSize: '18px',
-            fontWeight: '700',
-            letterSpacing: '1px',
+            height: '40px',
+            width: 'auto',
           }}
-        >
-          AxonCity
-        </div>
+        />
+        </a>
 
         {!isDrawing ? (
           <>
