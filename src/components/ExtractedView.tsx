@@ -8,8 +8,8 @@ import type { Layer, PickingInfo } from '@deck.gl/core';
 import type { Feature, FeatureCollection, Polygon, MultiPolygon, LineString, Point } from 'geojson';
 
 import { useStore } from '../store/useStore';
-import { getLayersByCustomOrder, getLayerById, layerManifest } from '../data/layerManifest';
-import type { LayerConfig, LayerData, LayerOrderConfig } from '../types';
+import { getLayersByCustomOrder, layerManifest } from '../data/layerManifest';
+import type { LayerData, LayerOrderConfig, CustomLayerConfig, AnyLayerConfig } from '../types';
 
 // OrbitView viewState type
 interface OrbitViewState {
@@ -93,6 +93,7 @@ interface DeckGLViewProps {
   center: [number, number]; // geographic center for coordinate conversion
   enabledGroups: Set<string>; // which groups are visible in extracted view
   showPlatforms: boolean; // whether to show transparent group platforms
+  customLayers: CustomLayerConfig[]; // user-uploaded custom layers
 }
 
 const DeckGLView = memo(function DeckGLView({
@@ -107,6 +108,7 @@ const DeckGLView = memo(function DeckGLView({
   center,
   enabledGroups,
   showPlatforms,
+  customLayers,
 }: DeckGLViewProps) {
   const [isReady, setIsReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -214,24 +216,32 @@ const DeckGLView = memo(function DeckGLView({
   // Track current screen positions of pinned features using ref to avoid re-renders during drag
   const pinnedScreenPositionsRef = useRef<Record<string, { x: number; y: number }>>({});
 
+  // Helper to get layer config by ID (from manifest or custom layers)
+  const getLayerConfigById = useCallback((layerId: string): AnyLayerConfig | undefined => {
+    const manifestLayer = layerManifest.layers.find(l => l.id === layerId);
+    if (manifestLayer) return manifestLayer;
+    return customLayers.find(l => l.id === layerId);
+  }, [customLayers]);
+
   // Calculate z-offset for a given layer in the extracted view (always exploded)
   // This must match the logic in extractedLayers exactly
   const getLayerZOffset = useCallback((layerId: string): number => {
-    const layerConfig = layerManifest.layers.find(l => l.id === layerId);
+    const layerConfig = getLayerConfigById(layerId);
     if (!layerConfig) return 0;
 
+    const isCustom = 'isCustom' in layerConfig && layerConfig.isCustom;
     const groupSpacing = layerSpacing;
     const intraGroupSpacing = layerSpacing * intraGroupRatio;
 
-    // Get active layer configs in custom order (same as extractedLayers)
+    // Get active manifest layer configs in custom order
     const sortedLayers = getLayersByCustomOrder(layerOrder);
-    const activeLayerConfigs = sortedLayers.filter((layer) =>
+    const activeManifestLayers = sortedLayers.filter((layer) =>
       activeLayers.includes(layer.id)
     );
 
-    // Count active layers per group
+    // Count active manifest layers per group
     const activeLayersPerGroup: Record<string, number> = {};
-    for (const config of activeLayerConfigs) {
+    for (const config of activeManifestLayers) {
       activeLayersPerGroup[config.group] = (activeLayersPerGroup[config.group] || 0) + 1;
     }
 
@@ -239,31 +249,38 @@ const DeckGLView = memo(function DeckGLView({
     let cumulativeHeight = 0;
     let groupBaseHeight = 0;
     for (const groupId of layerOrder.groupOrder) {
-      if (groupId === layerConfig.group) {
+      if (!isCustom && groupId === layerConfig.group) {
         groupBaseHeight = cumulativeHeight;
-        break;
       }
       const layerCount = activeLayersPerGroup[groupId] || 0;
       cumulativeHeight += groupSpacing + layerCount * intraGroupSpacing;
     }
 
-    // Get layer index within group (only counting active layers)
-    const activeLayersInGroup = activeLayerConfigs.filter(l => l.group === layerConfig.group);
-    const layerIndexInGroup = activeLayersInGroup.findIndex(l => l.id === layerId);
+    let zOffset: number;
 
-    let zOffset = groupBaseHeight + layerIndexInGroup * intraGroupSpacing;
+    if (isCustom) {
+      // Custom layers go at the top
+      const customLayerBaseHeight = cumulativeHeight + groupSpacing;
+      const activeCustomLayers = customLayers.filter(l => activeLayers.includes(l.id));
+      const customLayerIndex = activeCustomLayers.findIndex(l => l.id === layerId);
+      zOffset = customLayerBaseHeight + Math.max(0, customLayerIndex) * intraGroupSpacing;
+    } else {
+      // Get layer index within group (only counting active manifest layers)
+      const activeLayersInGroup = activeManifestLayers.filter(l => l.group === layerConfig.group);
+      const layerIndexInGroup = activeLayersInGroup.findIndex(l => l.id === layerId);
+      zOffset = groupBaseHeight + Math.max(0, layerIndexInGroup) * intraGroupSpacing;
 
-    // Special handling for floating layers
-    const isBuildingLayer = layerId.startsWith('buildings-') || layerId === 'buildings';
-    if (isBuildingLayer) {
-      // In extracted view, buildings are at zOffset + 50 (see createExtractedPolygonLayer)
-      zOffset = zOffset + 50;
-    } else if (layerId === 'parks') {
-      zOffset = Math.max(40, zOffset);
+      // Special handling for floating layers
+      const isBuildingLayer = layerId.startsWith('buildings-') || layerId === 'buildings';
+      if (isBuildingLayer) {
+        zOffset = zOffset + 50;
+      } else if (layerId === 'parks') {
+        zOffset = Math.max(40, zOffset);
+      }
     }
 
     return zOffset;
-  }, [layerOrder, layerSpacing, intraGroupRatio, activeLayers]);
+  }, [layerOrder, layerSpacing, intraGroupRatio, activeLayers, customLayers, getLayerConfigById]);
 
   // Update pinned screen positions continuously using rAF (doesn't trigger re-renders)
   useEffect(() => {
@@ -583,7 +600,7 @@ const DeckGLView = memo(function DeckGLView({
       }
     }
 
-    // Render each layer
+    // Render each manifest layer
     for (const config of activeLayerConfigs) {
       const data = layerData.get(config.id);
       if (!data?.clippedFeatures?.features.length) continue;
@@ -606,6 +623,54 @@ const DeckGLView = memo(function DeckGLView({
           layers.push(createExtractedPointLayer(config, features, zOffset, center));
           break;
       }
+    }
+
+    // Render custom layers at the top
+    const customLayerBaseHeight = cumulativeHeight + groupSpacing;
+    const activeCustomLayers = customLayers.filter(l => activeLayers.includes(l.id));
+    activeCustomLayers.forEach((config, index) => {
+      const data = layerData.get(config.id);
+      // Custom layers use clippedFeatures if available, otherwise use all features
+      const features = data?.clippedFeatures?.features.length ? data.clippedFeatures : data?.features;
+      if (!features?.features.length) return;
+
+      const zOffset = customLayerBaseHeight + index * intraGroupSpacing;
+
+      switch (config.geometryType) {
+        case 'polygon':
+          layers.push(createExtractedPolygonLayer(config, features, zOffset, center));
+          break;
+        case 'line':
+          layers.push(createExtractedLineLayer(config, features, zOffset, center));
+          break;
+        case 'point':
+          layers.push(createExtractedPointLayer(config, features, zOffset, center));
+          break;
+      }
+    });
+
+    // Add custom layer platform if there are active custom layers
+    if (showPlatforms && activeCustomLayers.length > 0) {
+      const elevatedPolygon = localPolygon.map(ring =>
+        ring.map((c: number[]) => [c[0], c[1], customLayerBaseHeight - 5])
+      );
+
+      layers.push(
+        new PolygonLayer({
+          id: 'extracted-platform-custom',
+          data: [{ polygon: elevatedPolygon }],
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          getPolygon: (d: any) => d.polygon,
+          getFillColor: [255, 165, 0, 40] as [number, number, number, number], // Orange for custom
+          getLineColor: [255, 165, 0, 150] as [number, number, number, number],
+          getLineWidth: 2,
+          lineWidthUnits: 'pixels',
+          filled: true,
+          stroked: true,
+          extruded: false,
+          pickable: false,
+        })
+      );
     }
 
     // Render pinned feature highlights (like autoHighlight but persistent)
@@ -715,7 +780,7 @@ const DeckGLView = memo(function DeckGLView({
     }
 
     return layers;
-  }, [selectionPolygon, layerData, activeLayers, layerOrder, layerSpacing, intraGroupRatio, pinnedInfos, enabledGroups, center, showPlatforms, highlightedObject]);
+  }, [selectionPolygon, layerData, activeLayers, layerOrder, layerSpacing, intraGroupRatio, pinnedInfos, enabledGroups, center, showPlatforms, highlightedObject, customLayers]);
 
   if (error) {
     return (
@@ -808,7 +873,7 @@ const DeckGLView = memo(function DeckGLView({
           }}
         >
           <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>
-            {getLayerById(hoveredLayerId || '')?.name || 'Feature'}
+            {getLayerConfigById(hoveredLayerId || '')?.name || 'Feature'}
           </div>
           {hoveredFeature.properties && (
             <div>
@@ -892,7 +957,7 @@ const DeckGLView = memo(function DeckGLView({
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '6px' }}>
                 <div style={{ fontWeight: 'bold', color: 'rgba(255, 200, 50, 1)' }}>
-                  {getLayerById(pinned.layerId)?.name || 'Feature'}
+                  {getLayerConfigById(pinned.layerId)?.name || 'Feature'}
                 </div>
                 <button
                   onClick={() => removePinnedInfo(pinned.id)}
@@ -941,6 +1006,7 @@ export function ExtractedView() {
     isExtractedViewOpen,
     setExtractedViewOpen,
     layerOrder,
+    customLayers,
   } = useStore();
 
   // Panel size and position
@@ -1369,6 +1435,7 @@ export function ExtractedView() {
           center={center}
           enabledGroups={enabledGroups}
           showPlatforms={showPlatforms}
+          customLayers={customLayers}
         />
       </div>
 
@@ -1469,7 +1536,7 @@ const PARK_THICKNESS = 5;
 
 // Layer creation helpers - now accept center for local coordinate conversion
 function createExtractedPolygonLayer(
-  config: LayerConfig,
+  config: AnyLayerConfig,
   features: FeatureCollection,
   zOffset: number,
   center: [number, number]
@@ -1580,7 +1647,7 @@ function createExtractedPolygonLayer(
 }
 
 function createExtractedLineLayer(
-  config: LayerConfig,
+  config: AnyLayerConfig,
   features: FeatureCollection,
   zOffset: number,
   center: [number, number]
@@ -1626,7 +1693,7 @@ function createExtractedLineLayer(
 }
 
 function createExtractedPointLayer(
-  config: LayerConfig,
+  config: AnyLayerConfig,
   features: FeatureCollection,
   zOffset: number,
   center: [number, number]
