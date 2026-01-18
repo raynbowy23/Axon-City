@@ -100,6 +100,7 @@ const DeckGLView = memo(function DeckGLView({
   const [pinnedScreenPositions, setPinnedScreenPositions] = useState<Record<string, { x: number; y: number }>>({});
 
   // Calculate z-offset for a given layer in the extracted view (always exploded)
+  // This must match the logic in extractedLayers exactly
   const getLayerZOffset = useCallback((layerId: string): number => {
     const layerConfig = layerManifest.layers.find(l => l.id === layerId);
     if (!layerConfig) return 0;
@@ -107,10 +108,16 @@ const DeckGLView = memo(function DeckGLView({
     const groupSpacing = layerSpacing;
     const intraGroupSpacing = layerSpacing * 0.15;
 
-    // Count layers per group
-    const layersPerGroup: Record<string, number> = {};
-    for (const layer of layerManifest.layers) {
-      layersPerGroup[layer.group] = (layersPerGroup[layer.group] || 0) + 1;
+    // Get active layer configs in custom order (same as extractedLayers)
+    const sortedLayers = getLayersByCustomOrder(layerOrder);
+    const activeLayerConfigs = sortedLayers.filter((layer) =>
+      activeLayers.includes(layer.id)
+    );
+
+    // Count active layers per group
+    const activeLayersPerGroup: Record<string, number> = {};
+    for (const config of activeLayerConfigs) {
+      activeLayersPerGroup[config.group] = (activeLayersPerGroup[config.group] || 0) + 1;
     }
 
     // Calculate cumulative group base heights
@@ -121,15 +128,13 @@ const DeckGLView = memo(function DeckGLView({
         groupBaseHeight = cumulativeHeight;
         break;
       }
-      const layerCount = layersPerGroup[groupId] || 0;
+      const layerCount = activeLayersPerGroup[groupId] || 0;
       cumulativeHeight += groupSpacing + layerCount * intraGroupSpacing;
     }
 
-    // Get layer index within group
-    const sortedLayers = layerManifest.layers
-      .filter(l => l.group === layerConfig.group)
-      .sort((a, b) => a.priority - b.priority);
-    const layerIndexInGroup = sortedLayers.findIndex(l => l.id === layerId);
+    // Get layer index within group (only counting active layers)
+    const activeLayersInGroup = activeLayerConfigs.filter(l => l.group === layerConfig.group);
+    const layerIndexInGroup = activeLayersInGroup.findIndex(l => l.id === layerId);
 
     let zOffset = groupBaseHeight + layerIndexInGroup * intraGroupSpacing;
 
@@ -143,7 +148,7 @@ const DeckGLView = memo(function DeckGLView({
     }
 
     return zOffset;
-  }, [layerOrder, layerSpacing]);
+  }, [layerOrder, layerSpacing, activeLayers]);
 
   // Update pinned screen positions when viewState or layer spacing changes
   useEffect(() => {

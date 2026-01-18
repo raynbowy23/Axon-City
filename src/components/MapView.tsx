@@ -66,6 +66,7 @@ export function MapView() {
   const [pinnedInfos, setPinnedInfos] = useState<PinnedInfo[]>([]);
 
   // Calculate z-offset for a given layer based on current exploded view settings
+  // This must match the logic in layerRenderInfo exactly
   const getLayerZOffset = useCallback((layerId: string): number => {
     if (!explodedView.enabled) return 0;
 
@@ -75,10 +76,16 @@ export function MapView() {
     const groupSpacing = explodedView.layerSpacing;
     const intraGroupSpacing = explodedView.layerSpacing * 0.15;
 
-    // Count active layers per group (use all layers from manifest for consistency)
-    const layersPerGroup: Record<string, number> = {};
-    for (const layer of layerManifest.layers) {
-      layersPerGroup[layer.group] = (layersPerGroup[layer.group] || 0) + 1;
+    // Get active layer configs in custom order (same as layerRenderInfo)
+    const sortedLayers = getLayersByCustomOrder(layerOrder);
+    const activeLayerConfigs = sortedLayers.filter((layer) =>
+      activeLayers.includes(layer.id)
+    );
+
+    // Count active layers per group
+    const activeLayersPerGroup: Record<string, number> = {};
+    for (const config of activeLayerConfigs) {
+      activeLayersPerGroup[config.group] = (activeLayersPerGroup[config.group] || 0) + 1;
     }
 
     // Calculate cumulative group base heights
@@ -89,15 +96,13 @@ export function MapView() {
         groupBaseHeight = cumulativeHeight;
         break;
       }
-      const layerCount = layersPerGroup[groupId] || 0;
+      const layerCount = activeLayersPerGroup[groupId] || 0;
       cumulativeHeight += groupSpacing + layerCount * intraGroupSpacing;
     }
 
-    // Get layer index within group
-    const sortedLayers = layerManifest.layers
-      .filter(l => l.group === layerConfig.group)
-      .sort((a, b) => a.priority - b.priority);
-    const layerIndexInGroup = sortedLayers.findIndex(l => l.id === layerId);
+    // Get layer index within group (only counting active layers)
+    const activeLayersInGroup = activeLayerConfigs.filter(l => l.group === layerConfig.group);
+    const layerIndexInGroup = activeLayersInGroup.findIndex(l => l.id === layerId);
 
     let zOffset = explodedView.baseElevation + groupBaseHeight + layerIndexInGroup * intraGroupSpacing;
 
@@ -112,7 +117,7 @@ export function MapView() {
     }
 
     return zOffset;
-  }, [explodedView, layerOrder]);
+  }, [explodedView, layerOrder, activeLayers]);
 
   // Track current screen positions of pinned features (updated when viewState changes)
   const [pinnedScreenPositions, setPinnedScreenPositions] = useState<Record<string, { x: number; y: number }>>({});
