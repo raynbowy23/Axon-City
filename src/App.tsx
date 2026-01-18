@@ -5,6 +5,8 @@ import { ControlPanel } from './components/ControlPanel';
 import { StatsPanel } from './components/StatsPanel';
 import { SearchBar } from './components/SearchBar';
 import { SelectionPanel } from './components/SelectionPanel';
+import { ExtractedView } from './components/ExtractedView';
+import { DataInputPanel } from './components/DataInputPanel';
 import { usePolygonDrawing } from './hooks/usePolygonDrawing';
 import { useStore } from './store/useStore';
 import { layerManifest } from './data/layerManifest';
@@ -14,25 +16,27 @@ import {
   calculateLayerStats,
   calculatePolygonArea,
 } from './utils/geometryUtils';
+import type { CustomLayerConfig } from './types';
 import './App.css';
 
 function App() {
   const containerRef = useRef<HTMLDivElement>(null);
   const lastFetchedPolygonRef = useRef<string | null>(null);
-  const isEditingRef = useRef(false);
   const mouseDownPosRef = useRef<{ x: number; y: number } | null>(null);
 
   const {
     isDrawing,
+    isLoading,
     setIsLoading,
     setLoadingMessage,
     setLayerData,
-    clearLayerData,
+    clearManifestLayerData,
     activeLayers,
     selectionPolygon,
     setSelectionPolygon,
     layerData,
     draggingVertexIndex,
+    customLayers,
   } = useStore();
 
   const {
@@ -49,7 +53,7 @@ function App() {
     async (polygon: Polygon) => {
       setIsLoading(true);
       setLoadingMessage('Preparing to fetch data...');
-      clearLayerData();
+      clearManifestLayerData(); // Only clear manifest layers, preserve custom layers
 
       try {
         // Get bbox from polygon
@@ -108,7 +112,7 @@ function App() {
         setIsLoading(false);
       }
     },
-    [activeLayers, clearLayerData, setIsLoading, setLayerData, setLoadingMessage]
+    [activeLayers, clearManifestLayerData, setIsLoading, setLayerData, setLoadingMessage]
   );
 
   // Re-fetch data when polygon is edited (dragged)
@@ -133,6 +137,51 @@ function App() {
       }
     }
   }, [selectionPolygon, isDrawing, draggingVertexIndex, layerData.size, handlePolygonComplete]);
+
+  // Track last processed polygon for custom layers
+  const lastProcessedPolygonRef = useRef<string | null>(null);
+
+  // Process custom layers when selection polygon changes or custom layers are added
+  useEffect(() => {
+    if (selectionPolygon && customLayers.length > 0 && !isDrawing && draggingVertexIndex === null) {
+      const currentPolygonStr = JSON.stringify(selectionPolygon.geometry.coordinates);
+      const polygonChanged = lastProcessedPolygonRef.current !== currentPolygonStr;
+
+      // Process each custom layer that has data in layerData
+      const polygonAreaKm2 = calculatePolygonArea(selectionPolygon.geometry as Polygon);
+
+      for (const layer of customLayers) {
+        const existingData = layerData.get(layer.id);
+        if (!existingData) continue;
+
+        // Skip if already processed and polygon hasn't changed
+        if (!polygonChanged && existingData.clippedFeatures && existingData.stats) continue;
+
+        // Clip features to polygon
+        const clippedFeatures = clipFeaturesToPolygon(
+          existingData.features,
+          selectionPolygon.geometry as Polygon,
+          layer.geometryType
+        );
+
+        // Calculate stats
+        const stats = calculateLayerStats(
+          clippedFeatures,
+          layer as CustomLayerConfig & { osmQuery: string },
+          polygonAreaKm2
+        );
+
+        setLayerData(layer.id, {
+          layerId: layer.id,
+          features: existingData.features,
+          clippedFeatures,
+          stats,
+        });
+      }
+
+      lastProcessedPolygonRef.current = currentPolygonStr;
+    }
+  }, [selectionPolygon, customLayers, layerData, isDrawing, draggingVertexIndex, setLayerData]);
 
   // Track mouse down position to distinguish clicks from drags
   const handleMouseDown = useCallback(
@@ -198,7 +247,7 @@ function App() {
   }, [isDrawing, pointCount, cancelDrawing, completeDrawing, undoLastPoint, handlePolygonComplete]);
 
   const handleStartDrawing = () => {
-    clearLayerData();
+    clearManifestLayerData(); // Preserve custom layers
     setSelectionPolygon(null);
     startDrawing();
   };
@@ -212,7 +261,7 @@ function App() {
 
   const handleClearSelection = () => {
     setSelectionPolygon(null);
-    clearLayerData();
+    clearManifestLayerData(); // Preserve custom layers
   };
 
   return (
@@ -223,6 +272,7 @@ function App() {
         height: '100vh',
         position: 'relative',
         overflow: 'hidden',
+        cursor: isDrawing ? 'crosshair' : 'auto',
       }}
       onMouseDown={handleMouseDown}
       onClick={handleContainerClick}
@@ -245,36 +295,61 @@ function App() {
           <>
             <button
               onClick={handleStartDrawing}
+              disabled={isLoading}
               style={{
                 padding: '12px 24px',
-                backgroundColor: '#4A90D9',
+                backgroundColor: isLoading ? '#666' : '#4A90D9',
                 color: 'white',
                 border: 'none',
                 borderRadius: '8px',
-                cursor: 'pointer',
+                cursor: isLoading ? 'not-allowed' : 'pointer',
                 fontSize: '14px',
                 fontWeight: '600',
                 boxShadow: '0 2px 8px rgba(0, 0, 0, 0.3)',
+                opacity: isLoading ? 0.7 : 1,
               }}
             >
-              Draw Selection Area
+              {isLoading ? 'Processing...' : 'Draw Selection Area'}
             </button>
 
             {selectionPolygon && (
-              <button
-                onClick={handleClearSelection}
-                style={{
-                  padding: '8px 16px',
-                  backgroundColor: '#D94A4A',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '6px',
-                  cursor: 'pointer',
-                  fontSize: '12px',
-                }}
-              >
-                Clear Selection
-              </button>
+              <>
+                <button
+                  onClick={handleClearSelection}
+                  disabled={isLoading}
+                  style={{
+                    padding: '8px 16px',
+                    backgroundColor: isLoading ? '#666' : '#D94A4A',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '6px',
+                    cursor: isLoading ? 'not-allowed' : 'pointer',
+                    fontSize: '12px',
+                    opacity: isLoading ? 0.7 : 1,
+                  }}
+                >
+                  Clear Selection
+                </button>
+                {!isLoading && (
+                  <div
+                    style={{
+                      backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                      padding: '8px 12px',
+                      borderRadius: '6px',
+                      fontSize: '10px',
+                      color: 'rgba(255, 255, 255, 0.7)',
+                      lineHeight: '1.4',
+                    }}
+                  >
+                    <div style={{ marginBottom: '4px', fontWeight: '500', color: 'rgba(255, 200, 50, 0.9)' }}>
+                      Edit Selection:
+                    </div>
+                    <div>Drag corners to move</div>
+                    <div>Click <span style={{ color: '#64C8FF' }}>blue dots</span> to add point</div>
+                    <div>Double-click corner to remove</div>
+                  </div>
+                )}
+              </>
             )}
           </>
         ) : (
@@ -386,6 +461,8 @@ function App() {
       <ControlPanel />
       <StatsPanel />
       <SelectionPanel />
+      <ExtractedView />
+      <DataInputPanel />
 
       {/* Loading animation keyframes */}
       <style>

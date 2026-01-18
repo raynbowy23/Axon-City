@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import type { AppState, ViewState, LayerData, ExplodedViewConfig, SelectedFeature, Feature } from '../types';
+import type { AppState, ViewState, LayerData, ExplodedViewConfig, SelectedFeature, Feature, LayerGroup, LayerOrderConfig, CustomLayerConfig, FeatureCollection } from '../types';
+import { layerManifest } from '../data/layerManifest';
 
 // Distinct colors for selected features (colorblind-friendly palette)
 const SELECTION_COLORS: [number, number, number, number][] = [
@@ -27,9 +28,32 @@ const defaultViewState: ViewState = {
 const defaultExplodedView: ExplodedViewConfig = {
   enabled: false,
   layerSpacing: 100, // meters between groups (increased for better separation)
+  intraGroupRatio: 0.3, // 30% of layerSpacing for layers within same group
   baseElevation: 0,
   animationDuration: 500,
 };
+
+// Helper to derive default layer order from manifest
+function getDefaultLayerOrder(): LayerOrderConfig {
+  const groupOrder = layerManifest.groups.map(g => g.id) as LayerGroup[];
+  const layerOrderByGroup: Record<LayerGroup, string[]> = {} as Record<LayerGroup, string[]>;
+
+  for (const group of layerManifest.groups) {
+    const groupLayers = layerManifest.layers
+      .filter(l => l.group === group.id)
+      .sort((a, b) => a.priority - b.priority)
+      .map(l => l.id);
+    layerOrderByGroup[group.id as LayerGroup] = groupLayers;
+  }
+
+  return {
+    groupOrder,
+    layerOrderByGroup,
+    isCustomOrder: false,
+  };
+}
+
+const defaultLayerOrder = getDefaultLayerOrder();
 
 export const useStore = create<AppState>((set) => ({
   // Map view
@@ -53,6 +77,17 @@ export const useStore = create<AppState>((set) => ({
     newVertices[index] = position;
     return { editableVertices: newVertices };
   }),
+  addVertex: (afterIndex, position) => set((state) => {
+    const newVertices = [...state.editableVertices];
+    newVertices.splice(afterIndex + 1, 0, position);
+    return { editableVertices: newVertices };
+  }),
+  removeVertex: (index) => set((state) => {
+    // Don't remove if we have 3 or fewer vertices (minimum for a polygon)
+    if (state.editableVertices.length <= 3) return state;
+    const newVertices = state.editableVertices.filter((_, i) => i !== index);
+    return { editableVertices: newVertices };
+  }),
   draggingVertexIndex: null,
   setDraggingVertexIndex: (index) => set({ draggingVertexIndex: index }),
 
@@ -65,10 +100,25 @@ export const useStore = create<AppState>((set) => ({
       return { layerData: newMap };
     }),
   clearLayerData: () => set({ layerData: new Map() }),
+  clearManifestLayerData: () =>
+    set((state) => {
+      // Only clear non-custom layer data (preserve custom layers)
+      const customLayerIds = new Set(state.customLayers.map((l) => l.id));
+      const newMap = new Map<string, LayerData>();
+      for (const [layerId, data] of state.layerData.entries()) {
+        if (customLayerIds.has(layerId)) {
+          newMap.set(layerId, data);
+        }
+      }
+      return { layerData: newMap };
+    }),
 
   // Active layers
   activeLayers: [
-    'buildings',
+    'buildings-residential',
+    'buildings-commercial',
+    'buildings-industrial',
+    'buildings-other',
     'roads-primary',
     'roads-residential',
     'transit-stops',
@@ -90,6 +140,30 @@ export const useStore = create<AppState>((set) => ({
     set((state) => ({
       explodedView: { ...state.explodedView, ...config },
     })),
+
+  // Layer ordering
+  layerOrder: defaultLayerOrder,
+  setGroupOrder: (groupOrder) =>
+    set((state) => ({
+      layerOrder: {
+        ...state.layerOrder,
+        groupOrder,
+        isCustomOrder: true,
+      },
+    })),
+  setLayerOrderInGroup: (groupId, layerIds) =>
+    set((state) => ({
+      layerOrder: {
+        ...state.layerOrder,
+        layerOrderByGroup: {
+          ...state.layerOrder.layerOrderByGroup,
+          [groupId]: layerIds,
+        },
+        isCustomOrder: true,
+      },
+    })),
+  resetLayerOrder: () =>
+    set({ layerOrder: getDefaultLayerOrder() }),
 
   // UI state
   hoveredLayerId: null,
@@ -139,4 +213,74 @@ export const useStore = create<AppState>((set) => ({
   setIsLoading: (isLoading) => set({ isLoading }),
   loadingMessage: '',
   setLoadingMessage: (message) => set({ loadingMessage: message }),
+
+  // Extracted view
+  isExtractedViewOpen: false,
+  setExtractedViewOpen: (isOpen) => set({ isExtractedViewOpen: isOpen }),
+
+  // Custom layers (user-uploaded data)
+  customLayers: [],
+  addCustomLayer: (layer: CustomLayerConfig, features: FeatureCollection) =>
+    set((state) => {
+      // Add layer to customLayers
+      const newCustomLayers = [...state.customLayers, layer];
+
+      // Add to active layers
+      const newActiveLayers = [...state.activeLayers, layer.id];
+
+      // Store features in layerData
+      const newLayerData = new Map(state.layerData);
+      newLayerData.set(layer.id, {
+        layerId: layer.id,
+        features,
+      });
+
+      return {
+        customLayers: newCustomLayers,
+        activeLayers: newActiveLayers,
+        layerData: newLayerData,
+      };
+    }),
+  removeCustomLayer: (layerId: string) =>
+    set((state) => {
+      // Remove from customLayers
+      const newCustomLayers = state.customLayers.filter((l) => l.id !== layerId);
+
+      // Remove from active layers
+      const newActiveLayers = state.activeLayers.filter((id) => id !== layerId);
+
+      // Remove from layerData
+      const newLayerData = new Map(state.layerData);
+      newLayerData.delete(layerId);
+
+      return {
+        customLayers: newCustomLayers,
+        activeLayers: newActiveLayers,
+        layerData: newLayerData,
+      };
+    }),
+  clearCustomLayers: () =>
+    set((state) => {
+      // Get all custom layer IDs
+      const customLayerIds = new Set(state.customLayers.map((l) => l.id));
+
+      // Remove from active layers
+      const newActiveLayers = state.activeLayers.filter((id) => !customLayerIds.has(id));
+
+      // Remove from layerData
+      const newLayerData = new Map(state.layerData);
+      for (const id of customLayerIds) {
+        newLayerData.delete(id);
+      }
+
+      return {
+        customLayers: [],
+        activeLayers: newActiveLayers,
+        layerData: newLayerData,
+      };
+    }),
+
+  // Data input panel
+  isDataInputOpen: false,
+  setDataInputOpen: (isOpen) => set({ isDataInputOpen: isOpen }),
 }));

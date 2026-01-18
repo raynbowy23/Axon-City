@@ -1,24 +1,140 @@
-import { useMemo } from 'react';
+import { useMemo, useState, useCallback, useEffect, useRef } from 'react';
 import { useStore } from '../store/useStore';
 import { getLayerById, getGroupById } from '../data/layerManifest';
-import type { LayerStats, LayerGroup } from '../types';
+import type { LayerStats, LayerGroup, AnyLayerConfig } from '../types';
+
+// Size constraints
+const MIN_WIDTH = 280;
+const MAX_WIDTH = 600;
+const MIN_HEIGHT = 200;
+const MAX_HEIGHT = 800;
+const DEFAULT_WIDTH = 360;
+const DEFAULT_HEIGHT = 400;
+
+// LocalStorage key
+const STORAGE_KEY = 'axoncity-stats-panel-size';
+
+interface PanelSize {
+  width: number;
+  height: number;
+}
+
+function loadSavedSize(): PanelSize {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      return {
+        width: Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, parsed.width || DEFAULT_WIDTH)),
+        height: Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, parsed.height || DEFAULT_HEIGHT)),
+      };
+    }
+  } catch {
+    // Ignore parse errors
+  }
+  return { width: DEFAULT_WIDTH, height: DEFAULT_HEIGHT };
+}
+
+function saveSize(size: PanelSize): void {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(size));
+  } catch {
+    // Ignore storage errors
+  }
+}
 
 export function StatsPanel() {
-  const { layerData, activeLayers, selectionPolygon, isLoading, loadingMessage } = useStore();
+  const { layerData, activeLayers, selectionPolygon, isLoading, loadingMessage, setExtractedViewOpen, isExtractedViewOpen, customLayers } = useStore();
+
+  // Panel size state
+  const [size, setSize] = useState<PanelSize>(loadSavedSize);
+  const [isResizing, setIsResizing] = useState(false);
+  const [resizeDirection, setResizeDirection] = useState<'right' | 'top' | 'corner' | null>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const startPosRef = useRef<{ x: number; y: number; width: number; height: number }>({ x: 0, y: 0, width: 0, height: 0 });
+
+  // Handle mouse move during resize
+  const handleMouseMove = useCallback((e: MouseEvent) => {
+    if (!isResizing || !resizeDirection) return;
+
+    const deltaX = e.clientX - startPosRef.current.x;
+    const deltaY = startPosRef.current.y - e.clientY; // Inverted for top resize
+
+    let newWidth = startPosRef.current.width;
+    let newHeight = startPosRef.current.height;
+
+    if (resizeDirection === 'right' || resizeDirection === 'corner') {
+      newWidth = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, startPosRef.current.width + deltaX));
+    }
+
+    if (resizeDirection === 'top' || resizeDirection === 'corner') {
+      newHeight = Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, startPosRef.current.height + deltaY));
+    }
+
+    setSize({ width: newWidth, height: newHeight });
+  }, [isResizing, resizeDirection]);
+
+  // Handle mouse up to stop resize
+  const handleMouseUp = useCallback(() => {
+    if (isResizing) {
+      setIsResizing(false);
+      setResizeDirection(null);
+      saveSize(size);
+    }
+  }, [isResizing, size]);
+
+  // Add/remove global mouse listeners
+  useEffect(() => {
+    if (isResizing) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = resizeDirection === 'corner' ? 'nesw-resize' : resizeDirection === 'right' ? 'ew-resize' : 'ns-resize';
+      document.body.style.userSelect = 'none';
+    }
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, [isResizing, handleMouseMove, handleMouseUp, resizeDirection]);
+
+  // Start resize
+  const startResize = useCallback((e: React.MouseEvent, direction: 'right' | 'top' | 'corner') => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsResizing(true);
+    setResizeDirection(direction);
+    startPosRef.current = {
+      x: e.clientX,
+      y: e.clientY,
+      width: size.width,
+      height: size.height,
+    };
+  }, [size]);
+
+  // Helper to get layer config (manifest or custom)
+  const getLayerConfig = useCallback((layerId: string): AnyLayerConfig | undefined => {
+    const manifestLayer = getLayerById(layerId);
+    if (manifestLayer) return manifestLayer;
+    return customLayers.find((l) => l.id === layerId);
+  }, [customLayers]);
 
   // Group stats by layer group
   const groupedStats = useMemo(() => {
     const groups = new Map<
       LayerGroup,
-      { layerId: string; name: string; stats: LayerStats | undefined }[]
+      { layerId: string; name: string; stats: LayerStats | undefined; isCustom?: boolean; fillColor?: [number, number, number, number] }[]
     >();
 
     for (const layerId of activeLayers) {
-      const layer = getLayerById(layerId);
+      const layer = getLayerConfig(layerId);
       if (!layer) continue;
 
       const data = layerData.get(layerId);
       const stats = data?.stats;
+      const isCustom = 'isCustom' in layer && layer.isCustom;
 
       if (!groups.has(layer.group)) {
         groups.set(layer.group, []);
@@ -27,15 +143,51 @@ export function StatsPanel() {
         layerId,
         name: layer.name,
         stats,
+        isCustom,
+        fillColor: layer.style.fillColor,
       });
     }
 
     return groups;
-  }, [layerData, activeLayers]);
+  }, [layerData, activeLayers, getLayerConfig]);
 
   const hasStats = Array.from(groupedStats.values()).some((layers) =>
     layers.some((l) => l.stats)
   );
+
+  // Resize handle styles
+  const resizeHandleStyle: React.CSSProperties = {
+    position: 'absolute',
+    backgroundColor: 'transparent',
+  };
+
+  const rightHandleStyle: React.CSSProperties = {
+    ...resizeHandleStyle,
+    right: -4,
+    top: 0,
+    width: 8,
+    height: '100%',
+    cursor: 'ew-resize',
+  };
+
+  const topHandleStyle: React.CSSProperties = {
+    ...resizeHandleStyle,
+    top: -4,
+    left: 0,
+    width: '100%',
+    height: 8,
+    cursor: 'ns-resize',
+  };
+
+  const cornerHandleStyle: React.CSSProperties = {
+    ...resizeHandleStyle,
+    top: -6,
+    right: -6,
+    width: 14,
+    height: 14,
+    cursor: 'nesw-resize',
+    borderRadius: '2px',
+  };
 
   if (!selectionPolygon && !isLoading) {
     return (
@@ -43,7 +195,7 @@ export function StatsPanel() {
         style={{
           position: 'absolute',
           bottom: '20px',
-          left: '20px',
+          left: '10px',
           zIndex: 1000,
           backgroundColor: 'rgba(0, 0, 0, 0.85)',
           color: 'white',
@@ -65,24 +217,78 @@ export function StatsPanel() {
 
   return (
     <div
+      ref={panelRef}
       style={{
         position: 'absolute',
         bottom: '20px',
-        left: '20px',
+        left: '10px',
         zIndex: 1000,
         backgroundColor: 'rgba(0, 0, 0, 0.9)',
         color: 'white',
         padding: '16px',
         borderRadius: '8px',
-        maxWidth: '360px',
-        maxHeight: '50vh',
+        width: size.width,
+        height: size.height,
+        maxHeight: `calc(100vh - 40px)`,
         overflowY: 'auto',
         fontSize: '13px',
+        boxSizing: 'border-box',
       }}
     >
-      <h3 style={{ margin: '0 0 12px 0', fontSize: '14px' }}>
-        Selection Statistics
-      </h3>
+      {/* Resize handles */}
+      <div
+        style={rightHandleStyle}
+        onMouseDown={(e) => startResize(e, 'right')}
+      />
+      <div
+        style={topHandleStyle}
+        onMouseDown={(e) => startResize(e, 'top')}
+      />
+      <div
+        style={cornerHandleStyle}
+        onMouseDown={(e) => startResize(e, 'corner')}
+      >
+        {/* Corner indicator */}
+        <div
+          style={{
+            position: 'absolute',
+            top: 4,
+            right: 4,
+            width: 8,
+            height: 8,
+            borderTop: '2px solid rgba(255,255,255,0.4)',
+            borderRight: '2px solid rgba(255,255,255,0.4)',
+            borderTopRightRadius: '2px',
+          }}
+        />
+      </div>
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+        <h3 style={{ margin: 0, fontSize: '14px' }}>
+          Selection Statistics
+        </h3>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <button
+            onClick={() => setExtractedViewOpen(!isExtractedViewOpen)}
+            style={{
+              padding: '4px 10px',
+              backgroundColor: isExtractedViewOpen ? '#4A90D9' : 'rgba(74, 144, 217, 0.3)',
+              color: 'white',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              fontSize: '11px',
+              fontWeight: '500',
+            }}
+            title="Open extracted 3D view of selection"
+          >
+            {isExtractedViewOpen ? 'Hide 3D' : 'Extract 3D'}
+          </button>
+          <span style={{ fontSize: '10px', opacity: 0.5 }}>
+            {size.width}×{size.height}
+          </span>
+        </div>
+      </div>
 
       {selectionPolygon && (
         <div
@@ -164,8 +370,15 @@ export function StatsPanel() {
                   </span>
                 </div>
 
-                {layersWithStats.map(({ layerId, name, stats }) => (
-                  <LayerStatsRow key={layerId} layerId={layerId} name={name} stats={stats!} />
+                {layersWithStats.map(({ layerId, name, stats, isCustom, fillColor }) => (
+                  <LayerStatsRow
+                    key={layerId}
+                    layerId={layerId}
+                    name={name}
+                    stats={stats!}
+                    isCustom={isCustom}
+                    fillColor={fillColor}
+                  />
                 ))}
               </div>
             );
@@ -180,13 +393,17 @@ function LayerStatsRow({
   layerId,
   name,
   stats,
+  isCustom,
+  fillColor,
 }: {
   layerId: string;
   name: string;
   stats: LayerStats;
+  isCustom?: boolean;
+  fillColor?: [number, number, number, number];
 }) {
   const layer = getLayerById(layerId);
-  if (!layer) return null;
+  const color = fillColor || layer?.style.fillColor || [180, 180, 180, 200];
 
   return (
     <div
@@ -195,11 +412,24 @@ function LayerStatsRow({
         marginBottom: '4px',
         backgroundColor: 'rgba(255, 255, 255, 0.05)',
         borderRadius: '4px',
-        borderLeft: `3px solid rgba(${layer.style.fillColor.slice(0, 3).join(',')}, 0.8)`,
+        borderLeft: `3px solid rgba(${color.slice(0, 3).join(',')}, 0.8)`,
       }}
     >
-      <div style={{ fontWeight: '500', marginBottom: '4px', fontSize: '12px' }}>
+      <div style={{ fontWeight: '500', marginBottom: '4px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
         {name}
+        {isCustom && (
+          <span
+            style={{
+              fontSize: '9px',
+              backgroundColor: 'rgba(255, 255, 255, 0.15)',
+              padding: '1px 4px',
+              borderRadius: '3px',
+              opacity: 0.7,
+            }}
+          >
+            Custom
+          </span>
+        )}
       </div>
       <div
         style={{
@@ -244,28 +474,38 @@ function StatItem({ label, value }: { label: string; value: string }) {
 
 function formatArea(areaM2: number): string {
   const areaKm2 = areaM2 / 1_000_000;
+  const areaHa = areaKm2 * 100;
+  const areaAcres = areaM2 * 0.000247105; // 1 m² = 0.000247105 acres
+  const areaSqFt = areaM2 * 10.7639;
+
   if (areaKm2 < 0.01) {
-    return `${areaM2.toFixed(0)} m²`;
+    return `${areaM2.toFixed(0)} m² (${areaSqFt.toFixed(0)} sq ft)`;
   }
   if (areaKm2 < 1) {
-    return `${(areaKm2 * 100).toFixed(2)} ha`;
+    return `${areaHa.toFixed(2)} ha (${areaAcres.toFixed(2)} acres)`;
   }
-  return `${areaKm2.toFixed(2)} km²`;
+  return `${areaKm2.toFixed(2)} km² (${areaAcres.toFixed(0)} acres)`;
 }
 
 function formatAreaM2(areaM2: number): string {
+  const areaSqFt = areaM2 * 10.7639;
+  const areaAcres = areaM2 * 0.000247105;
+
   if (areaM2 < 1000) {
-    return `${areaM2.toFixed(0)} m²`;
+    return `${areaM2.toFixed(0)} m² (${areaSqFt.toFixed(0)} sq ft)`;
   }
   if (areaM2 < 10000) {
-    return `${(areaM2 / 1000).toFixed(1)}k m²`;
+    return `${(areaM2 / 1000).toFixed(1)}k m² (${areaAcres.toFixed(2)} acres)`;
   }
-  return `${(areaM2 / 1_000_000).toFixed(3)} km²`;
+  return `${(areaM2 / 1_000_000).toFixed(3)} km² (${areaAcres.toFixed(1)} acres)`;
 }
 
 function formatLength(meters: number): string {
+  const feet = meters * 3.28084;
+  const miles = meters * 0.000621371;
+
   if (meters < 1000) {
-    return `${meters.toFixed(0)} m`;
+    return `${meters.toFixed(0)} m (${feet.toFixed(0)} ft)`;
   }
-  return `${(meters / 1000).toFixed(2)} km`;
+  return `${(meters / 1000).toFixed(2)} km (${miles.toFixed(2)} mi)`;
 }

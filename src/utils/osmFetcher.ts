@@ -1,7 +1,24 @@
 import type { FeatureCollection, Feature, Polygon, Point, LineString } from 'geojson';
 import type { LayerConfig } from '../types';
 
-const OVERPASS_API = 'https://overpass-api.de/api/interpreter';
+// Multiple Overpass API endpoints for failover
+const OVERPASS_ENDPOINTS = [
+  'https://overpass-api.de/api/interpreter',
+  'https://overpass.kumi.systems/api/interpreter',
+  'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
+];
+
+// Query timeout in seconds (increased for complex queries)
+const QUERY_TIMEOUT = 90;
+
+// Fetch timeout in milliseconds
+const FETCH_TIMEOUT = 120000; // 2 minutes
+
+// Max concurrent requests
+const MAX_CONCURRENT = 3;
+
+// Cache for responses (bbox -> layer -> data)
+const responseCache = new Map<string, Map<string, FeatureCollection>>();
 
 interface OverpassElement {
   type: 'node' | 'way' | 'relation';
@@ -22,14 +39,64 @@ interface OverpassResponse {
 }
 
 /**
+ * Create an AbortController with timeout
+ */
+function createTimeoutController(timeoutMs: number): { controller: AbortController; timeoutId: ReturnType<typeof setTimeout> } {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  return { controller, timeoutId };
+}
+
+/**
+ * Fetch with timeout and abort support
+ */
+async function fetchWithTimeout(
+  url: string,
+  options: RequestInit,
+  timeoutMs: number = FETCH_TIMEOUT
+): Promise<Response> {
+  const { controller, timeoutId } = createTimeoutController(timeoutMs);
+
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+    return response;
+  } catch (error) {
+    clearTimeout(timeoutId);
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error('Request timeout');
+    }
+    throw error;
+  }
+}
+
+/**
+ * Get cache key for bbox
+ */
+function getBboxCacheKey(bbox: [number, number, number, number]): string {
+  return bbox.map(n => n.toFixed(6)).join(',');
+}
+
+/**
  * Fetch OSM data for a specific layer within a bounding box
- * Includes retry logic with exponential backoff for rate limiting
+ * Uses multiple endpoints with failover and retry logic
  */
 export async function fetchLayerData(
   layer: LayerConfig,
-  bbox: [number, number, number, number], // [minLon, minLat, maxLon, maxLat]
+  bbox: [number, number, number, number],
   maxRetries: number = 3
 ): Promise<FeatureCollection> {
+  // Check cache first
+  const cacheKey = getBboxCacheKey(bbox);
+  const layerCache = responseCache.get(cacheKey);
+  if (layerCache?.has(layer.id)) {
+    console.log(`Cache hit for layer ${layer.id}`);
+    return layerCache.get(layer.id)!;
+  }
+
   const [minLon, minLat, maxLon, maxLat] = bbox;
   const bboxStr = `${minLat},${minLon},${maxLat},${maxLon}`;
 
@@ -37,31 +104,47 @@ export async function fetchLayerData(
   const query = buildOverpassQuery(layer, bboxStr);
 
   let lastError: Error | null = null;
+  let endpointIndex = 0;
 
-  for (let attempt = 0; attempt < maxRetries; attempt++) {
+  for (let attempt = 0; attempt < maxRetries * OVERPASS_ENDPOINTS.length; attempt++) {
+    const endpoint = OVERPASS_ENDPOINTS[endpointIndex];
+
     try {
-      const response = await fetch(OVERPASS_API, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
+      console.log(`Fetching ${layer.id} from ${endpoint} (attempt ${attempt + 1})`);
+
+      const response = await fetchWithTimeout(
+        endpoint,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: `data=${encodeURIComponent(query)}`,
         },
-        body: `data=${encodeURIComponent(query)}`,
-      });
+        FETCH_TIMEOUT
+      );
 
       if (response.status === 429) {
-        // Rate limited - wait with exponential backoff
-        const waitTime = Math.pow(2, attempt + 1) * 1000; // 2s, 4s, 8s
-        console.warn(`Rate limited for ${layer.id}, waiting ${waitTime}ms before retry...`);
-        await new Promise((resolve) => setTimeout(resolve, waitTime));
+        // Rate limited - try next endpoint immediately
+        console.warn(`Rate limited at ${endpoint} for ${layer.id}, trying next endpoint...`);
+        endpointIndex = (endpointIndex + 1) % OVERPASS_ENDPOINTS.length;
+        await new Promise((resolve) => setTimeout(resolve, 500));
         continue;
       }
 
-      if (response.status === 504) {
-        // Gateway timeout - retry with backoff
-        const waitTime = Math.pow(2, attempt) * 1000; // 1s, 2s, 4s
-        console.warn(`Timeout for ${layer.id}, waiting ${waitTime}ms before retry...`);
-        await new Promise((resolve) => setTimeout(resolve, waitTime));
+      if (response.status === 504 || response.status === 503) {
+        // Server overloaded - try next endpoint
+        console.warn(`Server error ${response.status} at ${endpoint} for ${layer.id}, trying next endpoint...`);
+        endpointIndex = (endpointIndex + 1) % OVERPASS_ENDPOINTS.length;
+        await new Promise((resolve) => setTimeout(resolve, 1000));
         continue;
+      }
+
+      if (response.status === 400) {
+        // Bad request - query might be malformed, log and skip
+        const errorText = await response.text();
+        console.error(`Bad request for layer ${layer.id}: ${errorText.slice(0, 200)}`);
+        return { type: 'FeatureCollection', features: [] };
       }
 
       if (!response.ok) {
@@ -69,33 +152,47 @@ export async function fetchLayerData(
       }
 
       const data: OverpassResponse = await response.json();
-      return convertToGeoJSON(data, layer);
+      const result = convertToGeoJSON(data, layer);
+
+      // Cache the result
+      if (!responseCache.has(cacheKey)) {
+        responseCache.set(cacheKey, new Map());
+      }
+      responseCache.get(cacheKey)!.set(layer.id, result);
+
+      console.log(`Successfully fetched ${result.features.length} features for ${layer.id}`);
+      return result;
     } catch (error) {
       lastError = error as Error;
-      console.error(`Attempt ${attempt + 1} failed for layer ${layer.id}:`, error);
+      console.error(`Attempt ${attempt + 1} failed for layer ${layer.id} at ${endpoint}:`, error);
 
-      if (attempt < maxRetries - 1) {
-        const waitTime = Math.pow(2, attempt) * 1000;
-        await new Promise((resolve) => setTimeout(resolve, waitTime));
+      // Rotate to next endpoint on network errors
+      if (error instanceof Error && (error.message === 'Request timeout' || error.message.includes('fetch'))) {
+        endpointIndex = (endpointIndex + 1) % OVERPASS_ENDPOINTS.length;
       }
+
+      // Wait before retry with exponential backoff
+      const waitTime = Math.min(Math.pow(2, Math.floor(attempt / OVERPASS_ENDPOINTS.length)) * 1000, 8000);
+      await new Promise((resolve) => setTimeout(resolve, waitTime));
     }
   }
 
-  console.error(`Failed to fetch layer ${layer.id} after ${maxRetries} attempts:`, lastError);
+  console.error(`Failed to fetch layer ${layer.id} after all attempts:`, lastError);
   return { type: 'FeatureCollection', features: [] };
 }
 
 /**
  * Build Overpass QL query from layer config
+ * Optimized with longer timeout and maxsize limit
  */
 function buildOverpassQuery(layer: LayerConfig, bboxStr: string): string {
   const { osmQuery, geometryType } = layer;
 
-  // Parse the osmQuery - split on | only when it's between queries (not inside quotes)
-  // Pattern: split on | that is followed by 'node', 'way', or 'relation'
+  // Parse the osmQuery - split on | only when it's between queries
   const queryParts = splitQueryParts(osmQuery);
 
-  let output = '[out:json][timeout:30];\n(\n';
+  // Use longer timeout and set maxsize to prevent memory issues
+  let output = `[out:json][timeout:${QUERY_TIMEOUT}][maxsize:67108864];\n(\n`;
 
   for (const part of queryParts) {
     const trimmed = part.trim();
@@ -249,7 +346,7 @@ function elementToFeature(
 }
 
 /**
- * Fetch multiple layers sequentially to avoid rate limiting
+ * Fetch multiple layers with parallel execution and concurrency limit
  */
 export async function fetchMultipleLayers(
   layers: LayerConfig[],
@@ -258,22 +355,185 @@ export async function fetchMultipleLayers(
 ): Promise<Map<string, FeatureCollection>> {
   const results = new Map<string, FeatureCollection>();
   const total = layers.length;
+  let completed = 0;
 
-  // Fetch layers one at a time to avoid rate limiting
-  for (let i = 0; i < layers.length; i++) {
-    const layer = layers[i];
+  // Process layers in batches with limited concurrency
+  const processBatch = async (batch: LayerConfig[]) => {
+    const promises = batch.map(async (layer) => {
+      const data = await fetchLayerData(layer, bbox);
+      results.set(layer.id, data);
+      completed++;
+      onProgress?.(layer.id, completed, total);
+      return data;
+    });
+    await Promise.all(promises);
+  };
 
-    const data = await fetchLayerData(layer, bbox);
-    results.set(layer.id, data);
-    onProgress?.(layer.id, results.size, total);
+  // Split into batches
+  for (let i = 0; i < layers.length; i += MAX_CONCURRENT) {
+    const batch = layers.slice(i, i + MAX_CONCURRENT);
+    await processBatch(batch);
 
-    // Delay between requests to respect API rate limits
-    if (i < layers.length - 1) {
-      await new Promise((resolve) => setTimeout(resolve, 1000)); // 1 second between requests
+    // Small delay between batches to avoid overwhelming servers
+    if (i + MAX_CONCURRENT < layers.length) {
+      await new Promise((resolve) => setTimeout(resolve, 500));
     }
   }
 
   return results;
+}
+
+/**
+ * Fetch multiple layers as a single batched query (more efficient for related data)
+ * Combines all layer queries into one request
+ */
+export async function fetchLayersBatched(
+  layers: LayerConfig[],
+  bbox: [number, number, number, number],
+  onProgress?: (progress: number, total: number) => void
+): Promise<Map<string, FeatureCollection>> {
+  const results = new Map<string, FeatureCollection>();
+  const [minLon, minLat, maxLon, maxLat] = bbox;
+  const bboxStr = `${minLat},${minLon},${maxLat},${maxLon}`;
+
+  // Group layers by geometry type for batching
+  const layersByType: Record<string, LayerConfig[]> = {
+    point: [],
+    line: [],
+    polygon: [],
+  };
+
+  for (const layer of layers) {
+    layersByType[layer.geometryType].push(layer);
+  }
+
+  let completed = 0;
+  const total = layers.length;
+
+  // Fetch each geometry type batch
+  for (const [geometryType, typeLayers] of Object.entries(layersByType)) {
+    if (typeLayers.length === 0) continue;
+
+    // Build combined query for all layers of this type
+    let query = `[out:json][timeout:${QUERY_TIMEOUT}][maxsize:67108864];\n(\n`;
+
+    for (const layer of typeLayers) {
+      const queryParts = splitQueryParts(layer.osmQuery);
+      for (const part of queryParts) {
+        const trimmed = part.trim();
+        if (trimmed.startsWith('node') || trimmed.startsWith('way') || trimmed.startsWith('relation')) {
+          query += `  ${trimmed}(${bboxStr});\n`;
+        }
+      }
+    }
+
+    query += ');\n';
+    query += geometryType === 'point' ? 'out body;\n' : 'out body geom;\n';
+
+    // Fetch with failover
+    let data: OverpassResponse | null = null;
+    for (let endpointIndex = 0; endpointIndex < OVERPASS_ENDPOINTS.length; endpointIndex++) {
+      try {
+        const response = await fetchWithTimeout(
+          OVERPASS_ENDPOINTS[endpointIndex],
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: `data=${encodeURIComponent(query)}`,
+          },
+          FETCH_TIMEOUT
+        );
+
+        if (response.ok) {
+          data = await response.json();
+          break;
+        }
+      } catch (error) {
+        console.warn(`Batch fetch failed at endpoint ${endpointIndex}:`, error);
+      }
+    }
+
+    if (data) {
+      // Distribute results back to individual layers
+      for (const layer of typeLayers) {
+        const layerFeatures = filterElementsForLayer(data.elements, layer);
+        const geojson = convertToGeoJSON({ ...data, elements: layerFeatures }, layer);
+        results.set(layer.id, geojson);
+        completed++;
+        onProgress?.(completed, total);
+      }
+    } else {
+      // Fallback to individual fetches
+      for (const layer of typeLayers) {
+        const layerData = await fetchLayerData(layer, bbox);
+        results.set(layer.id, layerData);
+        completed++;
+        onProgress?.(completed, total);
+      }
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Filter elements that match a specific layer's query pattern
+ */
+function filterElementsForLayer(elements: OverpassElement[], layer: LayerConfig): OverpassElement[] {
+  const queryParts = splitQueryParts(layer.osmQuery);
+
+  return elements.filter((element) => {
+    if (!element.tags) return false;
+
+    // Check if element matches any of the layer's query patterns
+    for (const part of queryParts) {
+      // Extract tag conditions from query
+      const tagMatches = part.matchAll(/\["([^"]+)"(?:~"([^"]+)"|="([^"]+)")?\]/g);
+      let allMatch = true;
+      let hasConditions = false;
+
+      for (const match of tagMatches) {
+        hasConditions = true;
+        const [, key, regexValue, exactValue] = match;
+        const tagValue = element.tags[key];
+
+        if (!tagValue) {
+          // Check if just checking for tag existence (e.g., ["building"])
+          if (!regexValue && !exactValue) {
+            allMatch = false;
+            break;
+          }
+          allMatch = false;
+          break;
+        }
+
+        if (regexValue) {
+          // Regex match
+          try {
+            const regex = new RegExp(regexValue);
+            if (!regex.test(tagValue)) {
+              allMatch = false;
+              break;
+            }
+          } catch {
+            allMatch = false;
+            break;
+          }
+        } else if (exactValue) {
+          // Exact match
+          if (tagValue !== exactValue) {
+            allMatch = false;
+            break;
+          }
+        }
+        // If neither regex nor exact value, just checking tag existence (which we already verified)
+      }
+
+      if (hasConditions && allMatch) return true;
+    }
+
+    return false;
+  });
 }
 
 /**
@@ -303,4 +563,11 @@ export function getBboxFromPolygon(
     maxLon + bufferDegrees,
     maxLat + bufferDegrees,
   ];
+}
+
+/**
+ * Clear the response cache (useful when selection changes)
+ */
+export function clearCache(): void {
+  responseCache.clear();
 }

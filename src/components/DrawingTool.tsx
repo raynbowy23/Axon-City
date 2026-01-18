@@ -194,11 +194,16 @@ export function DrawingTool({ onComplete }: DrawingToolProps) {
 }
 
 function formatArea(areaKm2: number): string {
+  const areaM2 = areaKm2 * 1_000_000;
+  const areaHa = areaKm2 * 100;
+  const areaAcres = areaKm2 * 247.105; // 1 km² = 247.105 acres
+  const areaSqFt = areaM2 * 10.7639;
+
   if (areaKm2 < 0.01) {
-    return `${(areaKm2 * 1_000_000).toFixed(0)} m²`;
+    return `${areaM2.toFixed(0)} m² (${areaSqFt.toFixed(0)} sq ft)`;
   }
   if (areaKm2 < 1) {
-    return `${(areaKm2 * 100).toFixed(2)} ha`;
+    return `${areaHa.toFixed(2)} ha (${areaAcres.toFixed(2)} acres)`;
   }
-  return `${areaKm2.toFixed(2)} km²`;
+  return `${areaKm2.toFixed(2)} km² (${areaAcres.toFixed(0)} acres)`;
 }

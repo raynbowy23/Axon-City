@@ -1,4 +1,4 @@
-import type { Feature, FeatureCollection, Polygon, MultiPolygon, LineString, MultiLineString, Point } from 'geojson';
+import type { Feature, FeatureCollection, Polygon, MultiPolygon, LineString, MultiLineString, Point, Geometry } from 'geojson';
 
 // Layer categories matching the poster aesthetic
 export type LayerGroup =
@@ -6,7 +6,8 @@ export type LayerGroup =
   | 'access'
   | 'usage'
   | 'safety'
-  | 'environment';
+  | 'environment'
+  | 'custom';
 
 export type GeometryType = 'polygon' | 'line' | 'point';
 
@@ -81,9 +82,31 @@ export interface ViewState {
 
 export interface ExplodedViewConfig {
   enabled: boolean;
-  layerSpacing: number; // vertical distance between layers in meters
+  layerSpacing: number; // vertical distance between layer groups in meters
+  intraGroupRatio: number; // ratio of layerSpacing for spacing between layers in same group
   baseElevation: number;
   animationDuration: number;
+}
+
+export interface LayerOrderConfig {
+  groupOrder: LayerGroup[];
+  layerOrderByGroup: Record<LayerGroup, string[]>;
+  isCustomOrder: boolean;
+}
+
+// Custom layer extends LayerConfig but without osmQuery (user-uploaded data)
+export interface CustomLayerConfig extends Omit<LayerConfig, 'osmQuery'> {
+  isCustom: true;
+  sourceType: 'geojson' | 'csv';
+  fileName: string;
+}
+
+// Union type for all layers
+export type AnyLayerConfig = LayerConfig | CustomLayerConfig;
+
+// Helper type guard to check if a layer is custom
+export function isCustomLayer(layer: AnyLayerConfig): layer is CustomLayerConfig {
+  return 'isCustom' in layer && layer.isCustom === true;
 }
 
 // Selected feature with color for visual differentiation
@@ -112,6 +135,8 @@ export interface AppState {
   editableVertices: [number, number][];
   setEditableVertices: (vertices: [number, number][]) => void;
   updateVertex: (index: number, position: [number, number]) => void;
+  addVertex: (afterIndex: number, position: [number, number]) => void;
+  removeVertex: (index: number) => void;
   draggingVertexIndex: number | null;
   setDraggingVertexIndex: (index: number | null) => void;
 
@@ -119,6 +144,7 @@ export interface AppState {
   layerData: Map<string, LayerData>;
   setLayerData: (layerId: string, data: LayerData) => void;
   clearLayerData: () => void;
+  clearManifestLayerData: () => void;
 
   // Active layers (selected by user)
   activeLayers: string[];
@@ -128,6 +154,12 @@ export interface AppState {
   // Exploded view
   explodedView: ExplodedViewConfig;
   setExplodedView: (config: Partial<ExplodedViewConfig>) => void;
+
+  // Layer ordering
+  layerOrder: LayerOrderConfig;
+  setGroupOrder: (groupOrder: LayerGroup[]) => void;
+  setLayerOrderInGroup: (groupId: LayerGroup, layerIds: string[]) => void;
+  resetLayerOrder: () => void;
 
   // UI state
   hoveredLayerId: string | null;
@@ -146,6 +178,20 @@ export interface AppState {
   setIsLoading: (isLoading: boolean) => void;
   loadingMessage: string;
   setLoadingMessage: (message: string) => void;
+
+  // Extracted view
+  isExtractedViewOpen: boolean;
+  setExtractedViewOpen: (isOpen: boolean) => void;
+
+  // Custom layers (user-uploaded data)
+  customLayers: CustomLayerConfig[];
+  addCustomLayer: (layer: CustomLayerConfig, features: FeatureCollection) => void;
+  removeCustomLayer: (layerId: string) => void;
+  clearCustomLayers: () => void;
+
+  // Data input panel
+  isDataInputOpen: boolean;
+  setDataInputOpen: (isOpen: boolean) => void;
 }
 
 // Re-export GeoJSON types for convenience
@@ -157,4 +203,5 @@ export type {
   LineString,
   MultiLineString,
   Point,
+  Geometry,
 };

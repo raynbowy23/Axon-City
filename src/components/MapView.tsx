@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, useEffect } from 'react';
+import { useCallback, useMemo, useState, useEffect, useRef } from 'react';
 import Map from 'react-map-gl/maplibre';
 import DeckGL from '@deck.gl/react';
 import { GeoJsonLayer, ScatterplotLayer, PathLayer, PolygonLayer } from '@deck.gl/layers';
@@ -9,24 +9,15 @@ import type { Feature, FeatureCollection, Polygon, LineString, Point } from 'geo
 import 'maplibre-gl/dist/maplibre-gl.css';
 
 import { useStore } from '../store/useStore';
-import { layerManifest, getLayerById, getSortedLayers } from '../data/layerManifest';
-import type { LayerConfig, LayerData, LayerGroup } from '../types';
+import { layerManifest, getLayersByCustomOrder } from '../data/layerManifest';
+import type { LayerData, LayerGroup, AnyLayerConfig } from '../types';
 
 // Free MapLibre style - OpenStreetMap Carto
 const MAP_STYLE = 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json';
 
-// Group spacing configuration for better visual separation
-// All groups start from 1 to ensure proper floating in exploded view
-const GROUP_BASE_HEIGHTS: Record<LayerGroup, number> = {
-  usage: 1,        // Base layer (land use, buildings) - now floats
-  infrastructure: 2, // Roads, bike lanes
-  access: 3,       // Transit, parking
-  safety: 4,       // Signals, crosswalks
-  environment: 5,  // Parks, water, trees (top)
-};
 
 interface LayerRenderInfo {
-  config: LayerConfig;
+  config: AnyLayerConfig;
   data: LayerData;
   zOffset: number;
   groupIndex: number;
@@ -48,34 +39,253 @@ export function MapView() {
     editableVertices,
     setEditableVertices,
     updateVertex,
+    addVertex,
+    removeVertex,
     draggingVertexIndex,
     setDraggingVertexIndex,
     setSelectionPolygon,
     selectedFeatures,
-    addSelectedFeature,
+    layerOrder,
+    customLayers,
   } = useStore();
 
   const [hoveredFeature, setHoveredFeature] = useState<Feature | null>(null);
   const [cursorPosition, setCursorPosition] = useState<{ x: number; y: number } | null>(null);
   const [hoveredVertexIndex, setHoveredVertexIndex] = useState<number | null>(null);
+  const [hoveredMidpointIndex, setHoveredMidpointIndex] = useState<number | null>(null);
+  const lastVertexClickRef = useRef<{ index: number; time: number } | null>(null);
+  const deckRef = useRef<any>(null);
+
+  // Pinned feature info (clicked to stick) - stores geographic coordinates and initial screen position
+  interface PinnedInfo {
+    id: string;
+    feature: Feature;
+    layerId: string;
+    coordinates: [number, number]; // [longitude, latitude]
+    initialScreenPos: { x: number; y: number }; // fallback position
+  }
+  const [pinnedInfos, setPinnedInfos] = useState<PinnedInfo[]>([]);
+
+  // Helper to get layer config by ID (from manifest or custom layers)
+  const getLayerConfigById = useCallback((layerId: string): AnyLayerConfig | undefined => {
+    // Check manifest layers first
+    const manifestLayer = layerManifest.layers.find(l => l.id === layerId);
+    if (manifestLayer) return manifestLayer;
+
+    // Check custom layers
+    return customLayers.find(l => l.id === layerId);
+  }, [customLayers]);
+
+  // Calculate z-offset for a given layer based on current exploded view settings
+  // This must match the logic in layerRenderInfo exactly
+  const getLayerZOffset = useCallback((layerId: string): number => {
+    if (!explodedView.enabled) return 0;
+
+    const layerConfig = getLayerConfigById(layerId);
+    if (!layerConfig) return 0;
+
+    const groupSpacing = explodedView.layerSpacing;
+    const intraGroupSpacing = explodedView.layerSpacing * explodedView.intraGroupRatio;
+
+    // Check if this is a custom layer
+    const isCustom = 'isCustom' in layerConfig && layerConfig.isCustom;
+
+    // Get active manifest layer configs WITH DATA (same as layerRenderInfo)
+    const sortedLayers = getLayersByCustomOrder(layerOrder);
+    const activeManifestLayers = sortedLayers.filter((layer) => {
+      if (!activeLayers.includes(layer.id)) return false;
+      const data = layerData.get(layer.id);
+      const hasFeatures = data?.features?.features?.length || data?.clippedFeatures?.features?.length;
+      return hasFeatures;
+    });
+
+    // Get active custom layers WITH DATA
+    const activeCustomLayers = customLayers.filter((layer) => {
+      if (!activeLayers.includes(layer.id)) return false;
+      const data = layerData.get(layer.id);
+      const hasFeatures = data?.features?.features?.length || data?.clippedFeatures?.features?.length;
+      return hasFeatures;
+    });
+
+    // Count manifest layers WITH DATA per group
+    const activeLayersPerGroup: Record<string, number> = {};
+    for (const config of activeManifestLayers) {
+      activeLayersPerGroup[config.group] = (activeLayersPerGroup[config.group] || 0) + 1;
+    }
+
+    // Calculate cumulative group base heights (only for groups with data)
+    let cumulativeHeight = 0;
+    let groupBaseHeight = 0;
+    for (const groupId of layerOrder.groupOrder) {
+      if (!isCustom && groupId === layerConfig.group) {
+        groupBaseHeight = cumulativeHeight;
+      }
+      const layerCount = activeLayersPerGroup[groupId] || 0;
+      // Only add space if the group has layers with data
+      if (layerCount > 0) {
+        cumulativeHeight += groupSpacing + layerCount * intraGroupSpacing;
+      }
+    }
+
+    let zOffset: number;
+
+    if (isCustom) {
+      // Custom layers go at the top, above all manifest groups
+      // cumulativeHeight already includes spacing after the last group, so just use it directly
+      const customLayerBaseHeight = cumulativeHeight;
+      const customLayerIndex = activeCustomLayers.findIndex(l => l.id === layerId);
+      zOffset = explodedView.baseElevation + customLayerBaseHeight + Math.max(0, customLayerIndex) * intraGroupSpacing;
+    } else {
+      // Get layer index within group (only counting layers with data)
+      const activeLayersInGroup = activeManifestLayers.filter(l => l.group === layerConfig.group);
+      const layerIndexInGroup = activeLayersInGroup.findIndex(l => l.id === layerId);
+      zOffset = explodedView.baseElevation + groupBaseHeight + Math.max(0, layerIndexInGroup) * intraGroupSpacing;
+
+      // Special handling for floating layers - match actual layer elevations
+      const isBuildingLayer = layerId.startsWith('buildings-') || layerId === 'buildings';
+      if (isBuildingLayer || layerId === 'parking') {
+        // Buildings and parking float at minimum BUILDING_FLOAT_HEIGHT (80m) or zOffset
+        zOffset = Math.max(80, zOffset);
+      } else if (layerId === 'parks') {
+        // Parks float at minimum 40m, or higher based on layer stacking
+        zOffset = Math.max(40, zOffset);
+      }
+    }
+
+    return zOffset;
+  }, [explodedView, layerOrder, activeLayers, customLayers, layerData, getLayerConfigById]);
+
+  // Track current screen positions of pinned features (updated when viewState changes)
+  const [pinnedScreenPositions, setPinnedScreenPositions] = useState<Record<string, { x: number; y: number }>>({});
+
+  // Update pinned screen positions when viewState or exploded view changes
+  useEffect(() => {
+    if (pinnedInfos.length === 0) return;
+
+    // Use requestAnimationFrame to ensure DeckGL has updated its viewport
+    const updatePositions = () => {
+      if (!deckRef.current?.deck) return;
+      const viewport = deckRef.current.deck.getViewports()[0];
+      if (!viewport) return;
+
+      const newPositions: Record<string, { x: number; y: number }> = {};
+      for (const pinned of pinnedInfos) {
+        try {
+          // Get z-offset for this layer based on exploded view settings
+          const zOffset = getLayerZOffset(pinned.layerId);
+          // Project with 3D coordinates [lon, lat, z]
+          const [x, y] = viewport.project([...pinned.coordinates, zOffset]);
+          newPositions[pinned.id] = { x, y };
+        } catch {
+          // Fall back to initial position if projection fails
+          newPositions[pinned.id] = pinned.initialScreenPos;
+        }
+      }
+      setPinnedScreenPositions(newPositions);
+    };
+
+    // Run immediately and also after a frame for DeckGL to update
+    updatePositions();
+    const frameId = requestAnimationFrame(updatePositions);
+
+    return () => cancelAnimationFrame(frameId);
+  }, [viewState, pinnedInfos, explodedView, getLayerZOffset]);
+
+  // Remove a pinned info
+  const removePinnedInfo = useCallback((id: string) => {
+    setPinnedInfos((prev) => prev.filter((p) => p.id !== id));
+  }, []);
+
+  // Helper to get centroid of a feature
+  const getFeatureCentroid = useCallback((feature: Feature): [number, number] => {
+    const geometry = feature.geometry;
+    if (!geometry) return [0, 0];
+
+    if (geometry.type === 'Point') {
+      return geometry.coordinates as [number, number];
+    } else if (geometry.type === 'LineString') {
+      const coords = geometry.coordinates;
+      const mid = Math.floor(coords.length / 2);
+      return coords[mid] as [number, number];
+    } else if (geometry.type === 'Polygon') {
+      const coords = geometry.coordinates[0];
+      let sumX = 0, sumY = 0;
+      for (const c of coords) {
+        sumX += c[0];
+        sumY += c[1];
+      }
+      return [sumX / coords.length, sumY / coords.length];
+    } else if (geometry.type === 'MultiPolygon') {
+      const coords = geometry.coordinates[0][0];
+      let sumX = 0, sumY = 0;
+      for (const c of coords) {
+        sumX += c[0];
+        sumY += c[1];
+      }
+      return [sumX / coords.length, sumY / coords.length];
+    } else if (geometry.type === 'MultiLineString') {
+      const coords = geometry.coordinates[0];
+      const mid = Math.floor(coords.length / 2);
+      return coords[mid] as [number, number];
+    }
+    return [0, 0];
+  }, []);
 
   // Calculate layer render order and z-offsets with group-based separation
   const layerRenderInfo = useMemo((): LayerRenderInfo[] => {
-    const sortedLayers = getSortedLayers();
-    const activeLayerConfigs = sortedLayers.filter((layer) =>
-      activeLayers.includes(layer.id)
-    );
+    // Use custom layer order instead of static getSortedLayers()
+    const sortedLayers = getLayersByCustomOrder(layerOrder);
+
+    // Separate manifest and custom layers - only include those with actual data
+    const activeManifestLayers = sortedLayers.filter((layer) => {
+      if (!activeLayers.includes(layer.id)) return false;
+      const data = layerData.get(layer.id);
+      // Check if layer has any features to render
+      const hasFeatures = data?.features?.features?.length || data?.clippedFeatures?.features?.length;
+      return hasFeatures;
+    });
+    const activeCustomLayers = customLayers.filter((layer) => {
+      if (!activeLayers.includes(layer.id)) return false;
+      const data = layerData.get(layer.id);
+      // Custom layers can show all features or clipped features
+      const hasFeatures = data?.features?.features?.length || data?.clippedFeatures?.features?.length;
+      return hasFeatures;
+    });
 
     // Calculate z-offsets based on group hierarchy
-    const groupSpacing = explodedView.layerSpacing; // Space between groups
-    const intraGroupSpacing = explodedView.layerSpacing * 0.6; // Space within groups (increased for better layer separation)
+    const groupSpacing = explodedView.layerSpacing; // Base space between groups
+    const intraGroupSpacing = explodedView.layerSpacing * explodedView.intraGroupRatio; // Small space within groups
+
+    // Count layers WITH DATA per group (not just active layers)
+    const activeLayersPerGroup: Record<string, number> = {};
+    for (const config of activeManifestLayers) {
+      activeLayersPerGroup[config.group] = (activeLayersPerGroup[config.group] || 0) + 1;
+    }
+
+    // Calculate cumulative group base heights to ensure no overlap
+    // Each group starts after the previous group's layers end
+    const groupBaseHeights: Record<LayerGroup, number> = {} as Record<LayerGroup, number>;
+    let cumulativeHeight = 0;
+    for (const groupId of layerOrder.groupOrder) {
+      groupBaseHeights[groupId] = cumulativeHeight;
+      const layerCount = activeLayersPerGroup[groupId] || 0;
+      // Only add space if the group has layers with data
+      if (layerCount > 0) {
+        cumulativeHeight += groupSpacing + layerCount * intraGroupSpacing;
+      }
+    }
+
+    // Custom layers go at the TOP - above all manifest groups
+    // cumulativeHeight already includes spacing after the last group, so just use it directly
+    const customLayerBaseHeight = cumulativeHeight;
 
     // Track layer index within each group
     const groupLayerCounts: Record<string, number> = {};
 
-    return activeLayerConfigs.map((config) => {
+    // Process manifest layers first
+    const manifestLayerInfos = activeManifestLayers.map((config) => {
       const data = layerData.get(config.id);
-      const groupIndex = GROUP_BASE_HEIGHTS[config.group] || 0;
+      const groupBaseHeight = groupBaseHeights[config.group] || 0;
 
       // Get the index of this layer within its group
       if (!groupLayerCounts[config.group]) {
@@ -85,10 +295,11 @@ export function MapView() {
 
       // Calculate z-offset: group base height + layer offset within group
       const zOffset = explodedView.enabled
-        ? explodedView.baseElevation +
-          groupIndex * groupSpacing +
-          layerIndexInGroup * intraGroupSpacing
+        ? explodedView.baseElevation + groupBaseHeight + layerIndexInGroup * intraGroupSpacing
         : 0;
+
+      // Determine group index for coloring/identification
+      const groupIndex = layerOrder.groupOrder.indexOf(config.group);
 
       return {
         config,
@@ -97,7 +308,27 @@ export function MapView() {
         groupIndex,
       };
     });
-  }, [activeLayers, layerData, explodedView]);
+
+    // Process custom layers - they go at the top
+    const customLayerInfos = activeCustomLayers.map((config, index) => {
+      const data = layerData.get(config.id);
+
+      // Custom layers stack above all manifest layers
+      const zOffset = explodedView.enabled
+        ? explodedView.baseElevation + customLayerBaseHeight + index * intraGroupSpacing
+        : 0;
+
+      return {
+        config,
+        data: data || { layerId: config.id, features: { type: 'FeatureCollection', features: [] } },
+        zOffset,
+        groupIndex: -1, // Special index for custom layers
+      };
+    });
+
+    // Return manifest layers first, then custom layers on top
+    return [...manifestLayerInfos, ...customLayerInfos];
+  }, [activeLayers, layerData, explodedView, layerOrder, customLayers]);
 
   // Handle hover
   const onHover = useCallback(
@@ -105,6 +336,7 @@ export function MapView() {
       if (info.layer) {
         const layerId = info.layer.id
           .replace('-elevated', '')
+          .replace('-floating', '')
           .replace('-ground', '')
           .replace('-connectors', '')
           .replace('-platform', '')
@@ -121,31 +353,118 @@ export function MapView() {
     [setHoveredLayerId]
   );
 
-  // Handle click to select/deselect features
+  // Handle click to pin feature info
   const onClick = useCallback(
     (info: PickingInfo) => {
-      // Don't select if in drawing mode or dragging vertices
+      // Don't handle if in drawing mode or dragging vertices
       if (isDrawing || draggingVertexIndex !== null) return;
 
-      // Don't select vertex handles or other UI elements
-      if (info.layer?.id === 'vertex-handles') return;
+      // Don't handle vertex handles or midpoint handles
+      if (info.layer?.id === 'vertex-handles' || info.layer?.id === 'midpoint-handles') return;
 
-      if (info.object && info.layer) {
+      if (info.object && info.layer && info.x !== undefined && info.y !== undefined) {
         const layerId = info.layer.id
           .replace('-elevated', '')
+          .replace('-floating', '')
           .replace('-ground', '')
           .replace('-connectors', '')
           .replace('-platform', '')
           .replace('-selected', '');
 
-        // Get the feature (handle different data formats)
-        const feature = info.object as Feature;
-        if (feature && feature.type === 'Feature') {
-          addSelectedFeature(feature, layerId);
+        // Get the feature and coordinates (handle different data formats)
+        let feature: Feature | null = null;
+        let coordinates: [number, number] | null = null;
+
+        // Check if it's a full GeoJSON feature (polygons from GeoJsonLayer)
+        if (info.object.feature) {
+          feature = info.object.feature as Feature;
+          coordinates = getFeatureCentroid(feature);
+        } else if (info.object.type === 'Feature' && info.object.geometry) {
+          feature = info.object as Feature;
+          coordinates = getFeatureCentroid(feature);
+        } else if (info.object.path) {
+          // Line layer - has path array with [lon, lat, z] coordinates
+          const path = info.object.path as number[][];
+          const midIndex = Math.floor(path.length / 2);
+          coordinates = [path[midIndex][0], path[midIndex][1]];
+          // Create a synthetic feature for display
+          feature = {
+            type: 'Feature',
+            properties: info.object.properties || {},
+            geometry: {
+              type: 'LineString',
+              coordinates: path.map((p: number[]) => [p[0], p[1]]),
+            },
+          } as Feature;
+        } else if (info.object.position) {
+          // Point layer - has position array [lon, lat, z]
+          const pos = info.object.position as number[];
+          coordinates = [pos[0], pos[1]];
+          // Create a synthetic feature for display
+          feature = {
+            type: 'Feature',
+            properties: info.object.properties || {},
+            geometry: {
+              type: 'Point',
+              coordinates: [pos[0], pos[1]],
+            },
+          } as Feature;
+        } else if (info.object.polygon) {
+          // Floating polygon layer (buildings, parks in exploded view) - has polygon array
+          const polygon = info.object.polygon as number[][];
+          let sumX = 0, sumY = 0;
+          for (const c of polygon) {
+            sumX += c[0];
+            sumY += c[1];
+          }
+          coordinates = [sumX / polygon.length, sumY / polygon.length];
+          // Create a synthetic feature for display
+          feature = {
+            type: 'Feature',
+            properties: info.object.properties || {},
+            geometry: {
+              type: 'Polygon',
+              coordinates: [polygon.map((p: number[]) => [p[0], p[1]])],
+            },
+          } as Feature;
+        } else if (info.object.properties) {
+          // Fallback - has properties but unknown structure
+          feature = {
+            type: 'Feature',
+            properties: info.object.properties,
+            geometry: { type: 'Point', coordinates: [0, 0] },
+          } as Feature;
+          // Use click position for coordinates (will be converted back)
+          coordinates = info.coordinate as [number, number] || [0, 0];
+        }
+
+        if (feature && coordinates) {
+          // Create unique ID for pinned info
+          const featureId = feature.id || feature.properties?.id || `${layerId}-${Date.now()}`;
+          const pinnedId = `pinned-${featureId}-${Date.now()}`;
+
+          // Check if this feature is already pinned (by comparing properties)
+          const alreadyPinned = pinnedInfos.some(
+            (p) => p.layerId === layerId &&
+            JSON.stringify(p.feature.properties) === JSON.stringify(feature!.properties)
+          );
+
+          if (!alreadyPinned) {
+            setPinnedInfos((prev) => [
+              ...prev,
+              {
+                id: pinnedId,
+                feature,
+                layerId,
+                coordinates: coordinates!,
+                initialScreenPos: { x: info.x, y: info.y },
+              },
+            ]);
+          }
         }
       }
     },
-    [isDrawing, draggingVertexIndex, addSelectedFeature]
+    [isDrawing, draggingVertexIndex, pinnedInfos, getFeatureCentroid]
   );
 
   // Sync editable vertices when selection polygon changes
@@ -205,6 +524,40 @@ export function MapView() {
     }
   }, [draggingVertexIndex, editableVertices, selectionPolygon, setSelectionPolygon, setDraggingVertexIndex]);
 
+  // Helper to update polygon after vertex add/remove
+  const updatePolygonFromVertices = useCallback((vertices: [number, number][]) => {
+    if (vertices.length >= 3) {
+      const newPolygon: Polygon = {
+        type: 'Polygon',
+        coordinates: [[...vertices, vertices[0]]],
+      };
+      const area = calculatePolygonAreaFromCoords(vertices);
+      setSelectionPolygon({
+        id: selectionPolygon?.id || `selection-${Date.now()}`,
+        geometry: newPolygon,
+        area,
+      });
+    }
+  }, [selectionPolygon, setSelectionPolygon]);
+
+  // Handle adding a vertex at midpoint
+  const handleAddVertex = useCallback((afterIndex: number, position: [number, number]) => {
+    addVertex(afterIndex, position);
+    // Update polygon with new vertices (need to include the new vertex)
+    const newVertices = [...editableVertices];
+    newVertices.splice(afterIndex + 1, 0, position);
+    updatePolygonFromVertices(newVertices);
+  }, [addVertex, editableVertices, updatePolygonFromVertices]);
+
+  // Handle removing a vertex
+  const handleRemoveVertex = useCallback((index: number) => {
+    if (editableVertices.length <= 3) return; // Can't remove if only 3 vertices
+    removeVertex(index);
+    // Update polygon with remaining vertices
+    const newVertices = editableVertices.filter((_, i) => i !== index);
+    updatePolygonFromVertices(newVertices);
+  }, [removeVertex, editableVertices, updatePolygonFromVertices]);
+
   // Create deck.gl layers
   const deckLayers = useMemo((): Layer[] => {
     const layers: Layer[] = [];
@@ -229,17 +582,21 @@ export function MapView() {
 
     // Add group platform layers when exploded view is enabled
     if (explodedView.enabled && selectionPolygon) {
-      const activeGroups = new Set(
-        layerRenderInfo
-          .filter(info => info.data.features.features.length > 0 || info.data.clippedFeatures?.features.length)
-          .map(info => info.config.group)
-      );
+      // Get the minimum z-offset for each active group from layerRenderInfo
+      const groupMinZOffsets: Record<string, number> = {};
+      for (const info of layerRenderInfo) {
+        const hasFeatures = info.data.features.features.length > 0 || info.data.clippedFeatures?.features.length;
+        if (!hasFeatures) continue;
+
+        if (groupMinZOffsets[info.config.group] === undefined || info.zOffset < groupMinZOffsets[info.config.group]) {
+          groupMinZOffsets[info.config.group] = info.zOffset;
+        }
+      }
 
       for (const group of layerManifest.groups) {
-        if (!activeGroups.has(group.id)) continue;
+        if (groupMinZOffsets[group.id] === undefined) continue;
 
-        const groupIndex = GROUP_BASE_HEIGHTS[group.id] || 0;
-        const zOffset = explodedView.baseElevation + groupIndex * explodedView.layerSpacing;
+        const zOffset = groupMinZOffsets[group.id];
 
         // Create a subtle platform for each group
         layers.push(
@@ -268,9 +625,23 @@ export function MapView() {
         continue;
       }
 
-      const features = selectionPolygon && data.clippedFeatures
-        ? data.clippedFeatures
-        : data.features;
+      // Check if this is a custom layer
+      const isCustom = 'isCustom' in config && config.isCustom;
+
+      // Determine which features to use
+      // Custom layers: show clipped features if selection exists and has clipped data, otherwise show all features
+      // Manifest layers: show clipped features if selection exists, otherwise show fetched features
+      let features;
+      if (isCustom) {
+        // Custom layers: use clipped features when available, otherwise use all features
+        features = (selectionPolygon && data.clippedFeatures && data.clippedFeatures.features.length > 0)
+          ? data.clippedFeatures
+          : data.features;
+      } else {
+        features = selectionPolygon && data.clippedFeatures
+          ? data.clippedFeatures
+          : data.features;
+      }
 
       if (!features || features.features.length === 0) continue;
 
@@ -288,7 +659,7 @@ export function MapView() {
       switch (config.geometryType) {
         case 'polygon':
           // Use specialized layer functions for buildings and parking
-          if (config.id === 'buildings') {
+          if (config.id.startsWith('buildings-') || config.id === 'buildings') {
             layers.push(
               ...createBuildingLayer(config, features, zOffset, opacity, isHovered, explodedView.enabled)
             );
@@ -298,6 +669,11 @@ export function MapView() {
               ...createParkingLayer(config, features, zOffset, opacity, isHovered, explodedView.enabled)
             );
             // No vertical connectors for floating parking
+          } else if (config.id === 'parks') {
+            layers.push(
+              ...createParkLayer(config, features, zOffset, opacity, isHovered, explodedView.enabled)
+            );
+            // No vertical connectors for floating parks
           } else {
             layers.push(
               createPolygonLayer(config, features, zOffset, opacity, isHovered, explodedView.enabled)
@@ -399,7 +775,17 @@ export function MapView() {
       const vertexData = editableVertices.map((vertex, index) => ({
         position: vertex,
         index,
+        canRemove: editableVertices.length > 3,
       }));
+
+      // Calculate midpoints for adding new vertices
+      const midpointData = editableVertices.map((vertex, index) => {
+        const nextVertex = editableVertices[(index + 1) % editableVertices.length];
+        return {
+          position: [(vertex[0] + nextVertex[0]) / 2, (vertex[1] + nextVertex[1]) / 2] as [number, number],
+          afterIndex: index,
+        };
+      });
 
       // Draw polygon edges with editable style
       if (editableVertices.length > 1) {
@@ -421,7 +807,40 @@ export function MapView() {
         );
       }
 
-      // Draggable vertex handles
+      // Midpoint handles for adding new vertices
+      layers.push(
+        new ScatterplotLayer({
+          id: 'midpoint-handles',
+          data: midpointData,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          getPosition: (d: any) => d.position,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          getFillColor: (d: any) =>
+            d.afterIndex === hoveredMidpointIndex
+              ? [100, 200, 255, 255] // Light blue when hovered
+              : [100, 200, 255, 150], // Semi-transparent light blue
+          getLineColor: [255, 255, 255, 200],
+          getRadius: 8,
+          radiusUnits: 'pixels' as const,
+          filled: true,
+          stroked: true,
+          lineWidthMinPixels: 2,
+          pickable: true,
+          onHover: (info: PickingInfo) => {
+            setHoveredMidpointIndex(info.object?.afterIndex ?? null);
+          },
+          onClick: (info: PickingInfo) => {
+            if (info.object && info.coordinate) {
+              handleAddVertex(info.object.afterIndex, info.coordinate as [number, number]);
+            }
+          },
+          updateTriggers: {
+            getFillColor: [hoveredMidpointIndex],
+          },
+        })
+      );
+
+      // Draggable vertex handles (double-click to remove)
       layers.push(
         new ScatterplotLayer({
           id: 'vertex-handles',
@@ -433,7 +852,9 @@ export function MapView() {
             d.index === draggingVertexIndex
               ? [255, 100, 100, 255] // Red when dragging
               : d.index === hoveredVertexIndex
-              ? [255, 255, 100, 255] // Yellow when hovered
+              ? d.canRemove
+                ? [255, 150, 100, 255] // Orange-red when hovered and can remove
+                : [255, 255, 100, 255] // Yellow when hovered but can't remove
               : [255, 200, 50, 255], // Orange default
           getLineColor: [255, 255, 255, 255],
           getRadius: 14,
@@ -445,8 +866,21 @@ export function MapView() {
           onHover: (info: PickingInfo) => {
             setHoveredVertexIndex(info.index ?? null);
           },
+          onClick: (info: PickingInfo) => {
+            if (info.object && info.object.canRemove) {
+              const now = Date.now();
+              const lastClick = lastVertexClickRef.current;
+              // Detect double-click (within 300ms on same vertex)
+              if (lastClick && lastClick.index === info.object.index && now - lastClick.time < 300) {
+                handleRemoveVertex(info.object.index);
+                lastVertexClickRef.current = null;
+              } else {
+                lastVertexClickRef.current = { index: info.object.index, time: now };
+              }
+            }
+          },
           updateTriggers: {
-            getFillColor: [draggingVertexIndex, hoveredVertexIndex],
+            getFillColor: [draggingVertexIndex, hoveredVertexIndex, editableVertices.length],
           },
         })
       );
@@ -618,8 +1052,91 @@ export function MapView() {
       });
     }
 
+    // Render pinned feature highlights (like autoHighlight but persistent)
+    if (pinnedInfos.length > 0) {
+      pinnedInfos.forEach((pinned, pinnedIndex) => {
+        const layerConfig = layerRenderInfo.find((l) => l.config.id === pinned.layerId);
+        const baseZOffset = layerConfig?.zOffset || 0;
+        const pinnedElevationOffset = (pinnedIndex + 1) * 5;
+        // Yellow highlight color matching autoHighlight
+        const highlightFillColor: [number, number, number, number] = [255, 255, 100, 120];
+        const highlightLineColor: [number, number, number, number] = [255, 255, 100, 255];
+
+        const geometryType = pinned.feature.geometry?.type;
+
+        if (geometryType === 'Polygon' || geometryType === 'MultiPolygon') {
+          // Semi-transparent fill overlay (like autoHighlight)
+          layers.push(
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            new GeoJsonLayer<any>({
+              id: `pinned-polygon-fill-${pinned.id}`,
+              data: { type: 'FeatureCollection', features: [pinned.feature] },
+              filled: true,
+              stroked: true,
+              getFillColor: highlightFillColor,
+              getLineColor: highlightLineColor,
+              getLineWidth: 3,
+              lineWidthUnits: 'pixels',
+              getElevation: baseZOffset + pinnedElevationOffset + 2,
+              extruded: false,
+              pickable: false,
+            })
+          );
+        } else if (geometryType === 'LineString' || geometryType === 'MultiLineString') {
+          // Highlight for lines - thicker bright line
+          layers.push(
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            new GeoJsonLayer<any>({
+              id: `pinned-line-${pinned.id}`,
+              data: { type: 'FeatureCollection', features: [pinned.feature] },
+              stroked: true,
+              getLineColor: highlightLineColor,
+              getLineWidth: 8,
+              lineWidthUnits: 'pixels',
+              pickable: false,
+            })
+          );
+        } else if (geometryType === 'Point') {
+          const coords = (pinned.feature.geometry as Point).coordinates;
+          const elevation = explodedView.enabled ? baseZOffset + 25 + pinnedElevationOffset : 15 + pinnedElevationOffset;
+
+          // Highlighted sphere
+          layers.push(
+            new SimpleMeshLayer({
+              id: `pinned-point-${pinned.id}`,
+              data: [{ position: [...coords, elevation] }],
+              mesh: getSphereMesh(),
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              getPosition: (d: any) => d.position,
+              getColor: highlightLineColor,
+              getScale: [20, 20, 20],
+              pickable: false,
+            })
+          );
+
+          // Ring around point
+          layers.push(
+            new ScatterplotLayer({
+              id: `pinned-point-ring-${pinned.id}`,
+              data: [{ position: coords }],
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              getPosition: (d: any) => d.position,
+              getFillColor: [0, 0, 0, 0],
+              getLineColor: highlightLineColor,
+              getRadius: 22,
+              radiusUnits: 'pixels' as const,
+              filled: false,
+              stroked: true,
+              lineWidthMinPixels: 4,
+              pickable: false,
+            })
+          );
+        }
+      });
+    }
+
     return layers;
-  }, [layerRenderInfo, selectionPolygon, hoveredLayerId, isolatedLayerId, explodedView, isDrawing, drawingPoints, editableVertices, draggingVertexIndex, hoveredVertexIndex, selectedFeatures]);
+  }, [layerRenderInfo, selectionPolygon, hoveredLayerId, isolatedLayerId, explodedView, isDrawing, drawingPoints, editableVertices, draggingVertexIndex, hoveredVertexIndex, hoveredMidpointIndex, handleAddVertex, handleRemoveVertex, selectedFeatures, layerOrder, pinnedInfos]);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const onViewStateChange = useCallback(
@@ -668,6 +1185,7 @@ export function MapView() {
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
       <DeckGL
+        ref={deckRef}
         viewState={viewState}
         onViewStateChange={onViewStateChange}
         controller={controller}
@@ -682,7 +1200,7 @@ export function MapView() {
         <Map mapStyle={MAP_STYLE} maxPitch={89} minPitch={0} />
       </DeckGL>
 
-      {/* Tooltip */}
+      {/* Hover Tooltip */}
       {hoveredFeature && cursorPosition && (
         <div
           style={{
@@ -700,7 +1218,7 @@ export function MapView() {
           }}
         >
           <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>
-            {getLayerById(hoveredLayerId || '')?.name || 'Feature'}
+            {getLayerConfigById(hoveredLayerId || '')?.name || 'Feature'}
           </div>
           {hoveredFeature.properties && (
             <div>
@@ -714,8 +1232,112 @@ export function MapView() {
                 ))}
             </div>
           )}
+          <div style={{ fontSize: '10px', opacity: 0.5, marginTop: '4px' }}>
+            Click to pin
+          </div>
         </div>
       )}
+
+      {/* Pinned Info Cards with connector lines */}
+      {pinnedInfos.map((pinned) => {
+        // Use tracked screen position, fall back to initial position
+        const screenPos = pinnedScreenPositions[pinned.id] || pinned.initialScreenPos;
+
+        // Calculate card position (offset from object)
+        const cardOffset = { x: 20, y: -10 };
+        const cardX = screenPos.x + cardOffset.x;
+        const cardY = screenPos.y + cardOffset.y;
+
+        return (
+          <div key={pinned.id}>
+            {/* Connector line from object to card */}
+            <svg
+              style={{
+                position: 'absolute',
+                left: 0,
+                top: 0,
+                width: '100%',
+                height: '100%',
+                pointerEvents: 'none',
+                zIndex: 1000,
+              }}
+            >
+              <line
+                x1={screenPos.x}
+                y1={screenPos.y}
+                x2={cardX}
+                y2={cardY + 20}
+                stroke="rgba(255, 200, 50, 0.8)"
+                strokeWidth="2"
+                strokeDasharray="4,2"
+              />
+              {/* Small circle at object location */}
+              <circle
+                cx={screenPos.x}
+                cy={screenPos.y}
+                r="6"
+                fill="rgba(255, 200, 50, 1)"
+                stroke="white"
+                strokeWidth="2"
+              />
+            </svg>
+
+            {/* Info Card */}
+            <div
+              style={{
+                position: 'absolute',
+                left: cardX,
+                top: cardY,
+                backgroundColor: 'rgba(0, 0, 0, 0.95)',
+                color: 'white',
+                padding: '10px 12px',
+                borderRadius: '6px',
+                fontSize: '12px',
+                maxWidth: '260px',
+                zIndex: 1001,
+                boxShadow: '0 4px 12px rgba(0, 0, 0, 0.4)',
+                border: '2px solid rgba(255, 200, 50, 0.8)',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '6px' }}>
+                <div style={{ fontWeight: 'bold', color: 'rgba(255, 200, 50, 1)' }}>
+                  {getLayerConfigById(pinned.layerId)?.name || 'Feature'}
+                </div>
+                <button
+                  onClick={() => removePinnedInfo(pinned.id)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: 'rgba(255, 255, 255, 0.6)',
+                    cursor: 'pointer',
+                    padding: '0 4px',
+                    fontSize: '16px',
+                    lineHeight: '1',
+                    marginLeft: '8px',
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.color = 'rgba(255, 100, 100, 1)')}
+                  onMouseLeave={(e) => (e.currentTarget.style.color = 'rgba(255, 255, 255, 0.6)')}
+                >
+                  ×
+                </button>
+              </div>
+              {pinned.feature.properties && (
+                <div>
+                  {Object.entries(pinned.feature.properties)
+                    .filter(([key]) => !['id', 'type'].includes(key))
+                    .slice(0, 8)
+                    .map(([key, value]) => (
+                      <div key={key} style={{ fontSize: '11px', opacity: 0.85, marginBottom: '2px' }}>
+                        <span style={{ color: 'rgba(255, 255, 255, 0.5)' }}>{key}:</span>{' '}
+                        <span>{String(value)}</span>
+                      </div>
+                    ))}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -751,7 +1373,7 @@ function calculatePolygonAreaFromCoords(coords: [number, number][]): number {
 
 // Helper functions to create layers
 function createPolygonLayer(
-  config: LayerConfig,
+  config: AnyLayerConfig,
   features: FeatureCollection,
   zOffset: number,
   opacity: number,
@@ -787,7 +1409,7 @@ function createPolygonLayer(
 }
 
 function createLineLayer(
-  config: LayerConfig,
+  config: AnyLayerConfig,
   features: FeatureCollection,
   zOffset: number,
   opacity: number,
@@ -844,7 +1466,7 @@ function getSphereMesh(): SphereGeometry {
 }
 
 function createPointLayer(
-  config: LayerConfig,
+  config: AnyLayerConfig,
   features: FeatureCollection,
   zOffset: number,
   opacity: number,
@@ -883,7 +1505,7 @@ function createPointLayer(
 }
 
 function createGroundShadowLayer(
-  config: LayerConfig,
+  config: AnyLayerConfig,
   features: FeatureCollection,
   opacity: number
 ): Layer {
@@ -900,7 +1522,7 @@ function createGroundShadowLayer(
 }
 
 function createVerticalConnectors(
-  config: LayerConfig,
+  config: AnyLayerConfig,
   features: FeatureCollection,
   zOffset: number,
   geometryType: 'polygon' | 'line' | 'point'
@@ -1002,7 +1624,7 @@ const BUILDING_FLOAT_HEIGHT = 80; // meters above ground
 
 // Specialized layer for buildings - floating in exploded view
 function createBuildingLayer(
-  config: LayerConfig,
+  config: AnyLayerConfig,
   features: FeatureCollection,
   zOffset: number,
   opacity: number,
@@ -1081,12 +1703,9 @@ function getParkingHeight(props: Record<string, unknown>): number {
   return 3;
 }
 
-// Minimum floating height for parking when in exploded view
-const PARKING_FLOAT_HEIGHT = 200; // meters above ground (higher than buildings)
-
-// Specialized layer for parking - floating in exploded view
+// Specialized layer for parking - floating in exploded view (same height as buildings)
 function createParkingLayer(
-  config: LayerConfig,
+  config: AnyLayerConfig,
   features: FeatureCollection,
   zOffset: number,
   opacity: number,
@@ -1098,17 +1717,16 @@ function createParkingLayer(
   fillColor[3] = Math.floor(fillColor[3] * opacity);
 
   if (isExploded) {
-    // Floating parking platforms
+    // Floating parking - flat polygons at same height as buildings
     const parkingData = features.features
       .filter((f) => f.geometry.type === 'Polygon')
       .map((f, index) => {
         const coords = (f.geometry as Polygon).coordinates[0];
-        const height = getParkingHeight(f.properties || {});
-        // Ensure minimum floating height + zOffset + small per-parking offset
-        const baseElevation = Math.max(PARKING_FLOAT_HEIGHT, zOffset) + (index % 10) * 0.3;
+        // Use same floating height as buildings + small per-parking offset to prevent z-fighting
+        const baseElevation = Math.max(BUILDING_FLOAT_HEIGHT, zOffset) + (index % 10) * 0.3;
         return {
           polygon: coords.map((c) => [c[0], c[1], baseElevation]),
-          height: height * 0.5, // Thin floating platforms
+          height: 2, // Thin floating parking blocks
           properties: f.properties,
           id: f.id || index,
         };
@@ -1124,9 +1742,7 @@ function createParkingLayer(
         getLineColor: isHovered ? [255, 255, 255, 255] : [255, 255, 255, 180],
         getLineWidth: isHovered ? 3 : 2,
         lineWidthUnits: 'pixels' as const,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        getElevation: (d: any) => d.height,
-        extruded: true,
+        extruded: false,
         pickable: true,
         autoHighlight: true,
         highlightColor: [255, 255, 100, 100],
@@ -1148,6 +1764,75 @@ function createParkingLayer(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     getElevation: (f: any) => getParkingHeight(f.properties || {}),
     extruded: true,
+    pickable: true,
+    autoHighlight: true,
+    highlightColor: [255, 255, 100, 100],
+  })];
+}
+
+// Floating height for parks - below buildings
+const PARK_FLOAT_HEIGHT = 40; // meters above ground (below buildings at 80m)
+const PARK_THICKNESS = 5; // meters thick
+
+// Specialized layer for parks - floating in exploded view (below buildings, with thickness)
+function createParkLayer(
+  config: AnyLayerConfig,
+  features: FeatureCollection,
+  zOffset: number,
+  opacity: number,
+  isHovered: boolean,
+  isExploded: boolean
+): Layer[] {
+  const { style } = config;
+  const fillColor = [...style.fillColor] as [number, number, number, number];
+  fillColor[3] = Math.floor(fillColor[3] * opacity);
+
+  if (isExploded) {
+    // Floating parks - polygons below buildings with some thickness
+    const parkData = features.features
+      .filter((f) => f.geometry.type === 'Polygon')
+      .map((f, index) => {
+        const coords = (f.geometry as Polygon).coordinates[0];
+        // Float below buildings + small per-park offset to prevent z-fighting
+        const baseElevation = Math.max(PARK_FLOAT_HEIGHT, zOffset) + (index % 10) * 0.3;
+        return {
+          polygon: coords.map((c) => [c[0], c[1], baseElevation]),
+          properties: f.properties,
+          id: f.id || index,
+        };
+      });
+
+    return [
+      new PolygonLayer({
+        id: `${config.id}-floating`,
+        data: parkData,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        getPolygon: (d: any) => d.polygon,
+        getFillColor: isHovered ? [100, 200, 100, 200] : fillColor,
+        getLineColor: isHovered ? [255, 255, 255, 255] : style.strokeColor,
+        getLineWidth: isHovered ? 3 : 2,
+        lineWidthUnits: 'pixels' as const,
+        getElevation: PARK_THICKNESS,
+        extruded: true,
+        pickable: true,
+        autoHighlight: true,
+        highlightColor: [255, 255, 100, 100],
+      }),
+    ];
+  }
+
+  // Non-exploded: flat polygon layer (parks don't need extrusion)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return [new GeoJsonLayer<any>({
+    id: `${config.id}-elevated`,
+    data: features,
+    filled: true,
+    stroked: true,
+    getFillColor: isHovered ? [100, 200, 100, 200] : fillColor,
+    getLineColor: isHovered ? [255, 255, 255, 255] : style.strokeColor,
+    getLineWidth: isHovered ? 2 : 1,
+    lineWidthUnits: 'pixels',
+    extruded: false,
     pickable: true,
     autoHighlight: true,
     highlightColor: [255, 255, 100, 100],
