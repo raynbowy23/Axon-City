@@ -201,6 +201,153 @@ const DeckGLView = memo(function DeckGLView({
     });
   }, [viewState, onViewStateChange]);
 
+  // Touch event handling for mobile
+  const touchStartRef = useRef<{
+    x: number;
+    y: number;
+    touches: number;
+    distance?: number;
+    angle?: number;
+    midpoint?: { x: number; y: number };
+  } | null>(null);
+
+  const getTouchDistance = (touches: React.TouchList): number => {
+    if (touches.length < 2) return 0;
+    const dx = touches[0].clientX - touches[1].clientX;
+    const dy = touches[0].clientY - touches[1].clientY;
+    return Math.sqrt(dx * dx + dy * dy);
+  };
+
+  const getTouchAngle = (touches: React.TouchList): number => {
+    if (touches.length < 2) return 0;
+    const dx = touches[1].clientX - touches[0].clientX;
+    const dy = touches[1].clientY - touches[0].clientY;
+    return Math.atan2(dy, dx) * (180 / Math.PI);
+  };
+
+  const getTouchMidpoint = (touches: React.TouchList): { x: number; y: number } => {
+    if (touches.length < 2) return { x: touches[0].clientX, y: touches[0].clientY };
+    return {
+      x: (touches[0].clientX + touches[1].clientX) / 2,
+      y: (touches[0].clientY + touches[1].clientY) / 2,
+    };
+  };
+
+  // Ref for the touch container to attach non-passive listeners
+  const touchContainerRef = useRef<HTMLDivElement>(null);
+
+  // Store viewState and callback in refs for touch handlers
+  const viewStateRef = useRef(viewState);
+  const onViewStateChangeRef = useRef(onViewStateChange);
+  useEffect(() => {
+    viewStateRef.current = viewState;
+    onViewStateChangeRef.current = onViewStateChange;
+  }, [viewState, onViewStateChange]);
+
+  // Touch event handlers (use native TouchEvent for non-passive listeners)
+  const handleTouchStart = useCallback((e: TouchEvent) => {
+    e.preventDefault();
+    const touch = e.touches[0];
+    touchStartRef.current = {
+      x: touch.clientX,
+      y: touch.clientY,
+      touches: e.touches.length,
+      distance: e.touches.length >= 2 ? getTouchDistance(e.touches as unknown as React.TouchList) : undefined,
+      angle: e.touches.length >= 2 ? getTouchAngle(e.touches as unknown as React.TouchList) : undefined,
+      midpoint: e.touches.length >= 2 ? getTouchMidpoint(e.touches as unknown as React.TouchList) : undefined,
+    };
+    isDraggingRef.current = true;
+    lastMouseRef.current = { x: touch.clientX, y: touch.clientY };
+  }, []);
+
+  const handleTouchMove = useCallback((e: TouchEvent) => {
+    e.preventDefault();
+    if (!isDraggingRef.current || !lastMouseRef.current || !touchStartRef.current) return;
+
+    const touch = e.touches[0];
+    const currentViewState = viewStateRef.current;
+
+    // Handle two-finger gestures: pinch-to-zoom and pan
+    if (e.touches.length >= 2 && touchStartRef.current.distance !== undefined) {
+      const currentDistance = getTouchDistance(e.touches as unknown as React.TouchList);
+      const currentMidpoint = getTouchMidpoint(e.touches as unknown as React.TouchList);
+
+      // Pinch-to-zoom
+      const distanceDelta = currentDistance - touchStartRef.current.distance;
+      const zoomDelta = distanceDelta * 0.008;
+
+      // Two-finger pan (move midpoint)
+      let newTarget = currentViewState.target;
+      if (touchStartRef.current.midpoint) {
+        const mdx = currentMidpoint.x - touchStartRef.current.midpoint.x;
+        const mdy = currentMidpoint.y - touchStartRef.current.midpoint.y;
+
+        const angle = (currentViewState.rotationOrbit * Math.PI) / 180;
+        const cosA = Math.cos(angle);
+        const sinA = Math.sin(angle);
+        const panScale = Math.pow(2, -currentViewState.zoom) * 2;
+        const worldDx = (mdx * cosA - mdy * sinA) * panScale;
+        const worldDy = (mdx * sinA + mdy * cosA) * panScale;
+
+        newTarget = [
+          currentViewState.target[0] - worldDx,
+          currentViewState.target[1] + worldDy,
+          currentViewState.target[2],
+        ] as [number, number, number];
+      }
+
+      onViewStateChangeRef.current({
+        viewState: {
+          ...currentViewState,
+          zoom: Math.max(-2, Math.min(5, currentViewState.zoom + zoomDelta)),
+          target: newTarget,
+        },
+      });
+
+      touchStartRef.current.distance = currentDistance;
+      touchStartRef.current.midpoint = currentMidpoint;
+      return;
+    }
+
+    // Single finger: rotate (orbit) horizontally and tilt vertically
+    // This provides intuitive one-finger rotation control
+    const dx = touch.clientX - lastMouseRef.current.x;
+    const dy = touch.clientY - lastMouseRef.current.y;
+    lastMouseRef.current = { x: touch.clientX, y: touch.clientY };
+
+    onViewStateChangeRef.current({
+      viewState: {
+        ...currentViewState,
+        rotationOrbit: currentViewState.rotationOrbit + dx * 0.5,
+        rotationX: Math.max(0, Math.min(90, currentViewState.rotationX - dy * 0.3)),
+      },
+    });
+  }, []);
+
+  const handleTouchEnd = useCallback(() => {
+    isDraggingRef.current = false;
+    lastMouseRef.current = null;
+    touchStartRef.current = null;
+  }, []);
+
+  // Attach touch listeners with { passive: false } to allow preventDefault
+  useEffect(() => {
+    const container = touchContainerRef.current;
+    if (!container) return;
+
+    container.addEventListener('touchstart', handleTouchStart, { passive: false });
+    container.addEventListener('touchmove', handleTouchMove, { passive: false });
+    container.addEventListener('touchend', handleTouchEnd);
+    container.addEventListener('touchcancel', handleTouchEnd);
+
+    return () => {
+      container.removeEventListener('touchstart', handleTouchStart);
+      container.removeEventListener('touchmove', handleTouchMove);
+      container.removeEventListener('touchend', handleTouchEnd);
+      container.removeEventListener('touchcancel', handleTouchEnd);
+    };
+  }, [handleTouchStart, handleTouchMove, handleTouchEnd]);
+
   // Reference to DeckGL for coordinate projection
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const deckRef = useRef<any>(null);
@@ -854,12 +1001,14 @@ const DeckGLView = memo(function DeckGLView({
         </div>
       )}
       <div
+        ref={touchContainerRef}
         style={{
           position: 'absolute',
           top: 0,
           left: 0,
           width: '100%',
           height: '100%',
+          touchAction: 'none', // Prevent browser handling of touch events
         }}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
@@ -1027,7 +1176,11 @@ const DeckGLView = memo(function DeckGLView({
   );
 });
 
-export function ExtractedView() {
+interface ExtractedViewProps {
+  isMobile?: boolean;
+}
+
+export function ExtractedView({ isMobile = false }: ExtractedViewProps) {
   const {
     layerData,
     activeLayers,
@@ -1039,6 +1192,9 @@ export function ExtractedView() {
     selectionLocationName,
     setSelectionLocationName,
   } = useStore();
+
+  // Mobile settings panel collapsed state
+  const [isSettingsExpanded, setIsSettingsExpanded] = useState(false);
 
   // Panel size and position
   const [size, setSize] = useState<PanelSize>(loadSavedSize);
@@ -1300,103 +1456,157 @@ export function ExtractedView() {
   // Don't render anything if closed or no selection
   if (!isExtractedViewOpen || !selectionPolygon) return null;
 
+  // Mobile: fullscreen
+  const containerStyle: React.CSSProperties = isMobile ? {
+    position: 'fixed',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    width: '100%',
+    height: '100%',
+    backgroundColor: 'rgba(20, 20, 30, 0.98)',
+    borderRadius: 0,
+    boxShadow: 'none',
+    zIndex: 2000,
+    display: 'flex',
+    flexDirection: 'column',
+    overflow: 'hidden',
+  } : {
+    position: 'fixed',
+    top: position.y,
+    left: position.x,
+    width: size.width,
+    height: size.height,
+    backgroundColor: 'rgba(20, 20, 30, 0.98)',
+    borderRadius: '12px',
+    boxShadow: '0 8px 32px rgba(0, 0, 0, 0.5)',
+    zIndex: 2000,
+    display: 'flex',
+    flexDirection: 'column',
+    overflow: 'hidden',
+    border: '1px solid rgba(100, 150, 255, 0.3)',
+  };
+
   return (
     <div
       ref={panelRef}
-      style={{
-        position: 'fixed',
-        top: position.y,
-        left: position.x,
-        width: size.width,
-        height: size.height,
-        backgroundColor: 'rgba(20, 20, 30, 0.98)',
-        borderRadius: '12px',
-        boxShadow: '0 8px 32px rgba(0, 0, 0, 0.5)',
-        zIndex: 2000,
-        display: 'flex',
-        flexDirection: 'column',
-        overflow: 'hidden',
-        border: '1px solid rgba(100, 150, 255, 0.3)',
-      }}
+      className={isMobile ? 'extracted-view-mobile' : ''}
+      style={containerStyle}
     >
       {/* Header */}
       <div
+        className="extracted-view-header"
         style={{
-          padding: '12px 16px',
+          padding: isMobile ? '12px 16px' : '12px 16px',
+          paddingTop: isMobile ? 'calc(12px + env(safe-area-inset-top, 0px))' : '12px',
           backgroundColor: 'rgba(0, 0, 0, 0.4)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          cursor: 'move',
+          cursor: isMobile ? 'default' : 'move',
           borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
         }}
-        onMouseDown={startDrag}
+        onMouseDown={isMobile ? undefined : startDrag}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <span style={{ color: 'white', fontWeight: '600', fontSize: '14px' }}>
-            Extracted View
+          <span style={{ color: 'white', fontWeight: '600', fontSize: isMobile ? '16px' : '14px' }}>
+            3D View
           </span>
-          <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: '11px' }}>
-            {size.width}×{size.height}
-          </span>
+          {!isMobile && (
+            <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: '11px' }}>
+              {size.width}×{size.height}
+            </span>
+          )}
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          {/* Layer spacing control */}
-          <label style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'white', fontSize: '11px' }}>
-            Group:
-            <input
-              type="range"
-              min="30"
-              max="200"
-              value={layerSpacing}
-              onChange={(e) => setLayerSpacing(Number(e.target.value))}
-              style={{ width: '60px', cursor: 'pointer' }}
-            />
-            <span style={{ width: '70px', fontSize: '10px' }}>{layerSpacing}m / {Math.round(layerSpacing * 3.28084)}ft</span>
-          </label>
+        <div className="extracted-view-controls" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {/* Desktop spacing controls */}
+          {!isMobile && (
+            <>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'white', fontSize: '11px' }}>
+                Group:
+                <input
+                  type="range"
+                  min="30"
+                  max="200"
+                  value={layerSpacing}
+                  onChange={(e) => setLayerSpacing(Number(e.target.value))}
+                  style={{ width: '60px', cursor: 'pointer' }}
+                />
+                <span style={{ width: '70px', fontSize: '10px' }}>{layerSpacing}m / {Math.round(layerSpacing * 3.28084)}ft</span>
+              </label>
 
-          {/* Intra-group spacing control */}
-          <label style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'white', fontSize: '11px' }}>
-            Layer:
-            <input
-              type="range"
-              min="0.1"
-              max="0.8"
-              step="0.05"
-              value={intraGroupRatio}
-              onChange={(e) => setIntraGroupRatio(Number(e.target.value))}
-              style={{ width: '60px', cursor: 'pointer' }}
-            />
-            <span style={{ width: '70px', fontSize: '10px' }}>{Math.round(layerSpacing * intraGroupRatio)}m / {Math.round(layerSpacing * intraGroupRatio * 3.28084)}ft</span>
-          </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'white', fontSize: '11px' }}>
+                Layer:
+                <input
+                  type="range"
+                  min="0.1"
+                  max="0.8"
+                  step="0.05"
+                  value={intraGroupRatio}
+                  onChange={(e) => setIntraGroupRatio(Number(e.target.value))}
+                  style={{ width: '60px', cursor: 'pointer' }}
+                />
+                <span style={{ width: '70px', fontSize: '10px' }}>{Math.round(layerSpacing * intraGroupRatio)}m / {Math.round(layerSpacing * intraGroupRatio * 3.28084)}ft</span>
+              </label>
+            </>
+          )}
+
+          {/* Mobile settings toggle */}
+          {isMobile && (
+            <button
+              onClick={() => setIsSettingsExpanded(!isSettingsExpanded)}
+              style={{
+                padding: '10px 14px',
+                backgroundColor: isSettingsExpanded ? 'rgba(74, 144, 217, 0.8)' : 'rgba(255,255,255,0.1)',
+                color: 'white',
+                border: 'none',
+                borderRadius: '8px',
+                cursor: 'pointer',
+                fontSize: '14px',
+                minHeight: '44px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+              }}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="12" cy="12" r="3" />
+                <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
+              </svg>
+              {isSettingsExpanded ? 'Hide' : 'Settings'}
+            </button>
+          )}
 
           <button
             onClick={saveImage}
             style={{
-              padding: '4px 8px',
+              padding: isMobile ? '10px 16px' : '4px 8px',
               backgroundColor: 'rgba(74, 144, 217, 0.8)',
               color: 'white',
               border: 'none',
-              borderRadius: '4px',
+              borderRadius: isMobile ? '8px' : '4px',
               cursor: 'pointer',
-              fontSize: '12px',
+              fontSize: isMobile ? '14px' : '12px',
+              minHeight: isMobile ? '44px' : 'auto',
             }}
             title="Save as PNG image"
           >
-            Save Image
+            Save
           </button>
 
           <button
             onClick={() => setExtractedViewOpen(false)}
             style={{
-              padding: '4px 8px',
+              padding: isMobile ? '10px 16px' : '4px 8px',
               backgroundColor: 'rgba(255, 100, 100, 0.8)',
               color: 'white',
               border: 'none',
-              borderRadius: '4px',
+              borderRadius: isMobile ? '8px' : '4px',
               cursor: 'pointer',
-              fontSize: '12px',
+              fontSize: isMobile ? '14px' : '12px',
+              minHeight: isMobile ? '44px' : 'auto',
             }}
           >
             Close
@@ -1404,70 +1614,176 @@ export function ExtractedView() {
         </div>
       </div>
 
-      {/* Camera controls */}
-      <div
-        style={{
-          padding: '8px 16px',
-          backgroundColor: 'rgba(0, 0, 0, 0.3)',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '16px',
-          borderBottom: '1px solid rgba(255, 255, 255, 0.05)',
-        }}
-      >
-        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'white', fontSize: '11px' }}>
-          Tilt:
-          <input
-            type="range"
-            min="0"
-            max="90"
-            value={localViewState.rotationX}
-            onChange={(e) => setLocalViewState((prev) => ({ ...prev, rotationX: Number(e.target.value) }))}
-            style={{ width: '60px', cursor: 'pointer' }}
-          />
-          <span style={{ width: '25px' }}>{localViewState.rotationX.toFixed(0)}°</span>
-        </label>
+      {/* Mobile collapsible settings panel */}
+      {isMobile && isSettingsExpanded && (
+        <div
+          style={{
+            padding: '12px 16px',
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '14px',
+          }}
+        >
+          {/* Group spacing row */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: '13px', minWidth: '80px' }}>Group Spacing</span>
+            <input
+              type="range"
+              min="30"
+              max="200"
+              value={layerSpacing}
+              onChange={(e) => setLayerSpacing(Number(e.target.value))}
+              style={{ flex: 1, cursor: 'pointer', height: '24px' }}
+            />
+            <span style={{ color: 'white', fontSize: '13px', minWidth: '40px', textAlign: 'right' }}>{layerSpacing}m</span>
+          </div>
 
-        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'white', fontSize: '11px' }}>
-          Rotate:
-          <input
-            type="range"
-            min="-180"
-            max="180"
-            value={localViewState.rotationOrbit}
-            onChange={(e) => setLocalViewState((prev) => ({ ...prev, rotationOrbit: Number(e.target.value) }))}
-            style={{ width: '60px', cursor: 'pointer' }}
-          />
-          <span style={{ width: '30px' }}>{localViewState.rotationOrbit.toFixed(0)}°</span>
-        </label>
+          {/* Layer spacing row */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: '13px', minWidth: '80px' }}>Layer Spacing</span>
+            <input
+              type="range"
+              min="0.1"
+              max="0.8"
+              step="0.05"
+              value={intraGroupRatio}
+              onChange={(e) => setIntraGroupRatio(Number(e.target.value))}
+              style={{ flex: 1, cursor: 'pointer', height: '24px' }}
+            />
+            <span style={{ color: 'white', fontSize: '13px', minWidth: '40px', textAlign: 'right' }}>{Math.round(layerSpacing * intraGroupRatio)}m</span>
+          </div>
 
-        <div style={{ display: 'flex', gap: '4px' }}>
-          {[
-            { label: 'Top', rotationX: 0, rotationOrbit: 0 },
-            { label: 'Axon', rotationX: 45, rotationOrbit: -30 },
-            { label: 'Side', rotationX: 85, rotationOrbit: 0 },
-          ].map((preset) => (
-            <button
-              key={preset.label}
-              onClick={() => setLocalViewState((prev) => ({ ...prev, rotationX: preset.rotationX, rotationOrbit: preset.rotationOrbit }))}
-              style={{
-                padding: '3px 8px',
-                backgroundColor:
-                  localViewState.rotationX === preset.rotationX && localViewState.rotationOrbit === preset.rotationOrbit
-                    ? '#4A90D9'
-                    : 'rgba(255,255,255,0.1)',
-                color: 'white',
-                border: 'none',
-                borderRadius: '3px',
-                cursor: 'pointer',
-                fontSize: '10px',
-              }}
-            >
-              {preset.label}
-            </button>
-          ))}
+          {/* Tilt row */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: '13px', minWidth: '80px' }}>Tilt</span>
+            <input
+              type="range"
+              min="0"
+              max="90"
+              value={localViewState.rotationX}
+              onChange={(e) => setLocalViewState((prev) => ({ ...prev, rotationX: Number(e.target.value) }))}
+              style={{ flex: 1, cursor: 'pointer', height: '24px' }}
+            />
+            <span style={{ color: 'white', fontSize: '13px', minWidth: '40px', textAlign: 'right' }}>{localViewState.rotationX.toFixed(0)}°</span>
+          </div>
+
+          {/* Rotate row */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: '13px', minWidth: '80px' }}>Rotate</span>
+            <input
+              type="range"
+              min="-180"
+              max="180"
+              value={localViewState.rotationOrbit}
+              onChange={(e) => setLocalViewState((prev) => ({ ...prev, rotationOrbit: Number(e.target.value) }))}
+              style={{ flex: 1, cursor: 'pointer', height: '24px' }}
+            />
+            <span style={{ color: 'white', fontSize: '13px', minWidth: '40px', textAlign: 'right' }}>{localViewState.rotationOrbit.toFixed(0)}°</span>
+          </div>
+
+          {/* Camera presets row */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: '13px', minWidth: '80px' }}>Presets</span>
+            <div style={{ display: 'flex', gap: '8px', flex: 1 }}>
+              {[
+                { label: 'Top', rotationX: 90, rotationOrbit: 0 },
+                { label: 'Axon', rotationX: 45, rotationOrbit: -30 },
+                { label: 'Side', rotationX: 5, rotationOrbit: 0 },
+              ].map((preset) => (
+                <button
+                  key={preset.label}
+                  onClick={() => setLocalViewState((prev) => ({ ...prev, rotationX: preset.rotationX, rotationOrbit: preset.rotationOrbit }))}
+                  style={{
+                    flex: 1,
+                    padding: '10px 12px',
+                    backgroundColor:
+                      localViewState.rotationX === preset.rotationX && localViewState.rotationOrbit === preset.rotationOrbit
+                        ? '#4A90D9'
+                        : 'rgba(255,255,255,0.1)',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    fontSize: '13px',
+                    minHeight: '44px',
+                  }}
+                >
+                  {preset.label}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* Camera controls - desktop only */}
+      {!isMobile && (
+        <div
+          style={{
+            padding: '8px 16px',
+            backgroundColor: 'rgba(0, 0, 0, 0.3)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '16px',
+            borderBottom: '1px solid rgba(255, 255, 255, 0.05)',
+          }}
+        >
+          <label style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'white', fontSize: '11px' }}>
+            Tilt:
+            <input
+              type="range"
+              min="0"
+              max="90"
+              value={localViewState.rotationX}
+              onChange={(e) => setLocalViewState((prev) => ({ ...prev, rotationX: Number(e.target.value) }))}
+              style={{ width: '60px', cursor: 'pointer' }}
+            />
+            <span style={{ width: '25px' }}>{localViewState.rotationX.toFixed(0)}°</span>
+          </label>
+
+          <label style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'white', fontSize: '11px' }}>
+            Rotate:
+            <input
+              type="range"
+              min="-180"
+              max="180"
+              value={localViewState.rotationOrbit}
+              onChange={(e) => setLocalViewState((prev) => ({ ...prev, rotationOrbit: Number(e.target.value) }))}
+              style={{ width: '60px', cursor: 'pointer' }}
+            />
+            <span style={{ width: '30px' }}>{localViewState.rotationOrbit.toFixed(0)}°</span>
+          </label>
+
+          <div style={{ display: 'flex', gap: '4px' }}>
+            {[
+              { label: 'Top', rotationX: 90, rotationOrbit: 0 },
+              { label: 'Axon', rotationX: 45, rotationOrbit: -30 },
+              { label: 'Side', rotationX: 5, rotationOrbit: 0 },
+            ].map((preset) => (
+              <button
+                key={preset.label}
+                onClick={() => setLocalViewState((prev) => ({ ...prev, rotationX: preset.rotationX, rotationOrbit: preset.rotationOrbit }))}
+                style={{
+                  padding: '3px 8px',
+                  backgroundColor:
+                    localViewState.rotationX === preset.rotationX && localViewState.rotationOrbit === preset.rotationOrbit
+                      ? '#4A90D9'
+                      : 'rgba(255,255,255,0.1)',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '3px',
+                  cursor: 'pointer',
+                  fontSize: '10px',
+                }}
+              >
+                {preset.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Group layer toggles */}
       <div
@@ -1615,52 +1931,56 @@ export function ExtractedView() {
         </div>
       </div>
 
-      {/* Resize handles */}
-      <div
-        style={{
-          position: 'absolute',
-          right: -4,
-          top: 50,
-          width: 8,
-          height: 'calc(100% - 60px)',
-          cursor: 'ew-resize',
-        }}
-        onMouseDown={(e) => startResize(e, 'right')}
-      />
-      <div
-        style={{
-          position: 'absolute',
-          bottom: -4,
-          left: 10,
-          width: 'calc(100% - 20px)',
-          height: 8,
-          cursor: 'ns-resize',
-        }}
-        onMouseDown={(e) => startResize(e, 'bottom')}
-      />
-      <div
-        style={{
-          position: 'absolute',
-          bottom: -6,
-          right: -6,
-          width: 16,
-          height: 16,
-          cursor: 'nwse-resize',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-        onMouseDown={(e) => startResize(e, 'corner')}
-      >
-        <div
-          style={{
-            width: 10,
-            height: 10,
-            borderBottom: '2px solid rgba(255,255,255,0.4)',
-            borderRight: '2px solid rgba(255,255,255,0.4)',
-          }}
-        />
-      </div>
+      {/* Resize handles - only on desktop */}
+      {!isMobile && (
+        <>
+          <div
+            style={{
+              position: 'absolute',
+              right: -4,
+              top: 50,
+              width: 8,
+              height: 'calc(100% - 60px)',
+              cursor: 'ew-resize',
+            }}
+            onMouseDown={(e) => startResize(e, 'right')}
+          />
+          <div
+            style={{
+              position: 'absolute',
+              bottom: -4,
+              left: 10,
+              width: 'calc(100% - 20px)',
+              height: 8,
+              cursor: 'ns-resize',
+            }}
+            onMouseDown={(e) => startResize(e, 'bottom')}
+          />
+          <div
+            style={{
+              position: 'absolute',
+              bottom: -6,
+              right: -6,
+              width: 16,
+              height: 16,
+              cursor: 'nwse-resize',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+            onMouseDown={(e) => startResize(e, 'corner')}
+          >
+            <div
+              style={{
+                width: 10,
+                height: 10,
+                borderBottom: '2px solid rgba(255,255,255,0.4)',
+                borderRight: '2px solid rgba(255,255,255,0.4)',
+              }}
+            />
+          </div>
+        </>
+      )}
     </div>
   );
 }

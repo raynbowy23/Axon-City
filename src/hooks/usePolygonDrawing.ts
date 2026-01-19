@@ -1,8 +1,12 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { WebMercatorViewport } from '@deck.gl/core';
 import type { Polygon } from 'geojson';
 import { useStore } from '../store/useStore';
 import { calculatePolygonArea } from '../utils/geometryUtils';
+
+// Drag threshold - larger for touch to avoid accidental points
+const MOUSE_DRAG_THRESHOLD = 5;
+const TOUCH_DRAG_THRESHOLD = 10;
 
 export function usePolygonDrawing() {
   const {
@@ -12,6 +16,9 @@ export function usePolygonDrawing() {
     setDrawingPoints: setStoreDrawingPoints,
   } = useStore();
   const [drawingPoints, setDrawingPoints] = useState<[number, number][]>([]);
+
+  // Track pointer start position for drag detection
+  const pointerStartRef = useRef<{ x: number; y: number; isTouch: boolean } | null>(null);
 
   // Sync local drawing points to store for MapView visualization
   const updatePoints = useCallback((newPoints: [number, number][]) => {
@@ -24,6 +31,29 @@ export function usePolygonDrawing() {
     updatePoints([]);
     setSelectionPolygon(null);
   }, [setIsDrawing, setSelectionPolygon, updatePoints]);
+
+  // Record pointer start position (works for both mouse and touch)
+  const handlePointerStart = useCallback((x: number, y: number, isTouch: boolean) => {
+    pointerStartRef.current = { x, y, isTouch };
+  }, []);
+
+  // Check if the pointer movement was a drag or a tap/click
+  const isDrag = useCallback((endX: number, endY: number): boolean => {
+    if (!pointerStartRef.current) return false;
+
+    const { x: startX, y: startY, isTouch } = pointerStartRef.current;
+    const dx = endX - startX;
+    const dy = endY - startY;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    const threshold = isTouch ? TOUCH_DRAG_THRESHOLD : MOUSE_DRAG_THRESHOLD;
+
+    return distance > threshold;
+  }, []);
+
+  // Clear pointer tracking
+  const clearPointerStart = useCallback(() => {
+    pointerStartRef.current = null;
+  }, []);
 
   const addPoint = useCallback(
     (screenX: number, screenY: number, containerElement: HTMLDivElement | null) => {
@@ -125,5 +155,9 @@ export function usePolygonDrawing() {
     completeDrawing,
     cancelDrawing,
     pointCount: drawingPoints.length,
+    // Touch/pointer support
+    handlePointerStart,
+    isDrag,
+    clearPointerStart,
   };
 }

@@ -19,6 +19,10 @@ interface PanelSize {
   height: number;
 }
 
+interface StatsPanelProps {
+  isMobile?: boolean;
+}
+
 function loadSavedSize(): PanelSize {
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
@@ -43,7 +47,7 @@ function saveSize(size: PanelSize): void {
   }
 }
 
-export function StatsPanel() {
+export function StatsPanel({ isMobile = false }: StatsPanelProps) {
   const { layerData, activeLayers, selectionPolygon, isLoading, loadingMessage, setExtractedViewOpen, isExtractedViewOpen, customLayers } = useStore();
 
   // Panel size state
@@ -189,6 +193,122 @@ export function StatsPanel() {
     borderRadius: '2px',
   };
 
+  // Mobile layout - rendered inside BottomSheet
+  if (isMobile) {
+    if (!selectionPolygon && !isLoading) {
+      return (
+        <div style={{ color: 'white', padding: '16px', textAlign: 'center' }}>
+          <p style={{ margin: 0, opacity: 0.7, fontSize: '14px' }}>
+            Draw a selection area to see layer statistics
+          </p>
+        </div>
+      );
+    }
+
+    return (
+      <div style={{ color: 'white', fontSize: '14px' }}>
+        {selectionPolygon && (
+          <div
+            style={{
+              padding: '12px',
+              backgroundColor: 'rgba(74, 144, 217, 0.2)',
+              borderRadius: '8px',
+              marginBottom: '16px',
+              fontSize: '14px',
+            }}
+          >
+            Area: {formatArea(selectionPolygon.area)}
+          </div>
+        )}
+
+        <button
+          onClick={() => setExtractedViewOpen(!isExtractedViewOpen)}
+          style={{
+            width: '100%',
+            padding: '14px',
+            backgroundColor: isExtractedViewOpen ? '#4A90D9' : 'rgba(74, 144, 217, 0.3)',
+            color: 'white',
+            border: 'none',
+            borderRadius: '8px',
+            cursor: 'pointer',
+            fontSize: '15px',
+            fontWeight: '500',
+            marginBottom: '16px',
+            minHeight: '48px',
+          }}
+        >
+          {isExtractedViewOpen ? 'Hide 3D View' : 'Open 3D View'}
+        </button>
+
+        {isLoading && (
+          <div
+            style={{
+              padding: '16px',
+              backgroundColor: 'rgba(255, 255, 255, 0.1)',
+              borderRadius: '8px',
+              marginBottom: '16px',
+            }}
+          >
+            <div style={{ marginBottom: '8px' }}>Loading data...</div>
+            <div style={{ fontSize: '12px', opacity: 0.7 }}>{loadingMessage}</div>
+          </div>
+        )}
+
+        {hasStats && (
+          <div>
+            {Array.from(groupedStats.entries()).map(([groupId, layers]) => {
+              const group = getGroupById(groupId);
+              if (!group) return null;
+
+              const layersWithStats = layers.filter((l) => l.stats);
+              if (layersWithStats.length === 0) return null;
+
+              return (
+                <div key={groupId} style={{ marginBottom: '20px' }}>
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '10px',
+                      marginBottom: '12px',
+                      paddingBottom: '8px',
+                      borderBottom: '1px solid rgba(255,255,255,0.1)',
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: '12px',
+                        height: '12px',
+                        borderRadius: '3px',
+                        backgroundColor: `rgb(${group.color.join(',')})`,
+                      }}
+                    />
+                    <span style={{ fontWeight: '600', fontSize: '14px' }}>
+                      {group.name}
+                    </span>
+                  </div>
+
+                  {layersWithStats.map(({ layerId, name, stats, isCustom, fillColor }) => (
+                    <LayerStatsRow
+                      key={layerId}
+                      layerId={layerId}
+                      name={name}
+                      stats={stats!}
+                      isCustom={isCustom}
+                      fillColor={fillColor}
+                      isMobile
+                    />
+                  ))}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Desktop layout
   if (!selectionPolygon && !isLoading) {
     return (
       <div
@@ -395,12 +515,14 @@ function LayerStatsRow({
   stats,
   isCustom,
   fillColor,
+  isMobile = false,
 }: {
   layerId: string;
   name: string;
   stats: LayerStats;
   isCustom?: boolean;
   fillColor?: [number, number, number, number];
+  isMobile?: boolean;
 }) {
   const layer = getLayerById(layerId);
   const color = fillColor || layer?.style.fillColor || [180, 180, 180, 200];
@@ -408,22 +530,22 @@ function LayerStatsRow({
   return (
     <div
       style={{
-        padding: '8px',
-        marginBottom: '4px',
+        padding: isMobile ? '12px' : '8px',
+        marginBottom: isMobile ? '8px' : '4px',
         backgroundColor: 'rgba(255, 255, 255, 0.05)',
-        borderRadius: '4px',
-        borderLeft: `3px solid rgba(${color.slice(0, 3).join(',')}, 0.8)`,
+        borderRadius: isMobile ? '8px' : '4px',
+        borderLeft: `4px solid rgba(${color.slice(0, 3).join(',')}, 0.8)`,
       }}
     >
-      <div style={{ fontWeight: '500', marginBottom: '4px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+      <div style={{ fontWeight: '500', marginBottom: '6px', fontSize: isMobile ? '14px' : '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
         {name}
         {isCustom && (
           <span
             style={{
-              fontSize: '9px',
+              fontSize: isMobile ? '10px' : '9px',
               backgroundColor: 'rgba(255, 255, 255, 0.15)',
-              padding: '1px 4px',
-              borderRadius: '3px',
+              padding: '2px 6px',
+              borderRadius: '4px',
               opacity: 0.7,
             }}
           >
@@ -435,8 +557,8 @@ function LayerStatsRow({
         style={{
           display: 'grid',
           gridTemplateColumns: 'repeat(2, 1fr)',
-          gap: '4px',
-          fontSize: '11px',
+          gap: isMobile ? '8px' : '4px',
+          fontSize: isMobile ? '13px' : '11px',
           opacity: 0.8,
         }}
       >

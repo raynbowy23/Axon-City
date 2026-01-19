@@ -25,9 +25,10 @@ import type { LayerConfig, LayerGroup, LayerOrderConfig } from '../types';
 interface DraggableLayerListProps {
   onIsolate: (layerId: string | null) => void;
   isolatedLayerId: string | null;
+  isMobile?: boolean;
 }
 
-export function DraggableLayerList({ onIsolate, isolatedLayerId }: DraggableLayerListProps) {
+export function DraggableLayerList({ onIsolate, isolatedLayerId, isMobile = false }: DraggableLayerListProps) {
   const {
     activeLayers,
     toggleLayer,
@@ -165,6 +166,7 @@ export function DraggableLayerList({ onIsolate, isolatedLayerId }: DraggableLaye
             onIsolate={onIsolate}
             isolatedLayerId={isolatedLayerId}
             layerOrder={layerOrder}
+            isMobile={isMobile}
           />
         ))}
       </SortableContext>
@@ -233,6 +235,7 @@ interface SortableGroupProps {
   onIsolate: (id: string | null) => void;
   isolatedLayerId: string | null;
   layerOrder: LayerOrderConfig;
+  isMobile?: boolean;
 }
 
 function SortableGroup({
@@ -244,6 +247,7 @@ function SortableGroup({
   onToggle,
   onIsolate,
   isolatedLayerId,
+  isMobile = false,
 }: SortableGroupProps) {
   const {
     attributes,
@@ -263,44 +267,46 @@ function SortableGroup({
   const activeCount = layers.filter((l) => activeLayers.includes(l.id)).length;
 
   return (
-    <div ref={setNodeRef} style={{ ...style, marginBottom: '12px' }}>
+    <div ref={setNodeRef} style={{ ...style, marginBottom: isMobile ? '16px' : '12px' }}>
       <div
         style={{
           display: 'flex',
           alignItems: 'center',
-          gap: '8px',
-          marginBottom: '6px',
-          paddingBottom: '4px',
+          gap: isMobile ? '12px' : '8px',
+          marginBottom: isMobile ? '10px' : '6px',
+          paddingBottom: isMobile ? '8px' : '4px',
           borderBottom: '1px solid rgba(255,255,255,0.1)',
         }}
       >
-        <button
-          {...attributes}
-          {...listeners}
-          style={{
-            background: 'none',
-            border: 'none',
-            padding: '2px 4px',
-            cursor: 'grab',
-            color: 'rgba(255,255,255,0.5)',
-            fontSize: '12px',
-            display: 'flex',
-            alignItems: 'center',
-          }}
-          title="Drag to reorder group"
-        >
-          &#x2630;
-        </button>
+        {!isMobile && (
+          <button
+            {...attributes}
+            {...listeners}
+            style={{
+              background: 'none',
+              border: 'none',
+              padding: '2px 4px',
+              cursor: 'grab',
+              color: 'rgba(255,255,255,0.5)',
+              fontSize: '12px',
+              display: 'flex',
+              alignItems: 'center',
+            }}
+            title="Drag to reorder group"
+          >
+            &#x2630;
+          </button>
+        )}
         <div
           style={{
-            width: '12px',
-            height: '12px',
-            borderRadius: '2px',
+            width: isMobile ? '14px' : '12px',
+            height: isMobile ? '14px' : '12px',
+            borderRadius: '3px',
             backgroundColor: `rgb(${groupColor.join(',')})`,
           }}
         />
-        <span style={{ fontWeight: '600', fontSize: '12px' }}>{groupName}</span>
-        <span style={{ fontSize: '10px', opacity: 0.6, marginLeft: 'auto' }}>
+        <span style={{ fontWeight: '600', fontSize: isMobile ? '15px' : '12px' }}>{groupName}</span>
+        <span style={{ fontSize: isMobile ? '12px' : '10px', opacity: 0.6, marginLeft: 'auto' }}>
           {activeCount}/{layers.length}
         </span>
       </div>
@@ -317,6 +323,7 @@ function SortableGroup({
             isIsolated={isolatedLayerId === layer.id}
             onToggle={onToggle}
             onIsolate={onIsolate}
+            isMobile={isMobile}
           />
         ))}
       </SortableContext>
@@ -330,6 +337,7 @@ interface SortableLayerItemProps {
   isIsolated: boolean;
   onToggle: (id: string) => void;
   onIsolate: (id: string | null) => void;
+  isMobile?: boolean;
 }
 
 function SortableLayerItem({
@@ -338,6 +346,7 @@ function SortableLayerItem({
   isIsolated,
   onToggle,
   onIsolate,
+  isMobile = false,
 }: SortableLayerItemProps) {
   const {
     attributes,
@@ -361,37 +370,40 @@ function SortableLayerItem({
         ...style,
         display: 'flex',
         alignItems: 'center',
-        gap: '8px',
-        padding: '4px 0 4px 12px',
+        gap: isMobile ? '12px' : '8px',
+        padding: isMobile ? '10px 0 10px 8px' : '4px 0 4px 12px',
+        minHeight: isMobile ? '44px' : 'auto',
       }}
     >
-      <button
-        {...attributes}
-        {...listeners}
-        style={{
-          background: 'none',
-          border: 'none',
-          padding: '2px 4px',
-          cursor: 'grab',
-          color: 'rgba(255,255,255,0.4)',
-          fontSize: '10px',
-          display: 'flex',
-          alignItems: 'center',
-        }}
-        title="Drag to reorder layer"
-      >
-        &#x2630;
-      </button>
+      {!isMobile && (
+        <button
+          {...attributes}
+          {...listeners}
+          style={{
+            background: 'none',
+            border: 'none',
+            padding: '2px 4px',
+            cursor: 'grab',
+            color: 'rgba(255,255,255,0.4)',
+            fontSize: '10px',
+            display: 'flex',
+            alignItems: 'center',
+          }}
+          title="Drag to reorder layer"
+        >
+          &#x2630;
+        </button>
+      )}
       <input
         type="checkbox"
         checked={isActive}
         onChange={() => onToggle(layer.id)}
-        style={{ cursor: 'pointer' }}
+        style={{ cursor: 'pointer', width: isMobile ? '22px' : '16px', height: isMobile ? '22px' : '16px' }}
       />
       <div
         style={{
-          width: '8px',
-          height: '8px',
+          width: isMobile ? '12px' : '8px',
+          height: isMobile ? '12px' : '8px',
           borderRadius: '50%',
           backgroundColor: `rgba(${layer.style.fillColor.slice(0, 3).join(',')}, 1)`,
         }}
@@ -399,7 +411,7 @@ function SortableLayerItem({
       <span
         style={{
           flex: 1,
-          fontSize: '11px',
+          fontSize: isMobile ? '14px' : '11px',
           cursor: 'pointer',
         }}
         onClick={() => onToggle(layer.id)}
@@ -410,13 +422,14 @@ function SortableLayerItem({
         <button
           onClick={() => onIsolate(isIsolated ? null : layer.id)}
           style={{
-            padding: '2px 6px',
-            fontSize: '9px',
+            padding: isMobile ? '8px 12px' : '2px 6px',
+            fontSize: isMobile ? '12px' : '9px',
             backgroundColor: isIsolated ? '#D94A4A' : 'rgba(255,255,255,0.1)',
             color: 'white',
             border: 'none',
-            borderRadius: '3px',
+            borderRadius: isMobile ? '6px' : '3px',
             cursor: 'pointer',
+            minHeight: isMobile ? '36px' : 'auto',
           }}
           title={isIsolated ? 'Clear isolation' : 'Isolate layer'}
         >

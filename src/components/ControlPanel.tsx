@@ -3,7 +3,11 @@ import { layerManifest } from '../data/layerManifest';
 import { DraggableLayerList } from './DraggableLayerList';
 import type { CustomLayerConfig, FeatureCollection } from '../types';
 
-export function ControlPanel() {
+interface ControlPanelProps {
+  isMobile?: boolean;
+}
+
+export function ControlPanel({ isMobile = false }: ControlPanelProps) {
   const {
     explodedView,
     setExplodedView,
@@ -57,6 +61,143 @@ export function ControlPanel() {
     });
   };
 
+  // Mobile layout - rendered inside BottomSheet
+  if (isMobile) {
+    return (
+      <div style={{ color: 'white', fontSize: '14px' }}>
+        {/* Exploded View Controls */}
+        <div style={{ marginBottom: '20px' }}>
+          <div style={{ marginBottom: '12px', fontWeight: '600', fontSize: '15px' }}>
+            3D Exploded View
+          </div>
+
+          <label
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
+              cursor: 'pointer',
+              marginBottom: '16px',
+              padding: '12px',
+              backgroundColor: 'rgba(255, 255, 255, 0.05)',
+              borderRadius: '8px',
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={explodedView.enabled}
+              onChange={(e) => setExplodedView({ enabled: e.target.checked })}
+              style={{ cursor: 'pointer', width: '22px', height: '22px' }}
+            />
+            <span style={{ fontSize: '15px' }}>Enable Exploded View</span>
+          </label>
+
+          {explodedView.enabled && (
+            <>
+              <div style={{ marginBottom: '12px' }}>
+                <label style={{ display: 'block', marginBottom: '8px', fontSize: '13px' }}>
+                  Group Spacing: {explodedView.layerSpacing}m
+                </label>
+                <input
+                  type="range"
+                  min="20"
+                  max="500"
+                  step="10"
+                  value={explodedView.layerSpacing}
+                  onChange={(e) =>
+                    setExplodedView({ layerSpacing: Number(e.target.value) })
+                  }
+                  style={{ width: '100%', height: '8px' }}
+                />
+              </div>
+              <div style={{ marginBottom: '12px' }}>
+                <label style={{ display: 'block', marginBottom: '8px', fontSize: '13px' }}>
+                  Layer Spacing: {Math.round(explodedView.layerSpacing * explodedView.intraGroupRatio)}m
+                </label>
+                <input
+                  type="range"
+                  min="0.1"
+                  max="0.8"
+                  step="0.05"
+                  value={explodedView.intraGroupRatio}
+                  onChange={(e) =>
+                    setExplodedView({ intraGroupRatio: Number(e.target.value) })
+                  }
+                  style={{ width: '100%', height: '8px' }}
+                />
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* View Presets - larger buttons for mobile */}
+        <div style={{ marginBottom: '20px' }}>
+          <div style={{ marginBottom: '12px', fontWeight: '600', fontSize: '15px' }}>Camera</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '8px' }}>
+            {[
+              { label: 'Top Down', pitch: 0, bearing: 0 },
+              { label: 'Axonometric', pitch: 45, bearing: 0 },
+              { label: 'Horizontal', pitch: 75, bearing: 0 },
+              { label: 'Street View', pitch: 85, bearing: 45 },
+            ].map((preset) => (
+              <button
+                key={preset.label}
+                onClick={() => setViewState({ ...viewState, pitch: preset.pitch, bearing: preset.bearing })}
+                style={{
+                  padding: '14px 12px',
+                  backgroundColor: viewState.pitch === preset.pitch && viewState.bearing === preset.bearing ? '#4A90D9' : 'rgba(255,255,255,0.1)',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  fontSize: '13px',
+                  fontWeight: '500',
+                  minHeight: '48px',
+                }}
+              >
+                {preset.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Import Data Button */}
+        <div style={{ marginBottom: '20px' }}>
+          <button
+            onClick={() => setDataInputOpen(true)}
+            style={{
+              width: '100%',
+              padding: '14px',
+              backgroundColor: 'rgba(75, 192, 192, 0.3)',
+              border: '1px solid rgba(75, 192, 192, 0.5)',
+              borderRadius: '8px',
+              color: 'white',
+              cursor: 'pointer',
+              fontSize: '15px',
+              fontWeight: '500',
+              minHeight: '48px',
+            }}
+          >
+            + Import Custom Data
+          </button>
+        </div>
+
+        {/* Layer Toggle */}
+        <div>
+          <div style={{ marginBottom: '12px', fontWeight: '600', fontSize: '15px' }}>
+            Layers
+          </div>
+          <DraggableLayerList
+            onIsolate={setIsolatedLayerId}
+            isolatedLayerId={isolatedLayerId}
+            isMobile
+          />
+        </div>
+      </div>
+    );
+  }
+
+  // Desktop layout
   return (
     <div
       style={{

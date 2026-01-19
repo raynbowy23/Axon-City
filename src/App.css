@@ -108,3 +108,348 @@ input[type="checkbox"] {
 .loading-pulse {
   animation: pulse 1.5s ease-in-out infinite;
 }
+
+/* ============================================
+   RESPONSIVE DESIGN - CSS CUSTOM PROPERTIES
+   ============================================ */
+
+:root {
+  /* Spacing */
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 16px;
+  --spacing-lg: 24px;
+  --spacing-xl: 32px;
+
+  /* Touch targets (44px minimum for accessibility) */
+  --touch-target-min: 44px;
+  --touch-target-comfortable: 48px;
+
+  /* Panel widths */
+  --panel-width-desktop: 280px;
+  --panel-width-tablet: 260px;
+  --panel-width-mobile: 100%;
+
+  /* Safe area insets (for notched devices) */
+  --safe-area-top: env(safe-area-inset-top, 0px);
+  --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-area-left: env(safe-area-inset-left, 0px);
+  --safe-area-right: env(safe-area-inset-right, 0px);
+
+  /* Z-index layers */
+  --z-map: 1;
+  --z-controls: 100;
+  --z-panels: 500;
+  --z-modal: 1000;
+  --z-bottom-sheet: 1500;
+  --z-overlay: 2000;
+}
+
+/* ============================================
+   TOUCH-FRIENDLY BASE STYLES
+   ============================================ */
+
+/* Larger touch targets for interactive elements */
+@media (pointer: coarse) {
+  button,
+  input[type="checkbox"],
+  input[type="range"],
+  .touch-target {
+    min-height: var(--touch-target-min);
+    min-width: var(--touch-target-min);
+  }
+
+  /* Larger checkbox on touch devices */
+  input[type="checkbox"] {
+    width: 22px;
+    height: 22px;
+  }
+
+  /* Larger range slider thumb on touch */
+  input[type="range"]::-webkit-slider-thumb {
+    width: 20px;
+    height: 20px;
+  }
+
+  input[type="range"]::-moz-range-thumb {
+    width: 20px;
+    height: 20px;
+  }
+}
+
+/* Disable hover effects on touch devices */
+@media (hover: none) {
+  button:not(:disabled):hover {
+    filter: none;
+    transform: none;
+  }
+}
+
+/* ============================================
+   MOBILE BREAKPOINT (max-width: 480px)
+   ============================================ */
+
+@media (max-width: 480px) {
+  /* Prevent body scroll when bottom sheet is open */
+  body.bottom-sheet-open {
+    overflow: hidden;
+    position: fixed;
+    width: 100%;
+  }
+
+  /* Hide desktop-only elements */
+  .desktop-only {
+    display: none !important;
+  }
+
+  /* Full width panels on mobile */
+  .mobile-full-width {
+    width: 100% !important;
+    max-width: 100% !important;
+    left: 0 !important;
+    right: 0 !important;
+    border-radius: 0 !important;
+  }
+
+  /* Touch action for drawing on mobile */
+  .drawing-area {
+    touch-action: none;
+  }
+
+  /* Larger font for readability */
+  .mobile-text {
+    font-size: 15px !important;
+  }
+
+  /* Safe area padding */
+  .safe-area-top {
+    padding-top: var(--safe-area-top);
+  }
+
+  .safe-area-bottom {
+    padding-bottom: var(--safe-area-bottom);
+  }
+}
+
+/* ============================================
+   TABLET BREAKPOINT (481px - 768px)
+   ============================================ */
+
+@media (min-width: 481px) and (max-width: 768px) {
+  /* Hide mobile-only elements */
+  .mobile-only {
+    display: none !important;
+  }
+
+  /* Adjusted panel widths */
+  .tablet-panel {
+    max-width: var(--panel-width-tablet);
+  }
+}
+
+/* ============================================
+   DESKTOP BREAKPOINT (> 768px)
+   ============================================ */
+
+@media (min-width: 769px) {
+  /* Hide mobile and tablet specific elements */
+  .mobile-only,
+  .tablet-only {
+    display: none !important;
+  }
+}
+
+/* ============================================
+   BOTTOM SHEET STYLES
+   ============================================ */
+
+.bottom-sheet-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  z-index: var(--z-bottom-sheet);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+}
+
+.bottom-sheet-overlay.visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.bottom-sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(20, 20, 30, 0.98);
+  border-radius: 16px 16px 0 0;
+  z-index: calc(var(--z-bottom-sheet) + 1);
+  transform: translateY(100%);
+  transition: transform 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  padding-bottom: var(--safe-area-bottom);
+}
+
+.bottom-sheet.peek {
+  transform: translateY(calc(100% - 200px));
+}
+
+.bottom-sheet.expanded {
+  transform: translateY(0);
+}
+
+.bottom-sheet-handle {
+  width: 36px;
+  height: 4px;
+  background-color: rgba(255, 255, 255, 0.3);
+  border-radius: 2px;
+  margin: 12px auto;
+  flex-shrink: 0;
+}
+
+.bottom-sheet-content {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 0 var(--spacing-md) var(--spacing-md);
+}
+
+/* ============================================
+   MOBILE NAVIGATION BAR
+   ============================================ */
+
+.mobile-nav {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 56px;
+  background-color: rgba(20, 20, 30, 0.98);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+  z-index: var(--z-panels);
+  padding-bottom: var(--safe-area-bottom);
+}
+
+.mobile-nav-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 16px;
+  color: rgba(255, 255, 255, 0.6);
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: color 0.2s ease;
+  min-width: 64px;
+}
+
+.mobile-nav-item.active {
+  color: #4A90D9;
+}
+
+.mobile-nav-item svg {
+  width: 24px;
+  height: 24px;
+  margin-bottom: 4px;
+}
+
+.mobile-nav-item span {
+  font-size: 10px;
+  font-weight: 500;
+}
+
+/* ============================================
+   MOBILE DRAWING CONTROLS
+   ============================================ */
+
+.mobile-drawing-controls {
+  position: fixed;
+  bottom: calc(56px + var(--safe-area-bottom) + 16px);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 12px;
+  padding: 12px 16px;
+  background-color: rgba(0, 0, 0, 0.9);
+  border-radius: 12px;
+  z-index: var(--z-controls);
+}
+
+.mobile-drawing-controls button {
+  padding: 12px 20px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+}
+
+/* ============================================
+   EXTRACTED VIEW MOBILE STYLES
+   ============================================ */
+
+@media (max-width: 480px) {
+  .extracted-view-mobile {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+    border-radius: 0 !important;
+    z-index: var(--z-overlay) !important;
+  }
+
+  .extracted-view-mobile .extracted-view-header {
+    padding: var(--spacing-sm) var(--spacing-md);
+    padding-top: calc(var(--spacing-sm) + var(--safe-area-top));
+  }
+
+  .extracted-view-mobile .extracted-view-controls {
+    flex-wrap: wrap;
+    gap: var(--spacing-sm);
+  }
+}
+
+/* ============================================
+   UTILITY CLASSES
+   ============================================ */
+
+.no-select {
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
+
+.touch-none {
+  touch-action: none;
+}
+
+.touch-pan-y {
+  touch-action: pan-y;
+}
+
+.touch-pan-x {
+  touch-action: pan-x;
+}
+
+/* Prevent text selection during drag */
+.dragging * {
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
