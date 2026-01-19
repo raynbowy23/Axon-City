@@ -1165,6 +1165,9 @@ export function ExtractedView({ isMobile = false }: ExtractedViewProps) {
     setSelectionLocationName,
   } = useStore();
 
+  // Mobile settings panel collapsed state
+  const [isSettingsExpanded, setIsSettingsExpanded] = useState(false);
+
   // Panel size and position
   const [size, setSize] = useState<PanelSize>(loadSavedSize);
   const [position, setPosition] = useState({ x: 100, y: 100 });
@@ -1475,8 +1478,6 @@ export function ExtractedView({ isMobile = false }: ExtractedViewProps) {
           justifyContent: 'space-between',
           cursor: isMobile ? 'default' : 'move',
           borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
-          flexWrap: isMobile ? 'wrap' : 'nowrap',
-          gap: isMobile ? '12px' : '0',
         }}
         onMouseDown={isMobile ? undefined : startDrag}
       >
@@ -1491,11 +1492,10 @@ export function ExtractedView({ isMobile = false }: ExtractedViewProps) {
           )}
         </div>
 
-        <div className="extracted-view-controls" style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: isMobile ? 'wrap' : 'nowrap' }}>
-          {/* Hide sliders on mobile - use simplified controls */}
+        <div className="extracted-view-controls" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {/* Desktop spacing controls */}
           {!isMobile && (
             <>
-              {/* Layer spacing control */}
               <label style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'white', fontSize: '11px' }}>
                 Group:
                 <input
@@ -1509,7 +1509,6 @@ export function ExtractedView({ isMobile = false }: ExtractedViewProps) {
                 <span style={{ width: '70px', fontSize: '10px' }}>{layerSpacing}m / {Math.round(layerSpacing * 3.28084)}ft</span>
               </label>
 
-              {/* Intra-group spacing control */}
               <label style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'white', fontSize: '11px' }}>
                 Layer:
                 <input
@@ -1524,6 +1523,32 @@ export function ExtractedView({ isMobile = false }: ExtractedViewProps) {
                 <span style={{ width: '70px', fontSize: '10px' }}>{Math.round(layerSpacing * intraGroupRatio)}m / {Math.round(layerSpacing * intraGroupRatio * 3.28084)}ft</span>
               </label>
             </>
+          )}
+
+          {/* Mobile settings toggle */}
+          {isMobile && (
+            <button
+              onClick={() => setIsSettingsExpanded(!isSettingsExpanded)}
+              style={{
+                padding: '10px 14px',
+                backgroundColor: isSettingsExpanded ? 'rgba(74, 144, 217, 0.8)' : 'rgba(255,255,255,0.1)',
+                color: 'white',
+                border: 'none',
+                borderRadius: '8px',
+                cursor: 'pointer',
+                fontSize: '14px',
+                minHeight: '44px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+              }}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="12" cy="12" r="3" />
+                <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
+              </svg>
+              {isSettingsExpanded ? 'Hide' : 'Settings'}
+            </button>
           )}
 
           <button
@@ -1561,70 +1586,176 @@ export function ExtractedView({ isMobile = false }: ExtractedViewProps) {
         </div>
       </div>
 
-      {/* Camera controls */}
-      <div
-        style={{
-          padding: '8px 16px',
-          backgroundColor: 'rgba(0, 0, 0, 0.3)',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '16px',
-          borderBottom: '1px solid rgba(255, 255, 255, 0.05)',
-        }}
-      >
-        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'white', fontSize: '11px' }}>
-          Tilt:
-          <input
-            type="range"
-            min="0"
-            max="90"
-            value={localViewState.rotationX}
-            onChange={(e) => setLocalViewState((prev) => ({ ...prev, rotationX: Number(e.target.value) }))}
-            style={{ width: '60px', cursor: 'pointer' }}
-          />
-          <span style={{ width: '25px' }}>{localViewState.rotationX.toFixed(0)}°</span>
-        </label>
+      {/* Mobile collapsible settings panel */}
+      {isMobile && isSettingsExpanded && (
+        <div
+          style={{
+            padding: '12px 16px',
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '14px',
+          }}
+        >
+          {/* Group spacing row */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: '13px', minWidth: '80px' }}>Group Spacing</span>
+            <input
+              type="range"
+              min="30"
+              max="200"
+              value={layerSpacing}
+              onChange={(e) => setLayerSpacing(Number(e.target.value))}
+              style={{ flex: 1, cursor: 'pointer', height: '24px' }}
+            />
+            <span style={{ color: 'white', fontSize: '13px', minWidth: '40px', textAlign: 'right' }}>{layerSpacing}m</span>
+          </div>
 
-        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'white', fontSize: '11px' }}>
-          Rotate:
-          <input
-            type="range"
-            min="-180"
-            max="180"
-            value={localViewState.rotationOrbit}
-            onChange={(e) => setLocalViewState((prev) => ({ ...prev, rotationOrbit: Number(e.target.value) }))}
-            style={{ width: '60px', cursor: 'pointer' }}
-          />
-          <span style={{ width: '30px' }}>{localViewState.rotationOrbit.toFixed(0)}°</span>
-        </label>
+          {/* Layer spacing row */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: '13px', minWidth: '80px' }}>Layer Spacing</span>
+            <input
+              type="range"
+              min="0.1"
+              max="0.8"
+              step="0.05"
+              value={intraGroupRatio}
+              onChange={(e) => setIntraGroupRatio(Number(e.target.value))}
+              style={{ flex: 1, cursor: 'pointer', height: '24px' }}
+            />
+            <span style={{ color: 'white', fontSize: '13px', minWidth: '40px', textAlign: 'right' }}>{Math.round(layerSpacing * intraGroupRatio)}m</span>
+          </div>
 
-        <div style={{ display: 'flex', gap: '4px' }}>
-          {[
-            { label: 'Top', rotationX: 0, rotationOrbit: 0 },
-            { label: 'Axon', rotationX: 45, rotationOrbit: -30 },
-            { label: 'Side', rotationX: 85, rotationOrbit: 0 },
-          ].map((preset) => (
-            <button
-              key={preset.label}
-              onClick={() => setLocalViewState((prev) => ({ ...prev, rotationX: preset.rotationX, rotationOrbit: preset.rotationOrbit }))}
-              style={{
-                padding: '3px 8px',
-                backgroundColor:
-                  localViewState.rotationX === preset.rotationX && localViewState.rotationOrbit === preset.rotationOrbit
-                    ? '#4A90D9'
-                    : 'rgba(255,255,255,0.1)',
-                color: 'white',
-                border: 'none',
-                borderRadius: '3px',
-                cursor: 'pointer',
-                fontSize: '10px',
-              }}
-            >
-              {preset.label}
-            </button>
-          ))}
+          {/* Tilt row */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: '13px', minWidth: '80px' }}>Tilt</span>
+            <input
+              type="range"
+              min="0"
+              max="90"
+              value={localViewState.rotationX}
+              onChange={(e) => setLocalViewState((prev) => ({ ...prev, rotationX: Number(e.target.value) }))}
+              style={{ flex: 1, cursor: 'pointer', height: '24px' }}
+            />
+            <span style={{ color: 'white', fontSize: '13px', minWidth: '40px', textAlign: 'right' }}>{localViewState.rotationX.toFixed(0)}°</span>
+          </div>
+
+          {/* Rotate row */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: '13px', minWidth: '80px' }}>Rotate</span>
+            <input
+              type="range"
+              min="-180"
+              max="180"
+              value={localViewState.rotationOrbit}
+              onChange={(e) => setLocalViewState((prev) => ({ ...prev, rotationOrbit: Number(e.target.value) }))}
+              style={{ flex: 1, cursor: 'pointer', height: '24px' }}
+            />
+            <span style={{ color: 'white', fontSize: '13px', minWidth: '40px', textAlign: 'right' }}>{localViewState.rotationOrbit.toFixed(0)}°</span>
+          </div>
+
+          {/* Camera presets row */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: '13px', minWidth: '80px' }}>Presets</span>
+            <div style={{ display: 'flex', gap: '8px', flex: 1 }}>
+              {[
+                { label: 'Top', rotationX: 90, rotationOrbit: 0 },
+                { label: 'Axon', rotationX: 45, rotationOrbit: -30 },
+                { label: 'Side', rotationX: 5, rotationOrbit: 0 },
+              ].map((preset) => (
+                <button
+                  key={preset.label}
+                  onClick={() => setLocalViewState((prev) => ({ ...prev, rotationX: preset.rotationX, rotationOrbit: preset.rotationOrbit }))}
+                  style={{
+                    flex: 1,
+                    padding: '10px 12px',
+                    backgroundColor:
+                      localViewState.rotationX === preset.rotationX && localViewState.rotationOrbit === preset.rotationOrbit
+                        ? '#4A90D9'
+                        : 'rgba(255,255,255,0.1)',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    fontSize: '13px',
+                    minHeight: '44px',
+                  }}
+                >
+                  {preset.label}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* Camera controls - desktop only */}
+      {!isMobile && (
+        <div
+          style={{
+            padding: '8px 16px',
+            backgroundColor: 'rgba(0, 0, 0, 0.3)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '16px',
+            borderBottom: '1px solid rgba(255, 255, 255, 0.05)',
+          }}
+        >
+          <label style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'white', fontSize: '11px' }}>
+            Tilt:
+            <input
+              type="range"
+              min="0"
+              max="90"
+              value={localViewState.rotationX}
+              onChange={(e) => setLocalViewState((prev) => ({ ...prev, rotationX: Number(e.target.value) }))}
+              style={{ width: '60px', cursor: 'pointer' }}
+            />
+            <span style={{ width: '25px' }}>{localViewState.rotationX.toFixed(0)}°</span>
+          </label>
+
+          <label style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'white', fontSize: '11px' }}>
+            Rotate:
+            <input
+              type="range"
+              min="-180"
+              max="180"
+              value={localViewState.rotationOrbit}
+              onChange={(e) => setLocalViewState((prev) => ({ ...prev, rotationOrbit: Number(e.target.value) }))}
+              style={{ width: '60px', cursor: 'pointer' }}
+            />
+            <span style={{ width: '30px' }}>{localViewState.rotationOrbit.toFixed(0)}°</span>
+          </label>
+
+          <div style={{ display: 'flex', gap: '4px' }}>
+            {[
+              { label: 'Top', rotationX: 90, rotationOrbit: 0 },
+              { label: 'Axon', rotationX: 45, rotationOrbit: -30 },
+              { label: 'Side', rotationX: 5, rotationOrbit: 0 },
+            ].map((preset) => (
+              <button
+                key={preset.label}
+                onClick={() => setLocalViewState((prev) => ({ ...prev, rotationX: preset.rotationX, rotationOrbit: preset.rotationOrbit }))}
+                style={{
+                  padding: '3px 8px',
+                  backgroundColor:
+                    localViewState.rotationX === preset.rotationX && localViewState.rotationOrbit === preset.rotationOrbit
+                      ? '#4A90D9'
+                      : 'rgba(255,255,255,0.1)',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '3px',
+                  cursor: 'pointer',
+                  fontSize: '10px',
+                }}
+              >
+                {preset.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Group layer toggles */}
       <div
