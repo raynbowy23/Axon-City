@@ -1196,6 +1196,14 @@ export function ExtractedView({ isMobile = false }: ExtractedViewProps) {
   // Mobile settings panel collapsed state
   const [isSettingsExpanded, setIsSettingsExpanded] = useState(false);
 
+  // Save state and toast notification
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveToast, setSaveToast] = useState<{ show: boolean; message: string; type: 'success' | 'error' }>({
+    show: false,
+    message: '',
+    type: 'success',
+  });
+
   // Panel size and position
   const [size, setSize] = useState<PanelSize>(loadSavedSize);
   const [position, setPosition] = useState({ x: 100, y: 100 });
@@ -1395,62 +1403,92 @@ export function ExtractedView({ isMobile = false }: ExtractedViewProps) {
   }, []);
 
   // Save image function - captures the 3D view with location name overlay
-  const saveImage = useCallback(() => {
+  const saveImage = useCallback(async () => {
     if (!viewContainerRef.current) return;
 
-    // Find the DeckGL canvas inside the container
-    const deckCanvas = viewContainerRef.current.querySelector('canvas');
-    if (!deckCanvas) return;
+    setIsSaving(true);
+    setSaveToast({ show: true, message: 'Saving image...', type: 'success' });
 
-    // Create a new canvas to composite the image
-    const outputCanvas = document.createElement('canvas');
-    const ctx = outputCanvas.getContext('2d');
-    if (!ctx) return;
+    // Small delay to show the saving state
+    await new Promise(resolve => setTimeout(resolve, 100));
 
-    // Set output canvas size to match the DeckGL canvas
-    outputCanvas.width = deckCanvas.width;
-    outputCanvas.height = deckCanvas.height;
+    try {
+      // Find the DeckGL canvas inside the container
+      const deckCanvas = viewContainerRef.current.querySelector('canvas');
+      if (!deckCanvas) {
+        throw new Error('Canvas not found');
+      }
 
-    // Draw the DeckGL canvas
-    ctx.drawImage(deckCanvas, 0, 0);
+      // Create a new canvas to composite the image
+      const outputCanvas = document.createElement('canvas');
+      const ctx = outputCanvas.getContext('2d');
+      if (!ctx) {
+        throw new Error('Could not create canvas context');
+      }
 
-    // Draw the location name if present
-    if (selectionLocationName) {
-      const scale = window.devicePixelRatio || 1;
-      const padding = 16 * scale;
-      const fontSize = 14 * scale;
+      // Set output canvas size to match the DeckGL canvas
+      outputCanvas.width = deckCanvas.width;
+      outputCanvas.height = deckCanvas.height;
 
-      // Draw background
-      ctx.font = `500 ${fontSize}px system-ui, -apple-system, sans-serif`;
-      const textMetrics = ctx.measureText(selectionLocationName);
-      const bgWidth = textMetrics.width + 24 * scale;
-      const bgHeight = fontSize + 12 * scale;
-      const bgX = padding;
-      const bgY = outputCanvas.height - padding - bgHeight;
+      // Draw the DeckGL canvas
+      ctx.drawImage(deckCanvas, 0, 0);
 
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
-      ctx.beginPath();
-      ctx.roundRect(bgX, bgY, bgWidth, bgHeight, 8 * scale);
-      ctx.fill();
+      // Draw the location name if present
+      if (selectionLocationName) {
+        const scale = window.devicePixelRatio || 1;
+        const padding = 16 * scale;
+        const fontSize = 14 * scale;
 
-      // Draw border
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
-      ctx.lineWidth = scale;
-      ctx.stroke();
+        // Draw background
+        ctx.font = `500 ${fontSize}px system-ui, -apple-system, sans-serif`;
+        const textMetrics = ctx.measureText(selectionLocationName);
+        const bgWidth = textMetrics.width + 24 * scale;
+        const bgHeight = fontSize + 12 * scale;
+        const bgX = padding;
+        const bgY = outputCanvas.height - padding - bgHeight;
 
-      // Draw text
-      ctx.fillStyle = 'white';
-      ctx.fillText(selectionLocationName, bgX + 12 * scale, bgY + fontSize + 3 * scale);
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
+        ctx.beginPath();
+        ctx.roundRect(bgX, bgY, bgWidth, bgHeight, 8 * scale);
+        ctx.fill();
+
+        // Draw border
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+        ctx.lineWidth = scale;
+        ctx.stroke();
+
+        // Draw text
+        ctx.fillStyle = 'white';
+        ctx.fillText(selectionLocationName, bgX + 12 * scale, bgY + fontSize + 3 * scale);
+      }
+
+      // Create download link
+      const link = document.createElement('a');
+      const filename = selectionLocationName
+        ? `axoncity-${selectionLocationName.replace(/[^a-z0-9]/gi, '-').toLowerCase()}.png`
+        : `axoncity-extracted-view-${Date.now()}.png`;
+      link.download = filename;
+      link.href = outputCanvas.toDataURL('image/png');
+      link.click();
+
+      // Show success message
+      setSaveToast({ show: true, message: `Saved as ${filename}`, type: 'success' });
+
+      // Auto-hide toast after 3 seconds
+      setTimeout(() => {
+        setSaveToast(prev => ({ ...prev, show: false }));
+      }, 3000);
+    } catch (error) {
+      console.error('Save error:', error);
+      setSaveToast({ show: true, message: 'Failed to save image', type: 'error' });
+
+      // Auto-hide error toast after 3 seconds
+      setTimeout(() => {
+        setSaveToast(prev => ({ ...prev, show: false }));
+      }, 3000);
+    } finally {
+      setIsSaving(false);
     }
-
-    // Create download link
-    const link = document.createElement('a');
-    const filename = selectionLocationName
-      ? `axoncity-${selectionLocationName.replace(/[^a-z0-9]/gi, '-').toLowerCase()}.png`
-      : `axoncity-extracted-view-${Date.now()}.png`;
-    link.download = filename;
-    link.href = outputCanvas.toDataURL('image/png');
-    link.click();
   }, [selectionLocationName]);
 
   // Don't render anything if closed or no selection
@@ -1581,19 +1619,35 @@ export function ExtractedView({ isMobile = false }: ExtractedViewProps) {
 
           <button
             onClick={saveImage}
+            disabled={isSaving}
             style={{
               padding: isMobile ? '10px 16px' : '4px 8px',
-              backgroundColor: 'rgba(74, 144, 217, 0.8)',
+              backgroundColor: isSaving ? 'rgba(74, 144, 217, 0.5)' : 'rgba(74, 144, 217, 0.8)',
               color: 'white',
               border: 'none',
               borderRadius: isMobile ? '8px' : '4px',
-              cursor: 'pointer',
+              cursor: isSaving ? 'not-allowed' : 'pointer',
               fontSize: isMobile ? '14px' : '12px',
               minHeight: isMobile ? '44px' : 'auto',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
             }}
             title="Save as PNG image"
           >
-            Save
+            {isSaving && (
+              <div
+                style={{
+                  width: '12px',
+                  height: '12px',
+                  border: '2px solid rgba(255, 255, 255, 0.3)',
+                  borderTopColor: 'white',
+                  borderRadius: '50%',
+                  animation: 'spin 0.8s linear infinite',
+                }}
+              />
+            )}
+            {isSaving ? 'Saving...' : 'Save'}
           </button>
 
           <button
@@ -1929,6 +1983,56 @@ export function ExtractedView({ isMobile = false }: ExtractedViewProps) {
           >
           </span>
         </div>
+
+        {/* Save toast notification */}
+        {saveToast.show && (
+          <div
+            style={{
+              position: 'absolute',
+              top: '16px',
+              left: '50%',
+              transform: 'translateX(-50%)',
+              backgroundColor: saveToast.type === 'success' ? 'rgba(40, 167, 69, 0.95)' : 'rgba(220, 53, 69, 0.95)',
+              color: 'white',
+              padding: '10px 20px',
+              borderRadius: '8px',
+              boxShadow: '0 4px 12px rgba(0, 0, 0, 0.4)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              fontSize: '14px',
+              fontWeight: '500',
+              zIndex: 100,
+              animation: 'fadeInDown 0.3s ease',
+              maxWidth: '90%',
+              textAlign: 'center',
+            }}
+          >
+            {isSaving ? (
+              <div
+                style={{
+                  width: '16px',
+                  height: '16px',
+                  border: '2px solid rgba(255, 255, 255, 0.3)',
+                  borderTopColor: 'white',
+                  borderRadius: '50%',
+                  animation: 'spin 0.8s linear infinite',
+                }}
+              />
+            ) : saveToast.type === 'success' ? (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+            ) : (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="12" cy="12" r="10" />
+                <line x1="15" y1="9" x2="9" y2="15" />
+                <line x1="9" y1="9" x2="15" y2="15" />
+              </svg>
+            )}
+            <span style={{ wordBreak: 'break-word' }}>{saveToast.message}</span>
+          </div>
+        )}
       </div>
 
       {/* Resize handles - only on desktop */}
