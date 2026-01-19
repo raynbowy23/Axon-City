@@ -10,10 +10,14 @@ interface SearchResult {
   importance: number;
 }
 
+interface SearchBarProps {
+  isMobile?: boolean;
+}
+
 // Nominatim API endpoint (free OpenStreetMap geocoding)
 const NOMINATIM_API = 'https://nominatim.openstreetmap.org/search';
 
-export function SearchBar() {
+export function SearchBar({ isMobile = false }: SearchBarProps) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
   const [isOpen, setIsOpen] = useState(false);
@@ -180,7 +184,7 @@ export function SearchBar() {
       ref={containerRef}
       style={{
         position: 'relative',
-        width: '320px',
+        width: isMobile ? '100%' : '320px',
       }}
     >
       {/* Search Input */}
@@ -190,7 +194,7 @@ export function SearchBar() {
           alignItems: 'center',
           backgroundColor: 'rgba(0, 0, 0, 0.85)',
           borderRadius: isOpen ? '8px 8px 0 0' : '8px',
-          padding: '8px 12px',
+          padding: isMobile ? '10px 12px' : '8px 12px',
           boxShadow: '0 2px 8px rgba(0, 0, 0, 0.3)',
         }}
       >

@@ -1,4 +1,4 @@
-import { useCallback, useRef, useEffect } from 'react';
+import { useCallback, useRef, useEffect, useState } from 'react';
 import type { Polygon } from 'geojson';
 import { MapView } from './components/MapView';
 import { ControlPanel } from './components/ControlPanel';
@@ -7,7 +7,10 @@ import { SearchBar } from './components/SearchBar';
 import { SelectionPanel } from './components/SelectionPanel';
 import { ExtractedView } from './components/ExtractedView';
 import { DataInputPanel } from './components/DataInputPanel';
+import { BottomSheet, type BottomSheetState } from './components/BottomSheet';
+import { MobileNav, type MobileTab } from './components/MobileNav';
 import { usePolygonDrawing } from './hooks/usePolygonDrawing';
+import { useIsMobile } from './hooks/useMediaQuery';
 import { useStore } from './store/useStore';
 import { layerManifest } from './data/layerManifest';
 import { fetchMultipleLayers, getBboxFromPolygon } from './utils/osmFetcher';
@@ -47,7 +50,29 @@ function App() {
     completeDrawing,
     cancelDrawing,
     pointCount,
+    handlePointerStart,
+    isDrag,
+    clearPointerStart,
   } = usePolygonDrawing();
+
+  // Mobile UI state
+  const isMobile = useIsMobile();
+  const [mobileTab, setMobileTab] = useState<MobileTab>('map');
+  const [bottomSheetState, setBottomSheetState] = useState<BottomSheetState>('collapsed');
+  const { isExtractedViewOpen, setExtractedViewOpen } = useStore();
+
+  // Handle mobile tab changes
+  const handleMobileTabChange = useCallback((tab: MobileTab) => {
+    setMobileTab(tab);
+
+    if (tab === 'map') {
+      setBottomSheetState('collapsed');
+    } else if (tab === 'layers' || tab === 'stats') {
+      setBottomSheetState('peek');
+    } else if (tab === '3d') {
+      setExtractedViewOpen(true);
+    }
+  }, [setExtractedViewOpen]);
 
   // Handle fetching data when polygon is completed
   const handlePolygonComplete = useCallback(
@@ -184,17 +209,76 @@ function App() {
     }
   }, [selectionPolygon, customLayers, layerData, isDrawing, draggingVertexIndex, setLayerData]);
 
-  // Track mouse down position to distinguish clicks from drags
+  // Track pointer down position to distinguish clicks/taps from drags
+  const handlePointerDown = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (!isDrawing) return;
+      if (e.button !== 0 && e.pointerType === 'mouse') return; // Only track left-click for mouse
+
+      const isTouch = e.pointerType === 'touch';
+      handlePointerStart(e.clientX, e.clientY, isTouch);
+      mouseDownPosRef.current = { x: e.clientX, y: e.clientY };
+    },
+    [isDrawing, handlePointerStart]
+  );
+
+  // Handle pointer up for drawing (works for both mouse and touch)
+  const handlePointerUp = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (!isDrawing) {
+        clearPointerStart();
+        return;
+      }
+
+      // Only add points on left-click (button 0) for mouse
+      if (e.button !== 0 && e.pointerType === 'mouse') {
+        clearPointerStart();
+        return;
+      }
+
+      // Check if this was a drag
+      if (isDrag(e.clientX, e.clientY)) {
+        clearPointerStart();
+        mouseDownPosRef.current = null;
+        return;
+      }
+      clearPointerStart();
+      mouseDownPosRef.current = null;
+
+      // Don't capture clicks on UI elements
+      if ((e.target as HTMLElement).closest('button, input, .control-panel, .stats-panel, .mobile-nav, .bottom-sheet')) {
+        return;
+      }
+
+      addPoint(e.clientX, e.clientY, containerRef.current);
+    },
+    [isDrawing, addPoint, isDrag, clearPointerStart]
+  );
+
+  // Handle touch start specifically for touch devices
+  const handleTouchStart = useCallback(
+    (e: React.TouchEvent<HTMLDivElement>) => {
+      if (!isDrawing) return;
+
+      // Prevent default to avoid scroll during drawing
+      if (isDrawing) {
+        e.preventDefault();
+      }
+    },
+    [isDrawing]
+  );
+
+  // Legacy mouse handler for backwards compatibility
   const handleMouseDown = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
       if (!isDrawing) return;
-      if (e.button !== 0) return; // Only track left-click
+      if (e.button !== 0) return;
       mouseDownPosRef.current = { x: e.clientX, y: e.clientY };
     },
     [isDrawing]
   );
 
-  // Handle map clicks for drawing (left-click only, distinguish from drag)
+  // Legacy click handler for backwards compatibility
   const handleContainerClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
       if (!isDrawing) return;
@@ -217,7 +301,7 @@ function App() {
       mouseDownPosRef.current = null;
 
       // Don't capture clicks on UI elements
-      if ((e.target as HTMLElement).closest('button, input, .control-panel, .stats-panel')) {
+      if ((e.target as HTMLElement).closest('button, input, .control-panel, .stats-panel, .mobile-nav, .bottom-sheet')) {
         return;
       }
 
@@ -269,141 +353,350 @@ function App() {
   return (
     <div
       ref={containerRef}
+      className={isDrawing ? 'drawing-area' : ''}
       style={{
         width: '100vw',
         height: '100vh',
         position: 'relative',
         overflow: 'hidden',
         cursor: isDrawing ? 'crosshair' : 'auto',
+        touchAction: isDrawing ? 'none' : 'auto',
       }}
       onMouseDown={handleMouseDown}
       onClick={handleContainerClick}
+      onPointerDown={handlePointerDown}
+      onPointerUp={handlePointerUp}
+      onTouchStart={handleTouchStart}
     >
       <MapView />
 
-      {/* Drawing Controls */}
-      <div
-        style={{
-          position: 'absolute',
-          top: '10px',
-          left: '10px',
-          zIndex: 1000,
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '8px',
-        }}
-      >
-        {/* Title */}
-        <a href="https://github.com/raynbowy23/Axon-City.git" target="_blank" rel="noopener noreferrer" style={{ display: 'inline-block' }}>
-        <img
-          src="/AxonCityWideLogoWhite.png"
-          alt="AxonCity"
-          style={{
-            height: '40px',
-            width: 'auto',
-          }}
-        />
-        </a>
-
-        {!isDrawing ? (
-          <>
-            <button
-              onClick={handleStartDrawing}
-              disabled={isLoading}
+      {/* Desktop Layout */}
+      {!isMobile && (
+        <>
+          {/* Drawing Controls */}
+          <div
+            style={{
+              position: 'absolute',
+              top: '10px',
+              left: '10px',
+              zIndex: 1000,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '8px',
+            }}
+          >
+            {/* Title */}
+            <a href="https://github.com/raynbowy23/Axon-City.git" target="_blank" rel="noopener noreferrer" style={{ display: 'inline-block' }}>
+            <img
+              src="/AxonCityWideLogoWhite.png"
+              alt="AxonCity"
               style={{
-                padding: '12px 24px',
-                backgroundColor: isLoading ? '#666' : '#4A90D9',
-                color: 'white',
-                border: 'none',
-                borderRadius: '8px',
-                cursor: isLoading ? 'not-allowed' : 'pointer',
-                fontSize: '14px',
-                fontWeight: '600',
-                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.3)',
-                opacity: isLoading ? 0.7 : 1,
+                height: '40px',
+                width: 'auto',
+              }}
+            />
+            </a>
+
+            {!isDrawing ? (
+              <>
+                <button
+                  onClick={handleStartDrawing}
+                  disabled={isLoading}
+                  style={{
+                    padding: '12px 24px',
+                    backgroundColor: isLoading ? '#666' : '#4A90D9',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '8px',
+                    cursor: isLoading ? 'not-allowed' : 'pointer',
+                    fontSize: '14px',
+                    fontWeight: '600',
+                    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.3)',
+                    opacity: isLoading ? 0.7 : 1,
+                  }}
+                >
+                  {isLoading ? 'Processing...' : 'Draw Selection Area'}
+                </button>
+
+                {selectionPolygon && (
+                  <>
+                    <button
+                      onClick={handleClearSelection}
+                      disabled={isLoading}
+                      style={{
+                        padding: '8px 16px',
+                        backgroundColor: isLoading ? '#666' : '#D94A4A',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '6px',
+                        cursor: isLoading ? 'not-allowed' : 'pointer',
+                        fontSize: '12px',
+                        opacity: isLoading ? 0.7 : 1,
+                      }}
+                    >
+                      Clear Selection
+                    </button>
+                    {!isLoading && (
+                      <div
+                        style={{
+                          backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                          padding: '8px 12px',
+                          borderRadius: '6px',
+                          fontSize: '10px',
+                          color: 'rgba(255, 255, 255, 0.7)',
+                          lineHeight: '1.4',
+                        }}
+                      >
+                        <div style={{ marginBottom: '4px', fontWeight: '500', color: 'rgba(255, 200, 50, 0.9)' }}>
+                          Edit Selection:
+                        </div>
+                        <div>Drag corners to move</div>
+                        <div>Click <span style={{ color: '#64C8FF' }}>blue dots</span> to add point</div>
+                        <div>Double-click corner to remove</div>
+                      </div>
+                    )}
+                  </>
+                )}
+              </>
+            ) : (
+              <div
+                style={{
+                  backgroundColor: 'rgba(0, 0, 0, 0.9)',
+                  padding: '16px',
+                  borderRadius: '8px',
+                  color: 'white',
+                  minWidth: '220px',
+                }}
+              >
+                <div style={{ marginBottom: '12px', fontWeight: '600' }}>
+                  Drawing Mode
+                </div>
+                <div style={{ fontSize: '12px', opacity: 0.8, marginBottom: '12px' }}>
+                  Click on the map to add points
+                  <br />
+                  Points added: <strong>{pointCount}</strong>
+                  <br />
+                  <br />
+                  <kbd style={kbdStyle}>Enter</kbd> Complete
+                  <br />
+                  <kbd style={kbdStyle}>Escape</kbd> Cancel
+                  <br />
+                  <kbd style={kbdStyle}>Ctrl+Z</kbd> Undo
+                </div>
+
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  <button
+                    onClick={undoLastPoint}
+                    disabled={pointCount === 0}
+                    style={{
+                      padding: '8px 12px',
+                      backgroundColor: pointCount === 0 ? '#444' : '#666',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '4px',
+                      cursor: pointCount === 0 ? 'not-allowed' : 'pointer',
+                      fontSize: '12px',
+                    }}
+                  >
+                    Undo
+                  </button>
+                  <button
+                    onClick={handleCompleteDrawing}
+                    disabled={pointCount < 3}
+                    style={{
+                      padding: '8px 12px',
+                      backgroundColor: pointCount < 3 ? '#444' : '#4A90D9',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '4px',
+                      cursor: pointCount < 3 ? 'not-allowed' : 'pointer',
+                      fontSize: '12px',
+                    }}
+                  >
+                    Complete ({pointCount}/3+)
+                  </button>
+                  <button
+                    onClick={cancelDrawing}
+                    style={{
+                      padding: '8px 12px',
+                      backgroundColor: '#D94A4A',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '4px',
+                      cursor: 'pointer',
+                      fontSize: '12px',
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Search */}
+          <div
+            style={{
+              position: 'absolute',
+              top: '10px',
+              left: '50%',
+              transform: 'translateX(-50%)',
+              zIndex: 1000,
+            }}
+          >
+            <SearchBar />
+          </div>
+
+          <ControlPanel />
+          <StatsPanel />
+
+          {/* Footer credit */}
+          <div
+            style={{
+              position: 'absolute',
+              top: '10px',
+              right: '300px',
+              zIndex: 900,
+              fontSize: '11px',
+              color: 'rgba(255, 255, 255, 0.6)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+            }}
+          >
+            <span>Created by Rei Tamaru</span>
+            <a
+              href="https://github.com/raynbowy23/Axon-City"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                color: 'rgba(255, 255, 255, 0.8)',
+                textDecoration: 'none',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.color = 'white')}
+              onMouseLeave={(e) => (e.currentTarget.style.color = 'rgba(255, 255, 255, 0.8)')}
+            >
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+              >
+                <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+              </svg>
+              GitHub
+            </a>
+          </div>
+        </>
+      )}
+
+      {/* Mobile Layout */}
+      {isMobile && (
+        <>
+          {/* Mobile Logo - smaller */}
+          <a
+            href="https://github.com/raynbowy23/Axon-City.git"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              position: 'absolute',
+              top: '10px',
+              left: '10px',
+              zIndex: 1000,
+            }}
+          >
+            <img
+              src="/AxonCityWideLogoWhite.png"
+              alt="AxonCity"
+              style={{
+                height: '28px',
+                width: 'auto',
+              }}
+            />
+          </a>
+
+          {/* Mobile Search - top centered */}
+          <div
+            style={{
+              position: 'absolute',
+              top: '10px',
+              left: '50%',
+              transform: 'translateX(-50%)',
+              zIndex: 1000,
+              width: 'calc(100% - 100px)',
+              maxWidth: '280px',
+            }}
+          >
+            <SearchBar isMobile />
+          </div>
+
+          {/* Mobile Drawing Controls */}
+          {!isDrawing ? (
+            <div
+              style={{
+                position: 'absolute',
+                bottom: 'calc(56px + env(safe-area-inset-bottom, 0px) + 16px)',
+                left: '50%',
+                transform: 'translateX(-50%)',
+                zIndex: 1000,
+                display: 'flex',
+                gap: '8px',
               }}
             >
-              {isLoading ? 'Processing...' : 'Draw Selection Area'}
-            </button>
+              <button
+                onClick={handleStartDrawing}
+                disabled={isLoading}
+                style={{
+                  padding: '14px 24px',
+                  backgroundColor: isLoading ? '#666' : '#4A90D9',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '12px',
+                  cursor: isLoading ? 'not-allowed' : 'pointer',
+                  fontSize: '15px',
+                  fontWeight: '600',
+                  boxShadow: '0 4px 12px rgba(0, 0, 0, 0.4)',
+                  opacity: isLoading ? 0.7 : 1,
+                  minHeight: '48px',
+                }}
+              >
+                {isLoading ? 'Processing...' : 'Draw Area'}
+              </button>
 
-            {selectionPolygon && (
-              <>
+              {selectionPolygon && (
                 <button
                   onClick={handleClearSelection}
                   disabled={isLoading}
                   style={{
-                    padding: '8px 16px',
+                    padding: '14px 20px',
                     backgroundColor: isLoading ? '#666' : '#D94A4A',
                     color: 'white',
                     border: 'none',
-                    borderRadius: '6px',
+                    borderRadius: '12px',
                     cursor: isLoading ? 'not-allowed' : 'pointer',
-                    fontSize: '12px',
+                    fontSize: '15px',
+                    fontWeight: '600',
+                    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.4)',
                     opacity: isLoading ? 0.7 : 1,
+                    minHeight: '48px',
                   }}
                 >
-                  Clear Selection
+                  Clear
                 </button>
-                {!isLoading && (
-                  <div
-                    style={{
-                      backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                      padding: '8px 12px',
-                      borderRadius: '6px',
-                      fontSize: '10px',
-                      color: 'rgba(255, 255, 255, 0.7)',
-                      lineHeight: '1.4',
-                    }}
-                  >
-                    <div style={{ marginBottom: '4px', fontWeight: '500', color: 'rgba(255, 200, 50, 0.9)' }}>
-                      Edit Selection:
-                    </div>
-                    <div>Drag corners to move</div>
-                    <div>Click <span style={{ color: '#64C8FF' }}>blue dots</span> to add point</div>
-                    <div>Double-click corner to remove</div>
-                  </div>
-                )}
-              </>
-            )}
-          </>
-        ) : (
-          <div
-            style={{
-              backgroundColor: 'rgba(0, 0, 0, 0.9)',
-              padding: '16px',
-              borderRadius: '8px',
-              color: 'white',
-              minWidth: '220px',
-            }}
-          >
-            <div style={{ marginBottom: '12px', fontWeight: '600' }}>
-              Drawing Mode
+              )}
             </div>
-            <div style={{ fontSize: '12px', opacity: 0.8, marginBottom: '12px' }}>
-              Click on the map to add points
-              <br />
-              Points added: <strong>{pointCount}</strong>
-              <br />
-              <br />
-              <kbd style={kbdStyle}>Enter</kbd> Complete
-              <br />
-              <kbd style={kbdStyle}>Escape</kbd> Cancel
-              <br />
-              <kbd style={kbdStyle}>Ctrl+Z</kbd> Undo
-            </div>
-
-            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          ) : (
+            <div className="mobile-drawing-controls">
               <button
                 onClick={undoLastPoint}
                 disabled={pointCount === 0}
                 style={{
-                  padding: '8px 12px',
                   backgroundColor: pointCount === 0 ? '#444' : '#666',
                   color: 'white',
-                  border: 'none',
-                  borderRadius: '4px',
-                  cursor: pointCount === 0 ? 'not-allowed' : 'pointer',
-                  fontSize: '12px',
+                  opacity: pointCount === 0 ? 0.5 : 1,
                 }}
               >
                 Undo
@@ -412,95 +705,63 @@ function App() {
                 onClick={handleCompleteDrawing}
                 disabled={pointCount < 3}
                 style={{
-                  padding: '8px 12px',
                   backgroundColor: pointCount < 3 ? '#444' : '#4A90D9',
                   color: 'white',
-                  border: 'none',
-                  borderRadius: '4px',
-                  cursor: pointCount < 3 ? 'not-allowed' : 'pointer',
-                  fontSize: '12px',
+                  opacity: pointCount < 3 ? 0.5 : 1,
                 }}
               >
-                Complete ({pointCount}/3+)
+                Done ({pointCount}/3+)
               </button>
               <button
                 onClick={cancelDrawing}
                 style={{
-                  padding: '8px 12px',
                   backgroundColor: '#D94A4A',
                   color: 'white',
-                  border: 'none',
-                  borderRadius: '4px',
-                  cursor: 'pointer',
-                  fontSize: '12px',
                 }}
               >
                 Cancel
               </button>
             </div>
-          </div>
-        )}
-      </div>
+          )}
 
-      {/* Search */}
-      <div
-        style={{
-          position: 'absolute',
-          top: '10px',
-          left: '50%',
-          transform: 'translateX(-50%)',
-          zIndex: 1000,
-        }}
-      >
-        <SearchBar />
-      </div>
+          {/* Mobile Navigation */}
+          <MobileNav
+            activeTab={mobileTab}
+            onTabChange={handleMobileTabChange}
+            hasSelection={!!selectionPolygon}
+            isExtractedViewOpen={isExtractedViewOpen}
+          />
 
-      <ControlPanel />
-      <StatsPanel />
+          {/* Bottom Sheet for Layers */}
+          {mobileTab === 'layers' && (
+            <BottomSheet
+              state={bottomSheetState}
+              onStateChange={setBottomSheetState}
+              title="Layer Controls"
+              peekHeight={250}
+            >
+              <ControlPanel isMobile />
+            </BottomSheet>
+          )}
+
+          {/* Bottom Sheet for Stats */}
+          {mobileTab === 'stats' && selectionPolygon && (
+            <BottomSheet
+              state={bottomSheetState}
+              onStateChange={setBottomSheetState}
+              title="Statistics"
+              peekHeight={300}
+            >
+              <StatsPanel isMobile />
+            </BottomSheet>
+          )}
+        </>
+      )}
+
+      {/* Shared Components (render on both mobile and desktop) */}
       <SelectionPanel />
-      <ExtractedView />
+      <ExtractedView isMobile={isMobile} />
       <DataInputPanel />
-
-      {/* Footer credit */}
-      <div
-        style={{
-          position: 'absolute',
-          top: '10px',
-          right: '300px',
-          zIndex: 900,
-          fontSize: '11px',
-          color: 'rgba(255, 255, 255, 0.6)',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '6px',
-        }}
-      >
-        <span>Created by Rei Tamaru</span>
-        <a
-          href="https://github.com/raynbowy23/Axon-City"
-          target="_blank"
-          rel="noopener noreferrer"
-          style={{
-            color: 'rgba(255, 255, 255, 0.8)',
-            textDecoration: 'none',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '4px',
-          }}
-          onMouseEnter={(e) => (e.currentTarget.style.color = 'white')}
-          onMouseLeave={(e) => (e.currentTarget.style.color = 'rgba(255, 255, 255, 0.8)')}
-        >
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="currentColor"
-          >
-            <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
-          </svg>
-          GitHub
-        </a>
-      </div>
 
       {/* Loading animation keyframes */}
       <style>

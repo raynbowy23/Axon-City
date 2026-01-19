@@ -1027,7 +1027,11 @@ const DeckGLView = memo(function DeckGLView({
   );
 });
 
-export function ExtractedView() {
+interface ExtractedViewProps {
+  isMobile?: boolean;
+}
+
+export function ExtractedView({ isMobile = false }: ExtractedViewProps) {
   const {
     layerData,
     activeLayers,
@@ -1300,103 +1304,135 @@ export function ExtractedView() {
   // Don't render anything if closed or no selection
   if (!isExtractedViewOpen || !selectionPolygon) return null;
 
+  // Mobile: fullscreen
+  const containerStyle: React.CSSProperties = isMobile ? {
+    position: 'fixed',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    width: '100%',
+    height: '100%',
+    backgroundColor: 'rgba(20, 20, 30, 0.98)',
+    borderRadius: 0,
+    boxShadow: 'none',
+    zIndex: 2000,
+    display: 'flex',
+    flexDirection: 'column',
+    overflow: 'hidden',
+  } : {
+    position: 'fixed',
+    top: position.y,
+    left: position.x,
+    width: size.width,
+    height: size.height,
+    backgroundColor: 'rgba(20, 20, 30, 0.98)',
+    borderRadius: '12px',
+    boxShadow: '0 8px 32px rgba(0, 0, 0, 0.5)',
+    zIndex: 2000,
+    display: 'flex',
+    flexDirection: 'column',
+    overflow: 'hidden',
+    border: '1px solid rgba(100, 150, 255, 0.3)',
+  };
+
   return (
     <div
       ref={panelRef}
-      style={{
-        position: 'fixed',
-        top: position.y,
-        left: position.x,
-        width: size.width,
-        height: size.height,
-        backgroundColor: 'rgba(20, 20, 30, 0.98)',
-        borderRadius: '12px',
-        boxShadow: '0 8px 32px rgba(0, 0, 0, 0.5)',
-        zIndex: 2000,
-        display: 'flex',
-        flexDirection: 'column',
-        overflow: 'hidden',
-        border: '1px solid rgba(100, 150, 255, 0.3)',
-      }}
+      className={isMobile ? 'extracted-view-mobile' : ''}
+      style={containerStyle}
     >
       {/* Header */}
       <div
+        className="extracted-view-header"
         style={{
-          padding: '12px 16px',
+          padding: isMobile ? '12px 16px' : '12px 16px',
+          paddingTop: isMobile ? 'calc(12px + env(safe-area-inset-top, 0px))' : '12px',
           backgroundColor: 'rgba(0, 0, 0, 0.4)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          cursor: 'move',
+          cursor: isMobile ? 'default' : 'move',
           borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+          flexWrap: isMobile ? 'wrap' : 'nowrap',
+          gap: isMobile ? '12px' : '0',
         }}
-        onMouseDown={startDrag}
+        onMouseDown={isMobile ? undefined : startDrag}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <span style={{ color: 'white', fontWeight: '600', fontSize: '14px' }}>
-            Extracted View
+          <span style={{ color: 'white', fontWeight: '600', fontSize: isMobile ? '16px' : '14px' }}>
+            3D View
           </span>
-          <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: '11px' }}>
-            {size.width}×{size.height}
-          </span>
+          {!isMobile && (
+            <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: '11px' }}>
+              {size.width}×{size.height}
+            </span>
+          )}
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          {/* Layer spacing control */}
-          <label style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'white', fontSize: '11px' }}>
-            Group:
-            <input
-              type="range"
-              min="30"
-              max="200"
-              value={layerSpacing}
-              onChange={(e) => setLayerSpacing(Number(e.target.value))}
-              style={{ width: '60px', cursor: 'pointer' }}
-            />
-            <span style={{ width: '70px', fontSize: '10px' }}>{layerSpacing}m / {Math.round(layerSpacing * 3.28084)}ft</span>
-          </label>
+        <div className="extracted-view-controls" style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: isMobile ? 'wrap' : 'nowrap' }}>
+          {/* Hide sliders on mobile - use simplified controls */}
+          {!isMobile && (
+            <>
+              {/* Layer spacing control */}
+              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'white', fontSize: '11px' }}>
+                Group:
+                <input
+                  type="range"
+                  min="30"
+                  max="200"
+                  value={layerSpacing}
+                  onChange={(e) => setLayerSpacing(Number(e.target.value))}
+                  style={{ width: '60px', cursor: 'pointer' }}
+                />
+                <span style={{ width: '70px', fontSize: '10px' }}>{layerSpacing}m / {Math.round(layerSpacing * 3.28084)}ft</span>
+              </label>
 
-          {/* Intra-group spacing control */}
-          <label style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'white', fontSize: '11px' }}>
-            Layer:
-            <input
-              type="range"
-              min="0.1"
-              max="0.8"
-              step="0.05"
-              value={intraGroupRatio}
-              onChange={(e) => setIntraGroupRatio(Number(e.target.value))}
-              style={{ width: '60px', cursor: 'pointer' }}
-            />
-            <span style={{ width: '70px', fontSize: '10px' }}>{Math.round(layerSpacing * intraGroupRatio)}m / {Math.round(layerSpacing * intraGroupRatio * 3.28084)}ft</span>
-          </label>
+              {/* Intra-group spacing control */}
+              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'white', fontSize: '11px' }}>
+                Layer:
+                <input
+                  type="range"
+                  min="0.1"
+                  max="0.8"
+                  step="0.05"
+                  value={intraGroupRatio}
+                  onChange={(e) => setIntraGroupRatio(Number(e.target.value))}
+                  style={{ width: '60px', cursor: 'pointer' }}
+                />
+                <span style={{ width: '70px', fontSize: '10px' }}>{Math.round(layerSpacing * intraGroupRatio)}m / {Math.round(layerSpacing * intraGroupRatio * 3.28084)}ft</span>
+              </label>
+            </>
+          )}
 
           <button
             onClick={saveImage}
             style={{
-              padding: '4px 8px',
+              padding: isMobile ? '10px 16px' : '4px 8px',
               backgroundColor: 'rgba(74, 144, 217, 0.8)',
               color: 'white',
               border: 'none',
-              borderRadius: '4px',
+              borderRadius: isMobile ? '8px' : '4px',
               cursor: 'pointer',
-              fontSize: '12px',
+              fontSize: isMobile ? '14px' : '12px',
+              minHeight: isMobile ? '44px' : 'auto',
             }}
             title="Save as PNG image"
           >
-            Save Image
+            Save
           </button>
 
           <button
             onClick={() => setExtractedViewOpen(false)}
             style={{
-              padding: '4px 8px',
+              padding: isMobile ? '10px 16px' : '4px 8px',
               backgroundColor: 'rgba(255, 100, 100, 0.8)',
               color: 'white',
               border: 'none',
-              borderRadius: '4px',
+              borderRadius: isMobile ? '8px' : '4px',
               cursor: 'pointer',
-              fontSize: '12px',
+              fontSize: isMobile ? '14px' : '12px',
+              minHeight: isMobile ? '44px' : 'auto',
             }}
           >
             Close
@@ -1615,52 +1651,56 @@ export function ExtractedView() {
         </div>
       </div>
 
-      {/* Resize handles */}
-      <div
-        style={{
-          position: 'absolute',
-          right: -4,
-          top: 50,
-          width: 8,
-          height: 'calc(100% - 60px)',
-          cursor: 'ew-resize',
-        }}
-        onMouseDown={(e) => startResize(e, 'right')}
-      />
-      <div
-        style={{
-          position: 'absolute',
-          bottom: -4,
-          left: 10,
-          width: 'calc(100% - 20px)',
-          height: 8,
-          cursor: 'ns-resize',
-        }}
-        onMouseDown={(e) => startResize(e, 'bottom')}
-      />
-      <div
-        style={{
-          position: 'absolute',
-          bottom: -6,
-          right: -6,
-          width: 16,
-          height: 16,
-          cursor: 'nwse-resize',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-        onMouseDown={(e) => startResize(e, 'corner')}
-      >
-        <div
-          style={{
-            width: 10,
-            height: 10,
-            borderBottom: '2px solid rgba(255,255,255,0.4)',
-            borderRight: '2px solid rgba(255,255,255,0.4)',
-          }}
-        />
-      </div>
+      {/* Resize handles - only on desktop */}
+      {!isMobile && (
+        <>
+          <div
+            style={{
+              position: 'absolute',
+              right: -4,
+              top: 50,
+              width: 8,
+              height: 'calc(100% - 60px)',
+              cursor: 'ew-resize',
+            }}
+            onMouseDown={(e) => startResize(e, 'right')}
+          />
+          <div
+            style={{
+              position: 'absolute',
+              bottom: -4,
+              left: 10,
+              width: 'calc(100% - 20px)',
+              height: 8,
+              cursor: 'ns-resize',
+            }}
+            onMouseDown={(e) => startResize(e, 'bottom')}
+          />
+          <div
+            style={{
+              position: 'absolute',
+              bottom: -6,
+              right: -6,
+              width: 16,
+              height: 16,
+              cursor: 'nwse-resize',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+            onMouseDown={(e) => startResize(e, 'corner')}
+          >
+            <div
+              style={{
+                width: 10,
+                height: 10,
+                borderBottom: '2px solid rgba(255,255,255,0.4)',
+                borderRight: '2px solid rgba(255,255,255,0.4)',
+              }}
+            />
+          </div>
+        </>
+      )}
     </div>
   );
 }
