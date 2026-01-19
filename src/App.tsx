@@ -634,46 +634,36 @@ function App() {
             <SearchBar isMobile />
           </div>
 
-          {/* Mobile Drawing Controls */}
-          {!isDrawing ? (
-            <div
-              style={{
-                position: 'absolute',
-                bottom: 'calc(56px + env(safe-area-inset-bottom, 0px) + 16px)',
-                left: '50%',
-                transform: 'translateX(-50%)',
-                zIndex: 1000,
-                display: 'flex',
-                gap: '8px',
-              }}
-            >
-              <button
-                onClick={handleStartDrawing}
-                disabled={isLoading}
+          {/* Mobile Bottom Container - stacks draw controls above navigation */}
+          <div
+            style={{
+              position: 'fixed',
+              bottom: 0,
+              left: 0,
+              right: 0,
+              zIndex: 1000,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              pointerEvents: 'none',
+            }}
+          >
+            {/* Mobile Drawing Controls */}
+            {!isDrawing ? (
+              <div
                 style={{
-                  padding: '14px 24px',
-                  backgroundColor: isLoading ? '#666' : '#4A90D9',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '12px',
-                  cursor: isLoading ? 'not-allowed' : 'pointer',
-                  fontSize: '15px',
-                  fontWeight: '600',
-                  boxShadow: '0 4px 12px rgba(0, 0, 0, 0.4)',
-                  opacity: isLoading ? 0.7 : 1,
-                  minHeight: '48px',
+                  display: 'flex',
+                  gap: '8px',
+                  padding: '12px 16px',
+                  pointerEvents: 'auto',
                 }}
               >
-                {isLoading ? 'Processing...' : 'Draw Area'}
-              </button>
-
-              {selectionPolygon && (
                 <button
-                  onClick={handleClearSelection}
+                  onClick={handleStartDrawing}
                   disabled={isLoading}
                   style={{
-                    padding: '14px 20px',
-                    backgroundColor: isLoading ? '#666' : '#D94A4A',
+                    padding: '14px 24px',
+                    backgroundColor: isLoading ? '#666' : '#4A90D9',
                     color: 'white',
                     border: 'none',
                     borderRadius: '12px',
@@ -685,53 +675,108 @@ function App() {
                     minHeight: '48px',
                   }}
                 >
-                  Clear
+                  {isLoading ? 'Processing...' : 'Draw Area'}
                 </button>
-              )}
-            </div>
-          ) : (
-            <div className="mobile-drawing-controls">
-              <button
-                onClick={undoLastPoint}
-                disabled={pointCount === 0}
-                style={{
-                  backgroundColor: pointCount === 0 ? '#444' : '#666',
-                  color: 'white',
-                  opacity: pointCount === 0 ? 0.5 : 1,
-                }}
-              >
-                Undo
-              </button>
-              <button
-                onClick={handleCompleteDrawing}
-                disabled={pointCount < 3}
-                style={{
-                  backgroundColor: pointCount < 3 ? '#444' : '#4A90D9',
-                  color: 'white',
-                  opacity: pointCount < 3 ? 0.5 : 1,
-                }}
-              >
-                Done ({pointCount}/3+)
-              </button>
-              <button
-                onClick={cancelDrawing}
-                style={{
-                  backgroundColor: '#D94A4A',
-                  color: 'white',
-                }}
-              >
-                Cancel
-              </button>
-            </div>
-          )}
 
-          {/* Mobile Navigation */}
-          <MobileNav
-            activeTab={mobileTab}
-            onTabChange={handleMobileTabChange}
-            hasSelection={!!selectionPolygon}
-            isExtractedViewOpen={isExtractedViewOpen}
-          />
+                {selectionPolygon && (
+                  <button
+                    onClick={handleClearSelection}
+                    disabled={isLoading}
+                    style={{
+                      padding: '14px 20px',
+                      backgroundColor: isLoading ? '#666' : '#D94A4A',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '12px',
+                      cursor: isLoading ? 'not-allowed' : 'pointer',
+                      fontSize: '15px',
+                      fontWeight: '600',
+                      boxShadow: '0 4px 12px rgba(0, 0, 0, 0.4)',
+                      opacity: isLoading ? 0.7 : 1,
+                      minHeight: '48px',
+                    }}
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div
+                style={{
+                  display: 'flex',
+                  gap: '12px',
+                  padding: '12px 16px',
+                  backgroundColor: 'rgba(0, 0, 0, 0.9)',
+                  borderRadius: '12px',
+                  marginBottom: '8px',
+                  pointerEvents: 'auto',
+                }}
+              >
+                <button
+                  onClick={undoLastPoint}
+                  disabled={pointCount === 0}
+                  style={{
+                    padding: '12px 16px',
+                    backgroundColor: pointCount === 0 ? '#444' : '#666',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '8px',
+                    cursor: pointCount === 0 ? 'not-allowed' : 'pointer',
+                    fontSize: '14px',
+                    fontWeight: '500',
+                    opacity: pointCount === 0 ? 0.5 : 1,
+                    minHeight: '44px',
+                  }}
+                >
+                  Undo
+                </button>
+                <button
+                  onClick={handleCompleteDrawing}
+                  disabled={pointCount < 3}
+                  style={{
+                    padding: '12px 16px',
+                    backgroundColor: pointCount < 3 ? '#444' : '#4A90D9',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '8px',
+                    cursor: pointCount < 3 ? 'not-allowed' : 'pointer',
+                    fontSize: '14px',
+                    fontWeight: '500',
+                    opacity: pointCount < 3 ? 0.5 : 1,
+                    minHeight: '44px',
+                  }}
+                >
+                  Done ({pointCount}/3+)
+                </button>
+                <button
+                  onClick={cancelDrawing}
+                  style={{
+                    padding: '12px 16px',
+                    backgroundColor: '#D94A4A',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '8px',
+                    cursor: 'pointer',
+                    fontSize: '14px',
+                    fontWeight: '500',
+                    minHeight: '44px',
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
+
+            {/* Mobile Navigation */}
+            <div style={{ width: '100%', pointerEvents: 'auto' }}>
+              <MobileNav
+                activeTab={mobileTab}
+                onTabChange={handleMobileTabChange}
+                hasSelection={!!selectionPolygon}
+                isExtractedViewOpen={isExtractedViewOpen}
+              />
+            </div>
+          </div>
 
           {/* Bottom Sheet for Layers */}
           {mobileTab === 'layers' && (

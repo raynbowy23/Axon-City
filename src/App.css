@@ -326,17 +326,13 @@ input[type="checkbox"] {
    ============================================ */
 
 .mobile-nav {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
+  width: 100%;
   height: 56px;
   background-color: rgba(20, 20, 30, 0.98);
   border-top: 1px solid rgba(255, 255, 255, 0.1);
   display: flex;
   justify-content: space-around;
   align-items: center;
-  z-index: var(--z-panels);
   padding-bottom: var(--safe-area-bottom);
 }
 
@@ -375,7 +371,7 @@ input[type="checkbox"] {
 
 .mobile-drawing-controls {
   position: fixed;
-  bottom: calc(56px + var(--safe-area-bottom) + 16px);
+  bottom: calc(70px + var(--safe-area-bottom) + 16px);
   left: 50%;
   transform: translateX(-50%);
   display: flex;
