@@ -233,60 +233,73 @@ const DeckGLView = memo(function DeckGLView({
     };
   };
 
-  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+  // Ref for the touch container to attach non-passive listeners
+  const touchContainerRef = useRef<HTMLDivElement>(null);
+
+  // Store viewState and callback in refs for touch handlers
+  const viewStateRef = useRef(viewState);
+  const onViewStateChangeRef = useRef(onViewStateChange);
+  useEffect(() => {
+    viewStateRef.current = viewState;
+    onViewStateChangeRef.current = onViewStateChange;
+  }, [viewState, onViewStateChange]);
+
+  // Touch event handlers (use native TouchEvent for non-passive listeners)
+  const handleTouchStart = useCallback((e: TouchEvent) => {
     e.preventDefault();
     const touch = e.touches[0];
     touchStartRef.current = {
       x: touch.clientX,
       y: touch.clientY,
       touches: e.touches.length,
-      distance: e.touches.length >= 2 ? getTouchDistance(e.touches) : undefined,
-      angle: e.touches.length >= 2 ? getTouchAngle(e.touches) : undefined,
-      midpoint: e.touches.length >= 2 ? getTouchMidpoint(e.touches) : undefined,
+      distance: e.touches.length >= 2 ? getTouchDistance(e.touches as unknown as React.TouchList) : undefined,
+      angle: e.touches.length >= 2 ? getTouchAngle(e.touches as unknown as React.TouchList) : undefined,
+      midpoint: e.touches.length >= 2 ? getTouchMidpoint(e.touches as unknown as React.TouchList) : undefined,
     };
     isDraggingRef.current = true;
     lastMouseRef.current = { x: touch.clientX, y: touch.clientY };
   }, []);
 
-  const handleTouchMove = useCallback((e: React.TouchEvent) => {
+  const handleTouchMove = useCallback((e: TouchEvent) => {
     e.preventDefault();
     if (!isDraggingRef.current || !lastMouseRef.current || !touchStartRef.current) return;
 
     const touch = e.touches[0];
+    const currentViewState = viewStateRef.current;
 
     // Handle two-finger gestures: pinch-to-zoom and pan
     if (e.touches.length >= 2 && touchStartRef.current.distance !== undefined) {
-      const currentDistance = getTouchDistance(e.touches);
-      const currentMidpoint = getTouchMidpoint(e.touches);
+      const currentDistance = getTouchDistance(e.touches as unknown as React.TouchList);
+      const currentMidpoint = getTouchMidpoint(e.touches as unknown as React.TouchList);
 
       // Pinch-to-zoom
       const distanceDelta = currentDistance - touchStartRef.current.distance;
       const zoomDelta = distanceDelta * 0.008;
 
       // Two-finger pan (move midpoint)
-      let newTarget = viewState.target;
+      let newTarget = currentViewState.target;
       if (touchStartRef.current.midpoint) {
         const mdx = currentMidpoint.x - touchStartRef.current.midpoint.x;
         const mdy = currentMidpoint.y - touchStartRef.current.midpoint.y;
 
-        const angle = (viewState.rotationOrbit * Math.PI) / 180;
+        const angle = (currentViewState.rotationOrbit * Math.PI) / 180;
         const cosA = Math.cos(angle);
         const sinA = Math.sin(angle);
-        const panScale = Math.pow(2, -viewState.zoom) * 2;
+        const panScale = Math.pow(2, -currentViewState.zoom) * 2;
         const worldDx = (mdx * cosA - mdy * sinA) * panScale;
         const worldDy = (mdx * sinA + mdy * cosA) * panScale;
 
         newTarget = [
-          viewState.target[0] - worldDx,
-          viewState.target[1] + worldDy,
-          viewState.target[2],
+          currentViewState.target[0] - worldDx,
+          currentViewState.target[1] + worldDy,
+          currentViewState.target[2],
         ] as [number, number, number];
       }
 
-      onViewStateChange({
+      onViewStateChangeRef.current({
         viewState: {
-          ...viewState,
-          zoom: Math.max(-2, Math.min(5, viewState.zoom + zoomDelta)),
+          ...currentViewState,
+          zoom: Math.max(-2, Math.min(5, currentViewState.zoom + zoomDelta)),
           target: newTarget,
         },
       });
@@ -302,20 +315,38 @@ const DeckGLView = memo(function DeckGLView({
     const dy = touch.clientY - lastMouseRef.current.y;
     lastMouseRef.current = { x: touch.clientX, y: touch.clientY };
 
-    onViewStateChange({
+    onViewStateChangeRef.current({
       viewState: {
-        ...viewState,
-        rotationOrbit: viewState.rotationOrbit + dx * 0.5,
-        rotationX: Math.max(0, Math.min(90, viewState.rotationX - dy * 0.3)),
+        ...currentViewState,
+        rotationOrbit: currentViewState.rotationOrbit + dx * 0.5,
+        rotationX: Math.max(0, Math.min(90, currentViewState.rotationX - dy * 0.3)),
       },
     });
-  }, [viewState, onViewStateChange]);
+  }, []);
 
   const handleTouchEnd = useCallback(() => {
     isDraggingRef.current = false;
     lastMouseRef.current = null;
     touchStartRef.current = null;
   }, []);
+
+  // Attach touch listeners with { passive: false } to allow preventDefault
+  useEffect(() => {
+    const container = touchContainerRef.current;
+    if (!container) return;
+
+    container.addEventListener('touchstart', handleTouchStart, { passive: false });
+    container.addEventListener('touchmove', handleTouchMove, { passive: false });
+    container.addEventListener('touchend', handleTouchEnd);
+    container.addEventListener('touchcancel', handleTouchEnd);
+
+    return () => {
+      container.removeEventListener('touchstart', handleTouchStart);
+      container.removeEventListener('touchmove', handleTouchMove);
+      container.removeEventListener('touchend', handleTouchEnd);
+      container.removeEventListener('touchcancel', handleTouchEnd);
+    };
+  }, [handleTouchStart, handleTouchMove, handleTouchEnd]);
 
   // Reference to DeckGL for coordinate projection
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -970,6 +1001,7 @@ const DeckGLView = memo(function DeckGLView({
         </div>
       )}
       <div
+        ref={touchContainerRef}
         style={{
           position: 'absolute',
           top: 0,
@@ -983,10 +1015,6 @@ const DeckGLView = memo(function DeckGLView({
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
         onWheel={handleWheel}
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
-        onTouchCancel={handleTouchEnd}
       >
         <DeckGL
           ref={deckRef}
