@@ -201,6 +201,140 @@ const DeckGLView = memo(function DeckGLView({
     });
   }, [viewState, onViewStateChange]);
 
+  // Touch event handling for mobile
+  const touchStartRef = useRef<{
+    x: number;
+    y: number;
+    touches: number;
+    distance?: number;
+    angle?: number;
+    midpoint?: { x: number; y: number };
+  } | null>(null);
+
+  const getTouchDistance = (touches: React.TouchList): number => {
+    if (touches.length < 2) return 0;
+    const dx = touches[0].clientX - touches[1].clientX;
+    const dy = touches[0].clientY - touches[1].clientY;
+    return Math.sqrt(dx * dx + dy * dy);
+  };
+
+  const getTouchAngle = (touches: React.TouchList): number => {
+    if (touches.length < 2) return 0;
+    const dx = touches[1].clientX - touches[0].clientX;
+    const dy = touches[1].clientY - touches[0].clientY;
+    return Math.atan2(dy, dx) * (180 / Math.PI);
+  };
+
+  const getTouchMidpoint = (touches: React.TouchList): { x: number; y: number } => {
+    if (touches.length < 2) return { x: touches[0].clientX, y: touches[0].clientY };
+    return {
+      x: (touches[0].clientX + touches[1].clientX) / 2,
+      y: (touches[0].clientY + touches[1].clientY) / 2,
+    };
+  };
+
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    e.preventDefault();
+    const touch = e.touches[0];
+    touchStartRef.current = {
+      x: touch.clientX,
+      y: touch.clientY,
+      touches: e.touches.length,
+      distance: e.touches.length >= 2 ? getTouchDistance(e.touches) : undefined,
+      angle: e.touches.length >= 2 ? getTouchAngle(e.touches) : undefined,
+      midpoint: e.touches.length >= 2 ? getTouchMidpoint(e.touches) : undefined,
+    };
+    isDraggingRef.current = true;
+    lastMouseRef.current = { x: touch.clientX, y: touch.clientY };
+  }, []);
+
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
+    e.preventDefault();
+    if (!isDraggingRef.current || !lastMouseRef.current || !touchStartRef.current) return;
+
+    const touch = e.touches[0];
+
+    // Handle two-finger gestures: pinch-to-zoom and rotate
+    if (e.touches.length >= 2 && touchStartRef.current.distance !== undefined) {
+      const currentDistance = getTouchDistance(e.touches);
+      const currentAngle = getTouchAngle(e.touches);
+      const currentMidpoint = getTouchMidpoint(e.touches);
+
+      // Pinch-to-zoom
+      const distanceDelta = currentDistance - touchStartRef.current.distance;
+      const zoomDelta = distanceDelta * 0.008;
+
+      // Two-finger rotation (twist gesture)
+      const angleDelta = touchStartRef.current.angle !== undefined
+        ? currentAngle - touchStartRef.current.angle
+        : 0;
+
+      // Pan with two fingers (move midpoint)
+      let newTarget = viewState.target;
+      if (touchStartRef.current.midpoint) {
+        const mdx = currentMidpoint.x - touchStartRef.current.midpoint.x;
+        const mdy = currentMidpoint.y - touchStartRef.current.midpoint.y;
+
+        const angle = (viewState.rotationOrbit * Math.PI) / 180;
+        const cosA = Math.cos(angle);
+        const sinA = Math.sin(angle);
+        const panScale = Math.pow(2, -viewState.zoom) * 2;
+        const worldDx = (mdx * cosA - mdy * sinA) * panScale;
+        const worldDy = (mdx * sinA + mdy * cosA) * panScale;
+
+        newTarget = [
+          viewState.target[0] - worldDx,
+          viewState.target[1] + worldDy,
+          viewState.target[2],
+        ] as [number, number, number];
+      }
+
+      onViewStateChange({
+        viewState: {
+          ...viewState,
+          zoom: Math.max(-2, Math.min(5, viewState.zoom + zoomDelta)),
+          rotationOrbit: viewState.rotationOrbit + angleDelta,
+          target: newTarget,
+        },
+      });
+
+      touchStartRef.current.distance = currentDistance;
+      touchStartRef.current.angle = currentAngle;
+      touchStartRef.current.midpoint = currentMidpoint;
+      return;
+    }
+
+    // Single finger: pan
+    const dx = touch.clientX - lastMouseRef.current.x;
+    const dy = touch.clientY - lastMouseRef.current.y;
+    lastMouseRef.current = { x: touch.clientX, y: touch.clientY };
+
+    const angle = (viewState.rotationOrbit * Math.PI) / 180;
+    const cosA = Math.cos(angle);
+    const sinA = Math.sin(angle);
+
+    const panScale = Math.pow(2, -viewState.zoom) * 2;
+    const worldDx = (dx * cosA - dy * sinA) * panScale;
+    const worldDy = (dx * sinA + dy * cosA) * panScale;
+
+    onViewStateChange({
+      viewState: {
+        ...viewState,
+        target: [
+          viewState.target[0] - worldDx,
+          viewState.target[1] + worldDy,
+          viewState.target[2],
+        ],
+      },
+    });
+  }, [viewState, onViewStateChange]);
+
+  const handleTouchEnd = useCallback(() => {
+    isDraggingRef.current = false;
+    lastMouseRef.current = null;
+    touchStartRef.current = null;
+  }, []);
+
   // Reference to DeckGL for coordinate projection
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const deckRef = useRef<any>(null);
@@ -860,12 +994,17 @@ const DeckGLView = memo(function DeckGLView({
           left: 0,
           width: '100%',
           height: '100%',
+          touchAction: 'none', // Prevent browser handling of touch events
         }}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
         onWheel={handleWheel}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        onTouchCancel={handleTouchEnd}
       >
         <DeckGL
           ref={deckRef}

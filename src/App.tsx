@@ -596,7 +596,7 @@ function App() {
       {/* Mobile Layout */}
       {isMobile && (
         <>
-          {/* Mobile Logo - smaller */}
+          {/* Mobile Logo - square version for space efficiency */}
           <a
             href="https://github.com/raynbowy23/Axon-City.git"
             target="_blank"
@@ -609,11 +609,12 @@ function App() {
             }}
           >
             <img
-              src="/AxonCityWideLogoWhite.png"
+              src="/AxonCityLogo.png"
               alt="AxonCity"
               style={{
-                height: '28px',
-                width: 'auto',
+                height: '36px',
+                width: '36px',
+                borderRadius: '6px',
               }}
             />
           </a>
