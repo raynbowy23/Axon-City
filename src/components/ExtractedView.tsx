@@ -254,22 +254,16 @@ const DeckGLView = memo(function DeckGLView({
 
     const touch = e.touches[0];
 
-    // Handle two-finger gestures: pinch-to-zoom and rotate
+    // Handle two-finger gestures: pinch-to-zoom and pan
     if (e.touches.length >= 2 && touchStartRef.current.distance !== undefined) {
       const currentDistance = getTouchDistance(e.touches);
-      const currentAngle = getTouchAngle(e.touches);
       const currentMidpoint = getTouchMidpoint(e.touches);
 
       // Pinch-to-zoom
       const distanceDelta = currentDistance - touchStartRef.current.distance;
       const zoomDelta = distanceDelta * 0.008;
 
-      // Two-finger rotation (twist gesture)
-      const angleDelta = touchStartRef.current.angle !== undefined
-        ? currentAngle - touchStartRef.current.angle
-        : 0;
-
-      // Pan with two fingers (move midpoint)
+      // Two-finger pan (move midpoint)
       let newTarget = viewState.target;
       if (touchStartRef.current.midpoint) {
         const mdx = currentMidpoint.x - touchStartRef.current.midpoint.x;
@@ -293,38 +287,26 @@ const DeckGLView = memo(function DeckGLView({
         viewState: {
           ...viewState,
           zoom: Math.max(-2, Math.min(5, viewState.zoom + zoomDelta)),
-          rotationOrbit: viewState.rotationOrbit + angleDelta,
           target: newTarget,
         },
       });
 
       touchStartRef.current.distance = currentDistance;
-      touchStartRef.current.angle = currentAngle;
       touchStartRef.current.midpoint = currentMidpoint;
       return;
     }
 
-    // Single finger: pan
+    // Single finger: rotate (orbit) horizontally and tilt vertically
+    // This provides intuitive one-finger rotation control
     const dx = touch.clientX - lastMouseRef.current.x;
     const dy = touch.clientY - lastMouseRef.current.y;
     lastMouseRef.current = { x: touch.clientX, y: touch.clientY };
 
-    const angle = (viewState.rotationOrbit * Math.PI) / 180;
-    const cosA = Math.cos(angle);
-    const sinA = Math.sin(angle);
-
-    const panScale = Math.pow(2, -viewState.zoom) * 2;
-    const worldDx = (dx * cosA - dy * sinA) * panScale;
-    const worldDy = (dx * sinA + dy * cosA) * panScale;
-
     onViewStateChange({
       viewState: {
         ...viewState,
-        target: [
-          viewState.target[0] - worldDx,
-          viewState.target[1] + worldDy,
-          viewState.target[2],
-        ],
+        rotationOrbit: viewState.rotationOrbit + dx * 0.5,
+        rotationX: Math.max(0, Math.min(90, viewState.rotationX - dy * 0.3)),
       },
     });
   }, [viewState, onViewStateChange]);
