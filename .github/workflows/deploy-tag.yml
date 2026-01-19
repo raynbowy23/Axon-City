@@ -1,9 +1,8 @@
-name: Deploy Tag to Vercel Production
+name: Deploy Release to Vercel Production
 
 on:
-  push:
-    tags:
-      - 'v*' # Triggers only on tags that look like v1.0, v2.3.4, etc.
+  release:
+    types: [published]
 
 env:
   VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
@@ -12,6 +11,7 @@ env:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    environment: AxonCity
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
