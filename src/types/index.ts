@@ -1,5 +1,27 @@
 import type { Feature, FeatureCollection, Polygon, MultiPolygon, LineString, MultiLineString, Point, Geometry } from 'geojson';
 
+// Map style options
+export type MapStyleType = 'dark' | 'light' | 'satellite';
+
+export interface MapStyleOption {
+  id: MapStyleType;
+  name: string;
+  url: string;
+  icon: 'moon' | 'sun' | 'satellite';
+}
+
+// Map language options
+export type MapLanguage = 'local' | 'en';
+
+// Favorite location
+export interface FavoriteLocation {
+  id: string;
+  longitude: number;
+  latitude: number;
+  zoom: number;
+  name: string;
+}
+
 // Layer categories matching the poster aesthetic
 export type LayerGroup =
   | 'infrastructure'
@@ -121,6 +143,20 @@ export interface AppState {
   // Map view
   viewState: ViewState;
   setViewState: (viewState: ViewState) => void;
+
+  // Map style
+  mapStyle: MapStyleType;
+  setMapStyle: (style: MapStyleType) => void;
+
+  // Map language
+  mapLanguage: MapLanguage;
+  setMapLanguage: (language: MapLanguage) => void;
+
+  // Favorite locations
+  favoriteLocations: FavoriteLocation[];
+  addFavoriteLocation: (location: Omit<FavoriteLocation, 'id'>) => void;
+  removeFavoriteLocation: (id: string) => void;
+  clearFavoriteLocations: () => void;
 
   // Selection
   selectionPolygon: SelectionPolygon | null;

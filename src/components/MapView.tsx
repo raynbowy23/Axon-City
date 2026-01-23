@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState, useEffect, useRef } from 'react';
-import Map from 'react-map-gl/maplibre';
+import Map, { type MapRef } from 'react-map-gl/maplibre';
 import DeckGL from '@deck.gl/react';
 import { GeoJsonLayer, ScatterplotLayer, PathLayer, PolygonLayer } from '@deck.gl/layers';
 import { SimpleMeshLayer } from '@deck.gl/mesh-layers';
@@ -10,10 +10,39 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 
 import { useStore } from '../store/useStore';
 import { layerManifest, getLayersByCustomOrder } from '../data/layerManifest';
-import type { LayerData, LayerGroup, AnyLayerConfig } from '../types';
+import type { LayerData, LayerGroup, AnyLayerConfig, MapStyleType } from '../types';
 
-// Free MapLibre style - OpenStreetMap Carto
-const MAP_STYLE = 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json';
+// Map style URLs - all free and publicly available
+const MAP_STYLES: Record<MapStyleType, string> = {
+  dark: 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
+  light: 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json',
+  satellite: 'https://server.arcgisonline.com/arcgis/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+};
+
+// Custom satellite style configuration using ESRI World Imagery
+const SATELLITE_STYLE = {
+  version: 8 as const,
+  name: 'Satellite',
+  sources: {
+    'satellite-tiles': {
+      type: 'raster' as const,
+      tiles: [
+        'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+      ],
+      tileSize: 256,
+      attribution: 'Esri, Maxar, Earthstar Geographics, and the GIS User Community',
+    },
+  },
+  layers: [
+    {
+      id: 'satellite-layer',
+      type: 'raster' as const,
+      source: 'satellite-tiles',
+      minzoom: 0,
+      maxzoom: 22,
+    },
+  ],
+};
 
 
 interface LayerRenderInfo {
@@ -27,6 +56,8 @@ export function MapView() {
   const {
     viewState,
     setViewState,
+    mapStyle,
+    mapLanguage,
     layerData,
     activeLayers,
     explodedView,
@@ -49,12 +80,21 @@ export function MapView() {
     customLayers,
   } = useStore();
 
+  // Get the current map style URL or configuration
+  const currentMapStyle = useMemo(() => {
+    if (mapStyle === 'satellite') {
+      return SATELLITE_STYLE;
+    }
+    return MAP_STYLES[mapStyle];
+  }, [mapStyle]);
+
   const [hoveredFeature, setHoveredFeature] = useState<Feature | null>(null);
   const [cursorPosition, setCursorPosition] = useState<{ x: number; y: number } | null>(null);
   const [hoveredVertexIndex, setHoveredVertexIndex] = useState<number | null>(null);
   const [hoveredMidpointIndex, setHoveredMidpointIndex] = useState<number | null>(null);
   const lastVertexClickRef = useRef<{ index: number; time: number } | null>(null);
   const deckRef = useRef<any>(null);
+  const mapRef = useRef<MapRef>(null);
 
   // Pinned feature info (clicked to stick) - stores geographic coordinates and initial screen position
   interface PinnedInfo {
@@ -190,6 +230,40 @@ export function MapView() {
 
     return () => cancelAnimationFrame(frameId);
   }, [viewState, pinnedInfos, explodedView, getLayerZOffset]);
+
+  // Update map labels when language changes
+  useEffect(() => {
+    const map = mapRef.current?.getMap();
+    if (!map) return;
+
+    const updateLabels = () => {
+      const style = map.getStyle();
+      if (!style || !style.layers) return;
+
+      // Determine the text field based on language setting
+      const textField = mapLanguage === 'en'
+        ? ['coalesce', ['get', 'name:en'], ['get', 'name_en'], ['get', 'name']]
+        : ['get', 'name'];
+
+      // Update all symbol layers that have text-field
+      for (const layer of style.layers) {
+        if (layer.type === 'symbol' && layer.layout && 'text-field' in layer.layout) {
+          try {
+            map.setLayoutProperty(layer.id, 'text-field', textField);
+          } catch {
+            // Some layers may not support this, ignore errors
+          }
+        }
+      }
+    };
+
+    // Update labels when map style is loaded
+    if (map.isStyleLoaded()) {
+      updateLabels();
+    } else {
+      map.once('styledata', updateLabels);
+    }
+  }, [mapLanguage, mapStyle]);
 
   // Remove a pinned info
   const removePinnedInfo = useCallback((id: string) => {
@@ -1201,7 +1275,7 @@ export function MapView() {
         onDragEnd={onDragEnd}
         getCursor={getCursor}
       >
-        <Map mapStyle={MAP_STYLE} maxPitch={89} minPitch={0} />
+        <Map ref={mapRef} mapStyle={currentMapStyle} maxPitch={89} minPitch={0} />
       </DeckGL>
 
       {/* Hover Tooltip */}

@@ -1,10 +1,13 @@
 import { create } from 'zustand';
-import type { AppState, ViewState, LayerData, ExplodedViewConfig, SelectedFeature, Feature, LayerGroup, LayerOrderConfig, CustomLayerConfig, FeatureCollection } from '../types';
+import type { AppState, ViewState, LayerData, ExplodedViewConfig, SelectedFeature, Feature, LayerGroup, LayerOrderConfig, CustomLayerConfig, FeatureCollection, MapStyleType, MapLanguage, FavoriteLocation } from '../types';
 import { layerManifest } from '../data/layerManifest';
 
 // LocalStorage keys
 const STORAGE_KEYS = {
   VIEW_STATE: 'axoncity-viewstate',
+  MAP_STYLE: 'axoncity-mapstyle',
+  MAP_LANGUAGE: 'axoncity-maplanguage',
+  FAVORITE_LOCATIONS: 'axoncity-favorites',
 } as const;
 
 // Distinct colors for selected features (colorblind-friendly palette)
@@ -63,6 +66,82 @@ function saveViewState(viewState: ViewState): void {
   }
 }
 
+// Load mapStyle from localStorage or return default
+function getInitialMapStyle(): MapStyleType {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEYS.MAP_STYLE);
+    if (stored && ['dark', 'light', 'satellite'].includes(stored)) {
+      return stored as MapStyleType;
+    }
+  } catch (e) {
+    console.warn('Failed to load mapStyle from localStorage:', e);
+  }
+  return 'dark';
+}
+
+// Save mapStyle to localStorage
+function saveMapStyle(style: MapStyleType): void {
+  try {
+    localStorage.setItem(STORAGE_KEYS.MAP_STYLE, style);
+  } catch (e) {
+    console.warn('Failed to save mapStyle to localStorage:', e);
+  }
+}
+
+// Load mapLanguage from localStorage or return default
+function getInitialMapLanguage(): MapLanguage {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEYS.MAP_LANGUAGE);
+    if (stored && ['local', 'en'].includes(stored)) {
+      return stored as MapLanguage;
+    }
+  } catch (e) {
+    console.warn('Failed to load mapLanguage from localStorage:', e);
+  }
+  return 'local';
+}
+
+// Save mapLanguage to localStorage
+function saveMapLanguage(language: MapLanguage): void {
+  try {
+    localStorage.setItem(STORAGE_KEYS.MAP_LANGUAGE, language);
+  } catch (e) {
+    console.warn('Failed to save mapLanguage to localStorage:', e);
+  }
+}
+
+// Load favoriteLocations from localStorage or return empty array
+function getInitialFavoriteLocations(): FavoriteLocation[] {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEYS.FAVORITE_LOCATIONS);
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      if (Array.isArray(parsed)) {
+        return parsed.filter(
+          (loc: FavoriteLocation) =>
+            typeof loc.id === 'string' &&
+            typeof loc.longitude === 'number' &&
+            typeof loc.latitude === 'number' &&
+            typeof loc.zoom === 'number' &&
+            typeof loc.name === 'string'
+        );
+      }
+    }
+  } catch (e) {
+    console.warn('Failed to load favoriteLocations from localStorage:', e);
+  }
+  return [];
+}
+
+// Save favoriteLocations to localStorage
+function saveFavoriteLocations(locations: FavoriteLocation[]): void {
+  try {
+    localStorage.setItem(STORAGE_KEYS.FAVORITE_LOCATIONS, JSON.stringify(locations));
+  } catch (e) {
+    console.warn('Failed to save favoriteLocations to localStorage:', e);
+  }
+}
+
 const defaultExplodedView: ExplodedViewConfig = {
   enabled: false,
   layerSpacing: 100, // meters between groups (increased for better separation)
@@ -99,6 +178,45 @@ export const useStore = create<AppState>((set) => ({
   setViewState: (viewState) => {
     saveViewState(viewState);
     set({ viewState });
+  },
+
+  // Map style (loaded from localStorage or default to dark)
+  mapStyle: getInitialMapStyle(),
+  setMapStyle: (style) => {
+    saveMapStyle(style);
+    set({ mapStyle: style });
+  },
+
+  // Map language (loaded from localStorage or default to local)
+  mapLanguage: getInitialMapLanguage(),
+  setMapLanguage: (language) => {
+    saveMapLanguage(language);
+    set({ mapLanguage: language });
+  },
+
+  // Favorite locations (loaded from localStorage)
+  favoriteLocations: getInitialFavoriteLocations(),
+  addFavoriteLocation: (location) => {
+    set((state) => {
+      const newLocation: FavoriteLocation = {
+        ...location,
+        id: `fav-${Date.now()}`,
+      };
+      const newLocations = [...state.favoriteLocations, newLocation];
+      saveFavoriteLocations(newLocations);
+      return { favoriteLocations: newLocations };
+    });
+  },
+  removeFavoriteLocation: (id) => {
+    set((state) => {
+      const newLocations = state.favoriteLocations.filter((loc) => loc.id !== id);
+      saveFavoriteLocations(newLocations);
+      return { favoriteLocations: newLocations };
+    });
+  },
+  clearFavoriteLocations: () => {
+    saveFavoriteLocations([]);
+    set({ favoriteLocations: [] });
   },
 
   // Selection

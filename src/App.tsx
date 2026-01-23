@@ -9,6 +9,9 @@ import { ExtractedView } from './components/ExtractedView';
 import { DataInputPanel } from './components/DataInputPanel';
 import { BottomSheet, type BottomSheetState } from './components/BottomSheet';
 import { MobileNav, type MobileTab } from './components/MobileNav';
+import { MapStyleSwitcher } from './components/MapStyleSwitcher';
+import { MapLanguageSwitcher } from './components/MapLanguageSwitcher';
+import { MapSettingsPanel } from './components/MapSettingsPanel';
 import { usePolygonDrawing } from './hooks/usePolygonDrawing';
 import { useIsMobile } from './hooks/useMediaQuery';
 import { useStore } from './store/useStore';
@@ -25,7 +28,6 @@ import './App.css';
 function App() {
   const containerRef = useRef<HTMLDivElement>(null);
   const lastFetchedPolygonRef = useRef<string | null>(null);
-  const mouseDownPosRef = useRef<{ x: number; y: number } | null>(null);
 
   const {
     isDrawing,
@@ -66,7 +68,7 @@ function App() {
     setMobileTab(tab);
 
     if (tab === 'map') {
-      setBottomSheetState('collapsed');
+      setBottomSheetState('peek');
     } else if (tab === 'layers' || tab === 'stats') {
       setBottomSheetState('peek');
     } else if (tab === '3d') {
@@ -217,7 +219,6 @@ function App() {
 
       const isTouch = e.pointerType === 'touch';
       handlePointerStart(e.clientX, e.clientY, isTouch);
-      mouseDownPosRef.current = { x: e.clientX, y: e.clientY };
     },
     [isDrawing, handlePointerStart]
   );
@@ -239,11 +240,9 @@ function App() {
       // Check if this was a drag
       if (isDrag(e.clientX, e.clientY)) {
         clearPointerStart();
-        mouseDownPosRef.current = null;
         return;
       }
       clearPointerStart();
-      mouseDownPosRef.current = null;
 
       // Don't capture clicks on UI elements
       if ((e.target as HTMLElement).closest('button, input, .control-panel, .stats-panel, .mobile-nav, .bottom-sheet')) {
@@ -266,48 +265,6 @@ function App() {
       }
     },
     [isDrawing]
-  );
-
-  // Legacy mouse handler for backwards compatibility
-  const handleMouseDown = useCallback(
-    (e: React.MouseEvent<HTMLDivElement>) => {
-      if (!isDrawing) return;
-      if (e.button !== 0) return;
-      mouseDownPosRef.current = { x: e.clientX, y: e.clientY };
-    },
-    [isDrawing]
-  );
-
-  // Legacy click handler for backwards compatibility
-  const handleContainerClick = useCallback(
-    (e: React.MouseEvent<HTMLDivElement>) => {
-      if (!isDrawing) return;
-
-      // Only add points on left-click (button 0)
-      if (e.button !== 0) return;
-
-      // Check if this was a drag (mouse moved more than 5 pixels)
-      if (mouseDownPosRef.current) {
-        const dx = e.clientX - mouseDownPosRef.current.x;
-        const dy = e.clientY - mouseDownPosRef.current.y;
-        const distance = Math.sqrt(dx * dx + dy * dy);
-
-        // If mouse moved more than 5 pixels, it was a drag, not a click
-        if (distance > 5) {
-          mouseDownPosRef.current = null;
-          return;
-        }
-      }
-      mouseDownPosRef.current = null;
-
-      // Don't capture clicks on UI elements
-      if ((e.target as HTMLElement).closest('button, input, .control-panel, .stats-panel, .mobile-nav, .bottom-sheet')) {
-        return;
-      }
-
-      addPoint(e.clientX, e.clientY, containerRef.current);
-    },
-    [isDrawing, addPoint]
   );
 
   // Handle keyboard shortcuts
@@ -362,8 +319,6 @@ function App() {
         cursor: isDrawing ? 'crosshair' : 'auto',
         touchAction: isDrawing ? 'none' : 'auto',
       }}
-      onMouseDown={handleMouseDown}
-      onClick={handleContainerClick}
       onPointerDown={handlePointerDown}
       onPointerUp={handlePointerUp}
       onTouchStart={handleTouchStart}
@@ -550,18 +505,37 @@ function App() {
           <ControlPanel />
           <StatsPanel />
 
-          {/* Footer credit */}
+          {/* Map Controls - Desktop (next to Stats panel) */}
           <div
             style={{
               position: 'absolute',
-              top: '10px',
-              right: '300px',
+              bottom: '45px',
+              left: '300px',
+              zIndex: 1000,
+              display: 'flex',
+              gap: '8px',
+            }}
+          >
+            <MapStyleSwitcher />
+            <MapLanguageSwitcher />
+          </div>
+
+          {/* Footer credit - bottom center */}
+          <div
+            style={{
+              position: 'absolute',
+              bottom: '8px',
+              left: '50%',
+              transform: 'translateX(-50%)',
               zIndex: 900,
               fontSize: '11px',
-              color: 'rgba(255, 255, 255, 0.6)',
+              color: 'rgba(255, 255, 255, 0.5)',
               display: 'flex',
               alignItems: 'center',
               gap: '6px',
+              backgroundColor: 'rgba(0, 0, 0, 0.4)',
+              padding: '4px 8px',
+              borderRadius: '4px',
             }}
           >
             <span>Created by Rei Tamaru</span>
@@ -570,14 +544,14 @@ function App() {
               target="_blank"
               rel="noopener noreferrer"
               style={{
-                color: 'rgba(255, 255, 255, 0.8)',
+                color: 'rgba(255, 255, 255, 0.7)',
                 textDecoration: 'none',
                 display: 'flex',
                 alignItems: 'center',
                 gap: '4px',
               }}
               onMouseEnter={(e) => (e.currentTarget.style.color = 'white')}
-              onMouseLeave={(e) => (e.currentTarget.style.color = 'rgba(255, 255, 255, 0.8)')}
+              onMouseLeave={(e) => (e.currentTarget.style.color = 'rgba(255, 255, 255, 0.7)')}
             >
               <svg
                 width="14"
@@ -777,6 +751,18 @@ function App() {
               />
             </div>
           </div>
+
+          {/* Bottom Sheet for Map Settings */}
+          {mobileTab === 'map' && (
+            <BottomSheet
+              state={bottomSheetState}
+              onStateChange={setBottomSheetState}
+              title="Map Settings"
+              peekHeight={200}
+            >
+              <MapSettingsPanel />
+            </BottomSheet>
+          )}
 
           {/* Bottom Sheet for Layers */}
           {mobileTab === 'layers' && (
