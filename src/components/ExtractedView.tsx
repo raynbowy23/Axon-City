@@ -1199,6 +1199,18 @@ export function ExtractedView({ isMobile = false }: ExtractedViewProps) {
   const activeArea = areas.find((a) => a.id === activeAreaId);
   const activeLayerData = activeArea?.layerData || layerData;
 
+  // Comparison mode - show all areas side by side
+  const [isComparisonMode, setIsComparisonMode] = useState(false);
+  const canCompare = areas.length >= 2;
+
+  // Track comparison mode changes to force DeckGL remount
+  const [comparisonModeCount, setComparisonModeCount] = useState(0);
+  const toggleComparisonMode = useCallback(() => {
+    setIsComparisonMode((prev) => !prev);
+    // Force fresh WebGL contexts by incrementing count
+    setComparisonModeCount((c) => c + 1);
+  }, []);
+
   // Mobile settings panel collapsed state
   const [isSettingsExpanded, setIsSettingsExpanded] = useState(false);
 
@@ -1623,6 +1635,29 @@ export function ExtractedView({ isMobile = false }: ExtractedViewProps) {
             </button>
           )}
 
+          {/* Compare button - only show when 2+ areas */}
+          {canCompare && (
+            <button
+              onClick={toggleComparisonMode}
+              style={{
+                padding: isMobile ? '10px 16px' : '4px 8px',
+                backgroundColor: isComparisonMode ? '#22C55E' : 'rgba(34, 197, 94, 0.5)',
+                color: 'white',
+                border: 'none',
+                borderRadius: isMobile ? '8px' : '4px',
+                cursor: 'pointer',
+                fontSize: isMobile ? '14px' : '11px',
+                minHeight: isMobile ? '44px' : 'auto',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+              }}
+              title={isComparisonMode ? 'Show single area' : 'Compare all areas side by side'}
+            >
+              {isComparisonMode ? 'Single' : 'Compare'}
+            </button>
+          )}
+
           <button
             onClick={saveImage}
             disabled={isSaving}
@@ -1927,68 +1962,137 @@ export function ExtractedView({ isMobile = false }: ExtractedViewProps) {
         </button>
       </div>
 
-      {/* 3D View */}
+      {/* 3D View - Single or Comparison Mode */}
       <div ref={viewContainerRef} style={{ flex: 1, position: 'relative', backgroundColor: '#1a1a2e' }}>
-        <DeckGLView
-          key={`deck-${openCount}`}
-          viewState={localViewState}
-          onViewStateChange={handleViewStateChange}
-          selectionPolygon={selectionPolygon}
-          layerData={activeLayerData}
-          activeLayers={activeLayers}
-          layerOrder={layerOrder}
-          layerSpacing={layerSpacing}
-          intraGroupRatio={intraGroupRatio}
-          center={center}
-          enabledGroups={enabledGroups}
-          showPlatforms={showPlatforms}
-          customLayers={customLayers}
-          customGroupEnabled={customGroupEnabled}
-        />
+        {/* Single area view */}
+        {!isComparisonMode && selectionPolygon && (
+          <>
+            <DeckGLView
+              key={`deck-single-${openCount}-${comparisonModeCount}`}
+              viewState={localViewState}
+              onViewStateChange={handleViewStateChange}
+              selectionPolygon={selectionPolygon}
+              layerData={activeLayerData}
+              activeLayers={activeLayers}
+              layerOrder={layerOrder}
+              layerSpacing={layerSpacing}
+              intraGroupRatio={intraGroupRatio}
+              center={center}
+              enabledGroups={enabledGroups}
+              showPlatforms={showPlatforms}
+              customLayers={customLayers}
+              customGroupEnabled={customGroupEnabled}
+            />
 
-        {/* Location name overlay for screenshots - editable */}
-        <div
-          style={{
-            position: 'absolute',
-            bottom: '16px',
-            left: '16px',
-            backgroundColor: 'rgba(0, 0, 0, 0.75)',
-            color: 'white',
-            padding: '6px 12px',
-            borderRadius: '8px',
-            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.3)',
-            border: '1px solid rgba(255, 255, 255, 0.1)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-          }}
-        >
-          <input
-            type="text"
-            value={selectionLocationName || ''}
-            onChange={(e) => setSelectionLocationName(e.target.value || null)}
-            placeholder="Enter location name..."
+            {/* Location name overlay for screenshots - editable */}
+            <div
+              style={{
+                position: 'absolute',
+                bottom: '16px',
+                left: '16px',
+                backgroundColor: 'rgba(0, 0, 0, 0.75)',
+                color: 'white',
+                padding: '6px 12px',
+                borderRadius: '8px',
+                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.3)',
+                border: '1px solid rgba(255, 255, 255, 0.1)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+              }}
+            >
+              <input
+                type="text"
+                value={selectionLocationName || ''}
+                onChange={(e) => setSelectionLocationName(e.target.value || null)}
+                placeholder="Enter location name..."
+                style={{
+                  backgroundColor: 'transparent',
+                  border: 'none',
+                  outline: 'none',
+                  color: 'white',
+                  fontSize: '14px',
+                  fontWeight: '500',
+                  letterSpacing: '0.5px',
+                  width: '180px',
+                  fontFamily: 'inherit',
+                }}
+              />
+              <span
+                style={{
+                  fontSize: '10px',
+                  opacity: 0.5,
+                  whiteSpace: 'nowrap',
+                }}
+              >
+              </span>
+            </div>
+          </>
+        )}
+
+        {/* Comparison mode - multiple areas side by side */}
+        {isComparisonMode && areas.length >= 2 && (
+          <div
+            key={`compare-container-${openCount}`}
             style={{
-              backgroundColor: 'transparent',
-              border: 'none',
-              outline: 'none',
-              color: 'white',
-              fontSize: '14px',
-              fontWeight: '500',
-              letterSpacing: '0.5px',
-              width: '180px',
-              fontFamily: 'inherit',
-            }}
-          />
-          <span
-            style={{
-              fontSize: '10px',
-              opacity: 0.5,
-              whiteSpace: 'nowrap',
+              display: 'grid',
+              gridTemplateColumns: areas.length <= 2 ? 'repeat(2, 1fr)' : 'repeat(2, 1fr)',
+              gridTemplateRows: areas.length <= 2 ? '1fr' : 'repeat(2, 1fr)',
+              gap: '2px',
+              width: '100%',
+              height: '100%',
+              backgroundColor: '#0a0a14',
             }}
           >
-          </span>
-        </div>
+            {areas.map((area, index) => {
+              const areaCenter = getCentroid(area.polygon.geometry);
+              return (
+                <div
+                  key={`area-view-${area.id}`}
+                  style={{
+                    position: 'relative',
+                    backgroundColor: '#1a1a2e',
+                    overflow: 'hidden',
+                  }}
+                >
+                  <DeckGLView
+                    key={`deck-compare-${index}-${openCount}-${comparisonModeCount}`}
+                    viewState={localViewState}
+                    onViewStateChange={handleViewStateChange}
+                    selectionPolygon={{ geometry: area.polygon.geometry }}
+                    layerData={area.layerData}
+                    activeLayers={activeLayers}
+                    layerOrder={layerOrder}
+                    layerSpacing={layerSpacing}
+                    intraGroupRatio={intraGroupRatio}
+                    center={areaCenter}
+                    enabledGroups={enabledGroups}
+                    showPlatforms={showPlatforms}
+                    customLayers={customLayers}
+                    customGroupEnabled={customGroupEnabled}
+                  />
+                  {/* Area label */}
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: '8px',
+                      left: '8px',
+                      backgroundColor: `rgba(${area.color.slice(0, 3).join(',')}, 0.9)`,
+                      color: 'white',
+                      padding: '4px 10px',
+                      borderRadius: '4px',
+                      fontSize: '12px',
+                      fontWeight: '600',
+                      boxShadow: '0 2px 4px rgba(0, 0, 0, 0.3)',
+                    }}
+                  >
+                    {area.name}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
 
         {/* Save toast notification */}
         {saveToast.show && (
