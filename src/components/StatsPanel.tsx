@@ -48,7 +48,11 @@ function saveSize(size: PanelSize): void {
 }
 
 export function StatsPanel({ isMobile = false }: StatsPanelProps) {
-  const { layerData, activeLayers, selectionPolygon, isLoading, loadingMessage, setExtractedViewOpen, isExtractedViewOpen, customLayers } = useStore();
+  const { layerData, activeLayers, selectionPolygon, isLoading, loadingMessage, setExtractedViewOpen, isExtractedViewOpen, customLayers, areas, activeAreaId } = useStore();
+
+  // Get the active area's layer data, falling back to global layerData
+  const activeArea = areas.find((a) => a.id === activeAreaId);
+  const activeLayerData = activeArea?.layerData || layerData;
 
   // Panel size state
   const [size, setSize] = useState<PanelSize>(loadSavedSize);
@@ -136,7 +140,8 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
       const layer = getLayerConfig(layerId);
       if (!layer) continue;
 
-      const data = layerData.get(layerId);
+      // Use active area's layer data for stats
+      const data = activeLayerData.get(layerId);
       const stats = data?.stats;
       const isCustom = 'isCustom' in layer && layer.isCustom;
 
@@ -153,7 +158,7 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
     }
 
     return groups;
-  }, [layerData, activeLayers, getLayerConfig]);
+  }, [activeLayerData, activeLayers, getLayerConfig]);
 
   const hasStats = Array.from(groupedStats.values()).some((layers) =>
     layers.some((l) => l.stats)
@@ -384,9 +389,23 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
       </div>
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-        <h3 style={{ margin: 0, fontSize: '14px' }}>
-          Selection Statistics
-        </h3>
+        <div>
+          <h3 style={{ margin: 0, fontSize: '14px' }}>
+            Selection Statistics
+          </h3>
+          {activeArea && (
+            <div
+              style={{
+                fontSize: '11px',
+                color: `rgba(${activeArea.color.slice(0, 3).join(',')}, 1)`,
+                marginTop: '2px',
+                fontWeight: '500',
+              }}
+            >
+              {activeArea.name}
+            </div>
+          )}
+        </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <button
             onClick={() => setExtractedViewOpen(!isExtractedViewOpen)}
