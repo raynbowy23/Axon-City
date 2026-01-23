@@ -1191,7 +1191,13 @@ export function ExtractedView({ isMobile = false }: ExtractedViewProps) {
     customLayers,
     selectionLocationName,
     setSelectionLocationName,
+    areas,
+    activeAreaId,
   } = useStore();
+
+  // Get the active area's layer data, falling back to global layerData
+  const activeArea = areas.find((a) => a.id === activeAreaId);
+  const activeLayerData = activeArea?.layerData || layerData;
 
   // Mobile settings panel collapsed state
   const [isSettingsExpanded, setIsSettingsExpanded] = useState(false);
@@ -1928,7 +1934,7 @@ export function ExtractedView({ isMobile = false }: ExtractedViewProps) {
           viewState={localViewState}
           onViewStateChange={handleViewStateChange}
           selectionPolygon={selectionPolygon}
-          layerData={layerData}
+          layerData={activeLayerData}
           activeLayers={activeLayers}
           layerOrder={layerOrder}
           layerSpacing={layerSpacing}
