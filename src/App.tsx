@@ -116,8 +116,10 @@ function App() {
           return;
         }
       } else {
-        // Update existing area polygon - clear only this area's cached data
+        // Update existing area polygon and clear its cached layer data
+        // The polygon needs to be synced from selectionPolygon to the area's storage
         updateAreaPolygon(existingAreaId, selectionPoly);
+        areaId = existingAreaId;
       }
 
       // DON'T clear global layer data - we want to keep data for all areas
@@ -192,16 +194,12 @@ function App() {
 
   // Track the last active area to detect area switches vs polygon edits
   const lastActiveAreaIdRef = useRef<string | null>(null);
+  const isFetchingRef = useRef(false);
 
   // Re-fetch data when polygon is edited (dragged) - NOT when switching areas
   useEffect(() => {
-    // Only re-fetch if:
-    // 1. We have a selection polygon
-    // 2. We're not currently drawing
-    // 3. We've finished dragging (draggingVertexIndex is null)
-    // 4. The polygon has changed from what we last fetched
-    // 5. We're on the SAME area (not switching areas)
-    // 6. The active area has data loaded (meaning this is an edit, not initial load)
+    // Don't re-fetch if already fetching
+    if (isFetchingRef.current) return;
 
     const isSwitchingAreas = lastActiveAreaIdRef.current !== activeAreaId;
     lastActiveAreaIdRef.current = activeAreaId;
@@ -218,6 +216,7 @@ function App() {
     if (
       selectionPolygon &&
       !isDrawing &&
+      !isLoading &&
       draggingVertexIndex === null &&
       activeAreaId
     ) {
@@ -225,11 +224,18 @@ function App() {
 
       // Only re-fetch if polygon coordinates actually changed (edit via dragging)
       if (lastFetchedPolygonRef.current && lastFetchedPolygonRef.current !== currentPolygonStr) {
+        // Update ref IMMEDIATELY to prevent re-entry
+        lastFetchedPolygonRef.current = currentPolygonStr;
+        isFetchingRef.current = true;
+
         // Polygon was edited, re-fetch data for the active area
-        handlePolygonComplete(selectionPolygon.geometry as Polygon, activeAreaId);
+        handlePolygonComplete(selectionPolygon.geometry as Polygon, activeAreaId)
+          .finally(() => {
+            isFetchingRef.current = false;
+          });
       }
     }
-  }, [selectionPolygon, isDrawing, draggingVertexIndex, handlePolygonComplete, activeAreaId]);
+  }, [selectionPolygon, isDrawing, isLoading, draggingVertexIndex, handlePolygonComplete, activeAreaId]);
 
   // Track last processed polygon for custom layers
   const lastProcessedPolygonRef = useRef<string | null>(null);
