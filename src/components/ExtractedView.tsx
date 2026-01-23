@@ -1439,9 +1439,11 @@ export function ExtractedView({ isMobile = false }: ExtractedViewProps) {
     await new Promise(resolve => setTimeout(resolve, 100));
 
     try {
-      // Find the DeckGL canvas inside the container
-      const deckCanvas = viewContainerRef.current.querySelector('canvas');
-      if (!deckCanvas) {
+      const scale = window.devicePixelRatio || 1;
+
+      // Find all DeckGL canvases inside the container
+      const allCanvases = viewContainerRef.current.querySelectorAll('canvas');
+      if (allCanvases.length === 0) {
         throw new Error('Canvas not found');
       }
 
@@ -1452,22 +1454,77 @@ export function ExtractedView({ isMobile = false }: ExtractedViewProps) {
         throw new Error('Could not create canvas context');
       }
 
-      // Set output canvas size to match the DeckGL canvas
-      outputCanvas.width = deckCanvas.width;
-      outputCanvas.height = deckCanvas.height;
+      if (isComparisonMode && allCanvases.length > 1) {
+        // Comparison mode: combine multiple canvases into a grid
+        const numAreas = areas.length;
+        const cols = 2;
+        const rows = numAreas <= 2 ? 1 : 2;
+        const gap = 2 * scale;
 
-      // Draw the DeckGL canvas
-      ctx.drawImage(deckCanvas, 0, 0);
+        // Get dimensions from first canvas
+        const firstCanvas = allCanvases[0] as HTMLCanvasElement;
+        const canvasWidth = firstCanvas.width;
+        const canvasHeight = firstCanvas.height;
 
-      // Draw the location name if present
-      if (selectionLocationName) {
-        const scale = window.devicePixelRatio || 1;
+        // Calculate output size
+        outputCanvas.width = canvasWidth * cols + gap * (cols - 1);
+        outputCanvas.height = canvasHeight * rows + gap * (rows - 1);
+
+        // Fill background (gap color)
+        ctx.fillStyle = '#0a0a14';
+        ctx.fillRect(0, 0, outputCanvas.width, outputCanvas.height);
+
+        // Draw each canvas in grid position
+        allCanvases.forEach((canvas, index) => {
+          if (index >= numAreas) return;
+          const col = index % cols;
+          const row = Math.floor(index / cols);
+          const x = col * (canvasWidth + gap);
+          const y = row * (canvasHeight + gap);
+
+          ctx.drawImage(canvas, x, y);
+
+          // Draw area label on each canvas
+          if (areas[index]) {
+            const area = areas[index];
+            const labelPadding = 8 * scale;
+            const labelFontSize = 12 * scale;
+            const labelText = area.name;
+
+            ctx.font = `600 ${labelFontSize}px system-ui, -apple-system, sans-serif`;
+            const labelMetrics = ctx.measureText(labelText);
+            const labelBgWidth = labelMetrics.width + 20 * scale;
+            const labelBgHeight = labelFontSize + 8 * scale;
+
+            // Draw label background with area color
+            const [r, g, b] = area.color;
+            ctx.fillStyle = `rgba(${r}, ${g}, ${b}, 0.9)`;
+            ctx.beginPath();
+            ctx.roundRect(x + labelPadding, y + labelPadding, labelBgWidth, labelBgHeight, 4 * scale);
+            ctx.fill();
+
+            // Draw label text
+            ctx.fillStyle = 'white';
+            ctx.fillText(labelText, x + labelPadding + 10 * scale, y + labelPadding + labelFontSize + 1 * scale);
+          }
+        });
+      } else {
+        // Single view mode: just copy the single canvas
+        const deckCanvas = allCanvases[0] as HTMLCanvasElement;
+        outputCanvas.width = deckCanvas.width;
+        outputCanvas.height = deckCanvas.height;
+        ctx.drawImage(deckCanvas, 0, 0);
+      }
+
+      // Draw the location name if present (bottom left of entire output)
+      const locationName = localLocationName || selectionLocationName;
+      if (locationName) {
         const padding = 16 * scale;
         const fontSize = 14 * scale;
 
         // Draw background
         ctx.font = `500 ${fontSize}px system-ui, -apple-system, sans-serif`;
-        const textMetrics = ctx.measureText(selectionLocationName);
+        const textMetrics = ctx.measureText(locationName);
         const bgWidth = textMetrics.width + 24 * scale;
         const bgHeight = fontSize + 12 * scale;
         const bgX = padding;
@@ -1485,14 +1542,16 @@ export function ExtractedView({ isMobile = false }: ExtractedViewProps) {
 
         // Draw text
         ctx.fillStyle = 'white';
-        ctx.fillText(selectionLocationName, bgX + 12 * scale, bgY + fontSize + 3 * scale);
+        ctx.fillText(locationName, bgX + 12 * scale, bgY + fontSize + 3 * scale);
       }
 
       // Create download link
       const link = document.createElement('a');
-      const filename = selectionLocationName
-        ? `axoncity-${selectionLocationName.replace(/[^a-z0-9]/gi, '-').toLowerCase()}.png`
-        : `axoncity-extracted-view-${Date.now()}.png`;
+      const baseFilename = locationName
+        ? `axoncity-${locationName.replace(/[^a-z0-9]/gi, '-').toLowerCase()}`
+        : 'axoncity-extracted-view';
+      const suffix = isComparisonMode ? '-comparison' : '';
+      const filename = `${baseFilename}${suffix}-${Date.now()}.png`;
       link.download = filename;
       link.href = outputCanvas.toDataURL('image/png');
       link.click();
@@ -1515,7 +1574,7 @@ export function ExtractedView({ isMobile = false }: ExtractedViewProps) {
     } finally {
       setIsSaving(false);
     }
-  }, [selectionLocationName]);
+  }, [selectionLocationName, localLocationName, isComparisonMode, areas]);
 
   // Don't render anything if closed or no selection
   if (!isExtractedViewOpen || !selectionPolygon) return null;
@@ -2152,15 +2211,6 @@ export function ExtractedView({ isMobile = false }: ExtractedViewProps) {
                 fontFamily: 'inherit',
               }}
             />
-            <span
-              style={{
-                fontSize: '10px',
-                opacity: 0.6,
-                whiteSpace: 'nowrap',
-              }}
-            >
-              Comparison View
-            </span>
           </div>
         )}
 
