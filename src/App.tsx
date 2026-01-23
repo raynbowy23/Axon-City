@@ -109,18 +109,19 @@ function App() {
       if (!existingAreaId) {
         // Create a new area
         areaId = addArea(selectionPoly);
+
         if (!areaId) {
           setIsLoading(false);
           setLoadingMessage(`Maximum ${MAX_COMPARISON_AREAS} areas allowed`);
           return;
         }
       } else {
-        // Update existing area polygon
+        // Update existing area polygon - clear only this area's cached data
         updateAreaPolygon(existingAreaId, selectionPoly);
       }
 
-      // Clear manifest layer data for backward compatibility (global layerData)
-      clearManifestLayerData();
+      // DON'T clear global layer data - we want to keep data for all areas
+      // clearManifestLayerData();
 
       try {
         // Get bbox from polygon
@@ -189,28 +190,46 @@ function App() {
     [activeLayers, clearManifestLayerData, setIsLoading, setLayerData, setLoadingMessage, addArea, updateAreaPolygon, updateAreaLayerData]
   );
 
-  // Re-fetch data when polygon is edited (dragged)
+  // Track the last active area to detect area switches vs polygon edits
+  const lastActiveAreaIdRef = useRef<string | null>(null);
+
+  // Re-fetch data when polygon is edited (dragged) - NOT when switching areas
   useEffect(() => {
     // Only re-fetch if:
     // 1. We have a selection polygon
     // 2. We're not currently drawing
     // 3. We've finished dragging (draggingVertexIndex is null)
     // 4. The polygon has changed from what we last fetched
-    // 5. We have already loaded data (layerData is not empty)
+    // 5. We're on the SAME area (not switching areas)
+    // 6. The active area has data loaded (meaning this is an edit, not initial load)
+
+    const isSwitchingAreas = lastActiveAreaIdRef.current !== activeAreaId;
+    lastActiveAreaIdRef.current = activeAreaId;
+
+    // Don't re-fetch when switching areas - data already exists
+    if (isSwitchingAreas) {
+      // Update the ref to track this area's polygon
+      if (selectionPolygon) {
+        lastFetchedPolygonRef.current = JSON.stringify(selectionPolygon.geometry.coordinates);
+      }
+      return;
+    }
+
     if (
       selectionPolygon &&
       !isDrawing &&
       draggingVertexIndex === null &&
-      layerData.size > 0
+      activeAreaId
     ) {
       const currentPolygonStr = JSON.stringify(selectionPolygon.geometry.coordinates);
 
+      // Only re-fetch if polygon coordinates actually changed (edit via dragging)
       if (lastFetchedPolygonRef.current && lastFetchedPolygonRef.current !== currentPolygonStr) {
         // Polygon was edited, re-fetch data for the active area
-        handlePolygonComplete(selectionPolygon.geometry as Polygon, activeAreaId || undefined);
+        handlePolygonComplete(selectionPolygon.geometry as Polygon, activeAreaId);
       }
     }
-  }, [selectionPolygon, isDrawing, draggingVertexIndex, layerData.size, handlePolygonComplete, activeAreaId]);
+  }, [selectionPolygon, isDrawing, draggingVertexIndex, handlePolygonComplete, activeAreaId]);
 
   // Track last processed polygon for custom layers
   const lastProcessedPolygonRef = useRef<string | null>(null);

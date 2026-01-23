@@ -1,5 +1,5 @@
-import { useCallback, useMemo, useState, useEffect, useRef } from 'react';
-import Map, { type MapRef } from 'react-map-gl/maplibre';
+import { useCallback, useMemo, useState, useEffect, useRef, useReducer } from 'react';
+import MapGL, { type MapRef } from 'react-map-gl/maplibre';
 import DeckGL from '@deck.gl/react';
 import { GeoJsonLayer, ScatterplotLayer, PathLayer, PolygonLayer } from '@deck.gl/layers';
 import { SimpleMeshLayer } from '@deck.gl/mesh-layers';
@@ -82,6 +82,51 @@ export function MapView() {
     areas,
     activeAreaId,
   } = useStore();
+
+  // Create areas layer separately to avoid it being affected by drawing state
+  const areasLayer = useMemo(() => {
+    if (areas.length === 0) return null;
+
+
+    const areaFeatures = areas.map((area) => ({
+      type: 'Feature' as const,
+      properties: {
+        id: area.id,
+        name: area.name,
+        isActive: area.id === activeAreaId,
+        color: area.color,
+      },
+      geometry: area.polygon.geometry,
+    }));
+
+    return new GeoJsonLayer({
+      id: 'comparison-areas',
+      data: {
+        type: 'FeatureCollection',
+        features: areaFeatures,
+      },
+      filled: true,
+      stroked: true,
+      getFillColor: (f: { properties: { color: number[]; isActive: boolean } }) => {
+        const [r, g, b] = f.properties.color;
+        return [r, g, b, f.properties.isActive ? 80 : 50];
+      },
+      getLineColor: (f: { properties: { color: number[] } }) => {
+        const [r, g, b] = f.properties.color;
+        return [r, g, b, 255];
+      },
+      getLineWidth: (f: { properties: { isActive: boolean } }) =>
+        f.properties.isActive ? 5 : 3,
+      lineWidthUnits: 'pixels',
+      pickable: false,
+      updateTriggers: {
+        data: [areas.length, areas.map(a => a.id).join(',')],
+        getFillColor: [activeAreaId],
+        getLineColor: [areas.map(a => a.id).join(',')],
+        getLineWidth: [activeAreaId],
+      },
+    });
+  }, [areas, activeAreaId]);
 
   // Get the current map style URL or configuration
   const currentMapStyle = useMemo(() => {
@@ -308,22 +353,79 @@ export function MapView() {
     return [0, 0];
   }, []);
 
+  // Combine layer data from all areas for multi-area display
+  const combinedLayerData = useMemo(() => {
+    const combined = new Map<string, LayerData>();
+
+    // If we have areas, use their layer data (to avoid duplicates with global layerData)
+    if (areas.length > 0) {
+      // First collect all layer IDs from all areas
+      const allLayerIds = new Set<string>();
+      for (const area of areas) {
+        for (const layerId of area.layerData.keys()) {
+          allLayerIds.add(layerId);
+        }
+      }
+
+      // For each layer, merge features from all areas
+      for (const layerId of allLayerIds) {
+        const allFeatures: Feature[] = [];
+
+        for (const area of areas) {
+          const areaData = area.layerData.get(layerId);
+          if (areaData) {
+            const features = areaData.clippedFeatures?.features || areaData.features?.features || [];
+            allFeatures.push(...features);
+          }
+        }
+
+        if (allFeatures.length > 0) {
+          // Get base data structure from first area that has this layer
+          const firstAreaWithData = areas.find(a => a.layerData.has(layerId));
+          const baseData = firstAreaWithData?.layerData.get(layerId);
+
+          combined.set(layerId, {
+            layerId,
+            features: { type: 'FeatureCollection', features: allFeatures },
+            clippedFeatures: { type: 'FeatureCollection', features: allFeatures },
+            stats: baseData?.stats, // Stats would need recalculation for accuracy
+          });
+        }
+      }
+
+      // Also include custom layers from global layerData (they're not area-specific)
+      for (const [layerId, data] of layerData.entries()) {
+        if (!combined.has(layerId)) {
+          combined.set(layerId, data);
+        }
+      }
+    } else {
+      // No areas - use global layerData as-is
+      for (const [layerId, data] of layerData.entries()) {
+        combined.set(layerId, data);
+      }
+    }
+
+    return combined;
+  }, [layerData, areas]);
+
   // Calculate layer render order and z-offsets with group-based separation
   const layerRenderInfo = useMemo((): LayerRenderInfo[] => {
     // Use custom layer order instead of static getSortedLayers()
     const sortedLayers = getLayersByCustomOrder(layerOrder);
 
     // Separate manifest and custom layers - only include those with actual data
+    // Use combinedLayerData to include features from all areas
     const activeManifestLayers = sortedLayers.filter((layer) => {
       if (!activeLayers.includes(layer.id)) return false;
-      const data = layerData.get(layer.id);
+      const data = combinedLayerData.get(layer.id);
       // Check if layer has any features to render
       const hasFeatures = data?.features?.features?.length || data?.clippedFeatures?.features?.length;
       return hasFeatures;
     });
     const activeCustomLayers = customLayers.filter((layer) => {
       if (!activeLayers.includes(layer.id)) return false;
-      const data = layerData.get(layer.id);
+      const data = combinedLayerData.get(layer.id);
       // Custom layers can show all features or clipped features
       const hasFeatures = data?.features?.features?.length || data?.clippedFeatures?.features?.length;
       return hasFeatures;
@@ -361,7 +463,7 @@ export function MapView() {
 
     // Process manifest layers first
     const manifestLayerInfos = activeManifestLayers.map((config) => {
-      const data = layerData.get(config.id);
+      const data = combinedLayerData.get(config.id);
       const groupBaseHeight = groupBaseHeights[config.group] || 0;
 
       // Get the index of this layer within its group
@@ -388,7 +490,7 @@ export function MapView() {
 
     // Process custom layers - they go at the top
     const customLayerInfos = activeCustomLayers.map((config, index) => {
-      const data = layerData.get(config.id);
+      const data = combinedLayerData.get(config.id);
 
       // Custom layers stack above all manifest layers
       const zOffset = explodedView.enabled
@@ -405,7 +507,7 @@ export function MapView() {
 
     // Return manifest layers first, then custom layers on top
     return [...manifestLayerInfos, ...customLayerInfos];
-  }, [activeLayers, layerData, explodedView, layerOrder, customLayers]);
+  }, [activeLayers, combinedLayerData, explodedView, layerOrder, customLayers]);
 
   // Handle hover
   const onHover = useCallback(
@@ -639,49 +741,39 @@ export function MapView() {
   const deckLayers = useMemo((): Layer[] => {
     const layers: Layer[] = [];
 
-    // Render all comparison areas with distinct colors
-    if (areas.length > 0) {
-      areas.forEach((area) => {
-        const isActive = area.id === activeAreaId;
-        const [r, g, b, a] = area.color;
+    // Areas are rendered via areasLayer (separate useMemo) - added at the end
 
-        // Area polygon fill
+    // Selection polygon preview during drawing
+    // Show when: drawing mode with 3+ points, OR when there's a selection but no areas yet
+    if (selectionPolygon) {
+      // Check if this polygon is already in the areas array (to avoid duplicate rendering)
+      const isAlreadyAnArea = areas.some(
+        (area) => area.polygon.id === selectionPolygon.id
+      );
+
+      if (!isAlreadyAnArea) {
+        // Determine color based on what area number this will be
+        const nextAreaIndex = areas.length;
+        const previewColor = nextAreaIndex < 4
+          ? [59, 130, 246] // Blue for next area
+          : [100, 150, 255]; // Default blue
+
         layers.push(
           new PolygonLayer({
-            id: `area-polygon-${area.id}`,
-            data: [area.polygon.geometry],
-            getPolygon: (d: Polygon) => d.coordinates,
-            getFillColor: [r, g, b, isActive ? 60 : 40],
-            getLineColor: [r, g, b, isActive ? 255 : 180],
-            getLineWidth: isActive ? 4 : 2,
+            id: 'selection-polygon-preview',
+            data: [selectionPolygon.geometry],
+            // GeoJSON Polygon coordinates is array of rings, we need the exterior ring [0]
+            getPolygon: (d: Polygon) => d.coordinates[0],
+            getFillColor: [...previewColor, 50] as [number, number, number, number],
+            getLineColor: [...previewColor, 255] as [number, number, number, number],
+            getLineWidth: 3,
             lineWidthUnits: 'pixels',
             filled: true,
             stroked: true,
             pickable: false,
           })
         );
-
-        // Area label (positioned at centroid)
-        // Note: deck.gl TextLayer would be better, but for simplicity we skip for now
-      });
-    }
-
-    // Selection polygon preview during drawing (when no areas yet or drawing new)
-    if (selectionPolygon && areas.length === 0) {
-      layers.push(
-        new PolygonLayer({
-          id: 'selection-polygon',
-          data: [selectionPolygon.geometry],
-          getPolygon: (d: Polygon) => d.coordinates,
-          getFillColor: [100, 150, 255, 50],
-          getLineColor: [100, 150, 255, 255],
-          getLineWidth: 3,
-          lineWidthUnits: 'pixels',
-          filled: true,
-          stroked: true,
-          pickable: false,
-        })
-      );
+      }
     }
 
     // Add group platform layers when exploded view is enabled
@@ -1239,8 +1331,13 @@ export function MapView() {
       });
     }
 
+    // Add areasLayer at the beginning so it renders below other layers
+    if (areasLayer) {
+      layers.unshift(areasLayer);
+    }
+
     return layers;
-  }, [layerRenderInfo, selectionPolygon, hoveredLayerId, isolatedLayerId, explodedView, isDrawing, drawingPoints, editableVertices, draggingVertexIndex, hoveredVertexIndex, hoveredMidpointIndex, handleAddVertex, handleRemoveVertex, selectedFeatures, layerOrder, pinnedInfos, areas, activeAreaId]);
+  }, [layerRenderInfo, selectionPolygon, hoveredLayerId, isolatedLayerId, explodedView, isDrawing, drawingPoints, editableVertices, draggingVertexIndex, hoveredVertexIndex, hoveredMidpointIndex, handleAddVertex, handleRemoveVertex, selectedFeatures, layerOrder, pinnedInfos, areasLayer]);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const onViewStateChange = useCallback(
@@ -1305,7 +1402,7 @@ export function MapView() {
         onDragEnd={onDragEnd}
         getCursor={getCursor}
       >
-        <Map ref={mapRef} mapStyle={currentMapStyle} maxPitch={89} minPitch={0} />
+        <MapGL ref={mapRef} mapStyle={currentMapStyle} maxPitch={89} minPitch={0} />
       </DeckGL>
 
       {/* Hover Tooltip */}
