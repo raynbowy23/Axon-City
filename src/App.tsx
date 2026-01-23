@@ -13,6 +13,7 @@ import { MapStyleSwitcher } from './components/MapStyleSwitcher';
 import { MapLanguageSwitcher } from './components/MapLanguageSwitcher';
 import { MapSettingsPanel } from './components/MapSettingsPanel';
 import { AreaSelector } from './components/AreaSelector';
+import { EditSelectionInfo } from './components/EditSelectionInfo';
 import { usePolygonDrawing } from './hooks/usePolygonDrawing';
 import { useIsMobile } from './hooks/useMediaQuery';
 import { useStore } from './store/useStore';
@@ -457,9 +458,13 @@ function App() {
                         marginBottom: '6px',
                         textTransform: 'uppercase',
                         letterSpacing: '0.5px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
                       }}
                     >
                       Comparison Areas
+                      {!isLoading && <EditSelectionInfo variant="inline" />}
                     </div>
                     <AreaSelector
                       onAddArea={handleStartDrawing}
@@ -510,23 +515,7 @@ function App() {
                       {areas.length > 1 ? 'Clear All Areas' : 'Clear Selection'}
                     </button>
                     {!isLoading && areas.length > 0 && (
-                      <div
-                        style={{
-                          backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                          padding: '8px 12px',
-                          borderRadius: '6px',
-                          fontSize: '10px',
-                          color: 'rgba(255, 255, 255, 0.7)',
-                          lineHeight: '1.4',
-                        }}
-                      >
-                        <div style={{ marginBottom: '4px', fontWeight: '500', color: 'rgba(255, 200, 50, 0.9)' }}>
-                          Edit Selection:
-                        </div>
-                        <div>Drag corners to move</div>
-                        <div>Click <span style={{ color: '#64C8FF' }}>blue dots</span> to add point</div>
-                        <div>Double-click corner to remove</div>
-                      </div>
+                      <EditSelectionInfo variant="block" />
                     )}
                   </>
                 )}
@@ -623,12 +612,12 @@ function App() {
           <ControlPanel />
           <StatsPanel />
 
-          {/* Map Controls - Desktop (next to Stats panel) */}
+          {/* Map Controls - Desktop (bottom left, below stats panel) */}
           <div
             style={{
               position: 'absolute',
-              bottom: '45px',
-              left: '300px',
+              bottom: '10px',
+              left: '10px',
               zIndex: 1000,
               display: 'flex',
               gap: '8px',

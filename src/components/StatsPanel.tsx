@@ -6,11 +6,14 @@ import type { LayerStats, LayerGroup, AnyLayerConfig } from '../types';
 // Size constraints
 const MIN_WIDTH = 280;
 const MAX_WIDTH = 800; // Increased for comparison mode
-const MIN_HEIGHT = 200;
-const MAX_HEIGHT = 500; // Reduced to prevent overlap with top controls
+const MIN_HEIGHT = 150;
+const MAX_HEIGHT = 400; // Reduced to prevent overlap with top controls
 const DEFAULT_WIDTH = 360;
-const DEFAULT_HEIGHT = 350;
+const DEFAULT_HEIGHT = 280; // Reduced default height
 const COMPARISON_WIDTH = 500; // Default width when in comparison mode
+
+// Top controls area height (logo + area selector + buttons + margin)
+const TOP_CONTROLS_HEIGHT = 280;
 
 // LocalStorage key
 const STORAGE_KEY = 'axoncity-stats-panel-size';
@@ -394,13 +397,16 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
     );
   }
 
+  // Bottom offset to avoid overlapping with map controls (buttons ~45px + 10px bottom margin + extra spacing)
+  const BOTTOM_OFFSET = 65;
+
   // Desktop layout
   if (!selectionPolygon && !isLoading) {
     return (
       <div
         style={{
           position: 'absolute',
-          bottom: '45px',
+          bottom: `${BOTTOM_OFFSET}px`,
           left: '10px',
           zIndex: 1000,
           backgroundColor: 'rgba(0, 0, 0, 0.85)',
@@ -426,7 +432,7 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
       ref={panelRef}
       style={{
         position: 'absolute',
-        bottom: '45px',
+        bottom: `${BOTTOM_OFFSET}px`,
         left: '10px',
         zIndex: 1000,
         backgroundColor: 'rgba(0, 0, 0, 0.9)',
@@ -435,7 +441,7 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
         borderRadius: '8px',
         width: size.width,
         height: size.height,
-        maxHeight: `calc(100vh - 270px)`, // Leave room for top drawing controls and bottom credit
+        maxHeight: `calc(100vh - ${BOTTOM_OFFSET + TOP_CONTROLS_HEIGHT}px)`, // Leave room for top drawing controls and bottom buttons
         overflowY: 'auto',
         fontSize: '13px',
         boxSizing: 'border-box',
