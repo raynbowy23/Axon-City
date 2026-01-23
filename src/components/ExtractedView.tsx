@@ -1211,6 +1211,44 @@ export function ExtractedView({ isMobile = false }: ExtractedViewProps) {
     setComparisonModeCount((c) => c + 1);
   }, []);
 
+  // Camera sync mode for comparison view: 'sync' = all move together, 'separate' = independent
+  const [cameraSyncMode, setCameraSyncMode] = useState<'sync' | 'separate'>('sync');
+
+  // Separate view states for each area when in 'separate' mode
+  const [separateViewStates, setSeparateViewStates] = useState<Map<string, OrbitViewState>>(new Map());
+
+  // Initialize separate view states when areas change
+  useEffect(() => {
+    if (areas.length > 0) {
+      setSeparateViewStates((prev) => {
+        const newStates = new Map(prev);
+        for (const area of areas) {
+          if (!newStates.has(area.id)) {
+            // Initialize with default view state
+            newStates.set(area.id, {
+              target: [0, 0, 200],
+              rotationX: 45,
+              rotationOrbit: -30,
+              zoom: 0,
+              minZoom: -2,
+              maxZoom: 5,
+            });
+          }
+        }
+        return newStates;
+      });
+    }
+  }, [areas]);
+
+  // Handler for separate view state changes
+  const handleSeparateViewStateChange = useCallback((areaId: string, newViewState: OrbitViewState) => {
+    setSeparateViewStates((prev) => {
+      const newStates = new Map(prev);
+      newStates.set(areaId, newViewState);
+      return newStates;
+    });
+  }, []);
+
   // Local state for location name input to avoid re-renders on every keystroke
   const [localLocationName, setLocalLocationName] = useState(selectionLocationName || '');
 
@@ -1725,6 +1763,29 @@ export function ExtractedView({ isMobile = false }: ExtractedViewProps) {
             </button>
           )}
 
+          {/* Camera sync mode toggle - only show in comparison mode */}
+          {isComparisonMode && (
+            <button
+              onClick={() => setCameraSyncMode((prev) => (prev === 'sync' ? 'separate' : 'sync'))}
+              style={{
+                padding: isMobile ? '10px 16px' : '4px 8px',
+                backgroundColor: cameraSyncMode === 'sync' ? 'rgba(168, 85, 247, 0.8)' : 'rgba(168, 85, 247, 0.4)',
+                color: 'white',
+                border: 'none',
+                borderRadius: isMobile ? '8px' : '4px',
+                cursor: 'pointer',
+                fontSize: isMobile ? '14px' : '10px',
+                minHeight: isMobile ? '44px' : 'auto',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+              }}
+              title={cameraSyncMode === 'sync' ? 'Switch to separate camera control' : 'Switch to synchronized camera control'}
+            >
+              {cameraSyncMode === 'sync' ? 'Sync' : 'Separate'}
+            </button>
+          )}
+
           <button
             onClick={saveImage}
             disabled={isSaving}
@@ -2120,6 +2181,14 @@ export function ExtractedView({ isMobile = false }: ExtractedViewProps) {
           >
             {areas.map((area, index) => {
               const areaCenter = getCentroid(area.polygon.geometry);
+              // Use separate or synced view state based on camera mode
+              const areaViewState = cameraSyncMode === 'separate'
+                ? (separateViewStates.get(area.id) || localViewState)
+                : localViewState;
+              const areaViewStateHandler = cameraSyncMode === 'separate'
+                ? (params: { viewState: OrbitViewState }) => handleSeparateViewStateChange(area.id, params.viewState)
+                : handleViewStateChange;
+
               return (
                 <div
                   key={`area-view-${area.id}`}
@@ -2130,9 +2199,9 @@ export function ExtractedView({ isMobile = false }: ExtractedViewProps) {
                   }}
                 >
                   <DeckGLView
-                    key={`deck-compare-${index}-${openCount}-${comparisonModeCount}`}
-                    viewState={localViewState}
-                    onViewStateChange={handleViewStateChange}
+                    key={`deck-compare-${index}-${openCount}-${comparisonModeCount}-${cameraSyncMode}`}
+                    viewState={areaViewState}
+                    onViewStateChange={areaViewStateHandler}
                     selectionPolygon={{ geometry: area.polygon.geometry }}
                     layerData={area.layerData}
                     activeLayers={activeLayers}
