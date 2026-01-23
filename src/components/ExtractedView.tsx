@@ -1211,6 +1211,14 @@ export function ExtractedView({ isMobile = false }: ExtractedViewProps) {
     setComparisonModeCount((c) => c + 1);
   }, []);
 
+  // Local state for location name input to avoid re-renders on every keystroke
+  const [localLocationName, setLocalLocationName] = useState(selectionLocationName || '');
+
+  // Sync local state when store value changes externally
+  useEffect(() => {
+    setLocalLocationName(selectionLocationName || '');
+  }, [selectionLocationName]);
+
   // Mobile settings panel collapsed state
   const [isSettingsExpanded, setIsSettingsExpanded] = useState(false);
 
@@ -2003,8 +2011,15 @@ export function ExtractedView({ isMobile = false }: ExtractedViewProps) {
             >
               <input
                 type="text"
-                value={selectionLocationName || ''}
-                onChange={(e) => setSelectionLocationName(e.target.value || null)}
+                value={localLocationName}
+                onChange={(e) => setLocalLocationName(e.target.value)}
+                onBlur={(e) => setSelectionLocationName(e.target.value || null)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    setSelectionLocationName(localLocationName || null);
+                    (e.target as HTMLInputElement).blur();
+                  }
+                }}
                 placeholder="Enter location name..."
                 style={{
                   backgroundColor: 'transparent',
@@ -2091,6 +2106,61 @@ export function ExtractedView({ isMobile = false }: ExtractedViewProps) {
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {/* Location name overlay for comparison mode */}
+        {isComparisonMode && (
+          <div
+            style={{
+              position: 'absolute',
+              bottom: '16px',
+              left: '16px',
+              backgroundColor: 'rgba(0, 0, 0, 0.75)',
+              color: 'white',
+              padding: '6px 12px',
+              borderRadius: '8px',
+              boxShadow: '0 2px 8px rgba(0, 0, 0, 0.3)',
+              border: '1px solid rgba(255, 255, 255, 0.1)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              zIndex: 10,
+            }}
+          >
+            <input
+              type="text"
+              value={localLocationName}
+              onChange={(e) => setLocalLocationName(e.target.value)}
+              onBlur={(e) => setSelectionLocationName(e.target.value || null)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  setSelectionLocationName(localLocationName || null);
+                  (e.target as HTMLInputElement).blur();
+                }
+              }}
+              placeholder="Enter location name..."
+              style={{
+                backgroundColor: 'transparent',
+                border: 'none',
+                outline: 'none',
+                color: 'white',
+                fontSize: '14px',
+                fontWeight: '500',
+                letterSpacing: '0.5px',
+                width: '200px',
+                fontFamily: 'inherit',
+              }}
+            />
+            <span
+              style={{
+                fontSize: '10px',
+                opacity: 0.6,
+                whiteSpace: 'nowrap',
+              }}
+            >
+              Comparison View
+            </span>
           </div>
         )}
 
