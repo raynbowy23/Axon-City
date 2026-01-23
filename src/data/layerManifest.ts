@@ -34,6 +34,12 @@ export const layerManifest: LayerManifest = {
       priority: 5,
       color: [220, 20, 60], // Crimson
     },
+    {
+      id: 'amenities',
+      name: 'Amenities',
+      priority: 6,
+      color: [255, 152, 0], // Orange
+    },
   ],
   layers: [
     // Usage / Land Use layers (buildings by type)
@@ -294,6 +300,120 @@ export const layerManifest: LayerManifest = {
       statsRecipes: ['count', 'density'],
       visible: true,
       description: 'Individual trees',
+    },
+
+    // Amenities / POI layers
+    {
+      id: 'poi-food-drink',
+      name: 'Food & Drink',
+      group: 'amenities',
+      geometryType: 'point',
+      priority: 60,
+      osmQuery: 'node["amenity"~"restaurant|cafe|bar|fast_food"]|way["amenity"~"restaurant|cafe|bar|fast_food"]',
+      style: {
+        fillColor: [255, 87, 51, 255], // Coral
+        strokeColor: [255, 255, 255, 255],
+        strokeWidth: 2,
+      },
+      statsRecipes: ['count', 'density'],
+      visible: false,
+      description: 'Restaurants, cafes, bars, and fast food',
+    },
+    {
+      id: 'poi-shopping',
+      name: 'Shopping',
+      group: 'amenities',
+      geometryType: 'point',
+      priority: 61,
+      osmQuery: 'node["shop"]|way["shop"]',
+      style: {
+        fillColor: [255, 195, 0, 255], // Gold
+        strokeColor: [255, 255, 255, 255],
+        strokeWidth: 2,
+      },
+      statsRecipes: ['count', 'density'],
+      visible: false,
+      description: 'All types of shops and retail',
+    },
+    {
+      id: 'poi-grocery',
+      name: 'Grocery',
+      group: 'amenities',
+      geometryType: 'point',
+      priority: 62,
+      osmQuery: 'node["shop"~"supermarket|grocery|convenience"]|way["shop"~"supermarket|grocery|convenience"]',
+      style: {
+        fillColor: [76, 175, 80, 255], // Green
+        strokeColor: [255, 255, 255, 255],
+        strokeWidth: 2,
+      },
+      statsRecipes: ['count', 'density'],
+      visible: false,
+      description: 'Supermarkets, grocery stores, convenience stores',
+    },
+    {
+      id: 'poi-health',
+      name: 'Healthcare',
+      group: 'amenities',
+      geometryType: 'point',
+      priority: 63,
+      osmQuery: 'node["amenity"~"hospital|clinic|pharmacy|doctors"]|way["amenity"~"hospital|clinic|pharmacy|doctors"]',
+      style: {
+        fillColor: [244, 67, 54, 255], // Red
+        strokeColor: [255, 255, 255, 255],
+        strokeWidth: 2,
+      },
+      statsRecipes: ['count', 'density'],
+      visible: false,
+      description: 'Hospitals, clinics, pharmacies',
+    },
+    {
+      id: 'poi-education',
+      name: 'Education',
+      group: 'amenities',
+      geometryType: 'point',
+      priority: 64,
+      osmQuery: 'node["amenity"~"school|university|college|kindergarten"]|way["amenity"~"school|university|college|kindergarten"]',
+      style: {
+        fillColor: [103, 58, 183, 255], // Purple
+        strokeColor: [255, 255, 255, 255],
+        strokeWidth: 2,
+      },
+      statsRecipes: ['count', 'density'],
+      visible: false,
+      description: 'Schools, universities, colleges',
+    },
+    {
+      id: 'poi-bike-parking',
+      name: 'Bike Parking',
+      group: 'amenities',
+      geometryType: 'point',
+      priority: 65,
+      osmQuery: 'node["amenity"="bicycle_parking"]|way["amenity"="bicycle_parking"]',
+      style: {
+        fillColor: [0, 188, 212, 255], // Cyan
+        strokeColor: [255, 255, 255, 255],
+        strokeWidth: 2,
+      },
+      statsRecipes: ['count', 'density'],
+      visible: false,
+      description: 'Bicycle parking locations',
+    },
+    {
+      id: 'poi-bike-shops',
+      name: 'Bike Services',
+      group: 'amenities',
+      geometryType: 'point',
+      priority: 66,
+      osmQuery: 'node["shop"="bicycle"]|way["shop"="bicycle"]|node["amenity"="bicycle_rental"]|way["amenity"="bicycle_rental"]',
+      style: {
+        fillColor: [0, 150, 136, 255], // Teal
+        strokeColor: [255, 255, 255, 255],
+        strokeWidth: 2,
+      },
+      statsRecipes: ['count', 'density'],
+      visible: false,
+      description: 'Bike shops and rental services',
     },
   ],
 };

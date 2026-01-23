@@ -1,6 +1,7 @@
 import { useStore } from '../store/useStore';
 import { layerManifest } from '../data/layerManifest';
 import { DraggableLayerList } from './DraggableLayerList';
+import { StorySelector } from './StorySelector';
 import type { CustomLayerConfig, FeatureCollection } from '../types';
 
 interface ControlPanelProps {
@@ -65,6 +66,14 @@ export function ControlPanel({ isMobile = false }: ControlPanelProps) {
   if (isMobile) {
     return (
       <div style={{ color: 'white', fontSize: '14px' }}>
+        {/* Analysis Presets */}
+        <div style={{ marginBottom: '20px' }}>
+          <div style={{ marginBottom: '12px', fontWeight: '600', fontSize: '15px' }}>
+            Analysis Presets
+          </div>
+          <StorySelector isMobile />
+        </div>
+
         {/* Exploded View Controls */}
         <div style={{ marginBottom: '20px' }}>
           <div style={{ marginBottom: '12px', fontWeight: '600', fontSize: '15px' }}>
@@ -216,6 +225,14 @@ export function ControlPanel({ isMobile = false }: ControlPanelProps) {
       }}
     >
       <h3 style={{ margin: '0 0 16px 0', fontSize: '16px' }}>Layer Controls</h3>
+
+      {/* Analysis Presets */}
+      <div style={{ marginBottom: '20px' }}>
+        <div style={{ marginBottom: '8px', fontWeight: '600' }}>
+          Analysis Presets
+        </div>
+        <StorySelector />
+      </div>
 
       {/* Exploded View Controls */}
       <div style={{ marginBottom: '20px' }}>

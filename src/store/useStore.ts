@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type { AppState, ViewState, LayerData, ExplodedViewConfig, SelectedFeature, Feature, LayerGroup, LayerOrderConfig, CustomLayerConfig, FeatureCollection, MapStyleType, MapLanguage, FavoriteLocation, ComparisonArea, SelectionPolygon } from '../types';
 import { AREA_COLORS, AREA_NAMES, MAX_COMPARISON_AREAS } from '../types';
 import { layerManifest } from '../data/layerManifest';
+import { getStoryById } from '../data/storyPresets';
 
 // LocalStorage keys
 const STORAGE_KEYS = {
@@ -578,4 +579,69 @@ export const useStore = create<AppState>((set) => ({
   // Data input panel
   isDataInputOpen: false,
   setDataInputOpen: (isOpen) => set({ isDataInputOpen: isOpen }),
+
+  // Story presets
+  activeStoryId: null,
+  previousStoryState: null,
+
+  applyStory: (storyId: string) =>
+    set((state) => {
+      const story = getStoryById(storyId);
+      if (!story) return state;
+
+      // If clicking the same story, clear it
+      if (state.activeStoryId === storyId) {
+        // Restore previous state
+        if (state.previousStoryState) {
+          return {
+            activeStoryId: null,
+            previousStoryState: null,
+            activeLayers: state.previousStoryState.activeLayers,
+            explodedView: state.previousStoryState.explodedView,
+          };
+        }
+        return { activeStoryId: null, previousStoryState: null };
+      }
+
+      // Save current state before applying story (only if not already in a story)
+      const previousState = state.activeStoryId === null
+        ? {
+            activeLayers: state.activeLayers,
+            explodedView: state.explodedView,
+          }
+        : state.previousStoryState;
+
+      // Apply story config - preserve current view state entirely
+      const newExplodedView: ExplodedViewConfig = {
+        ...state.explodedView,
+        enabled: story.explodedView.enabled,
+        ...(story.explodedView.layerSpacing !== undefined && {
+          layerSpacing: story.explodedView.layerSpacing,
+        }),
+        ...(story.explodedView.intraGroupRatio !== undefined && {
+          intraGroupRatio: story.explodedView.intraGroupRatio,
+        }),
+      };
+
+      return {
+        activeStoryId: storyId,
+        previousStoryState: previousState,
+        activeLayers: story.activeLayers,
+        explodedView: newExplodedView,
+      };
+    }),
+
+  clearStory: () =>
+    set((state) => {
+      if (!state.previousStoryState) {
+        return { activeStoryId: null };
+      }
+
+      return {
+        activeStoryId: null,
+        previousStoryState: null,
+        activeLayers: state.previousStoryState.activeLayers,
+        explodedView: state.previousStoryState.explodedView,
+      };
+    }),
 }));

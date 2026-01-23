@@ -29,6 +29,7 @@ export type LayerGroup =
   | 'usage'
   | 'traffic'
   | 'environment'
+  | 'amenities'
   | 'custom';
 
 export type GeometryType = 'polygon' | 'line' | 'point';
@@ -129,6 +130,17 @@ export interface ExplodedViewConfig {
   intraGroupRatio: number; // ratio of layerSpacing for spacing between layers in same group
   baseElevation: number;
   animationDuration: number;
+}
+
+// Story preset for one-click urban analysis perspectives
+export interface StoryPreset {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+  activeLayers: string[];
+  camera: { pitch: number; bearing: number };
+  explodedView: { enabled: boolean; layerSpacing?: number; intraGroupRatio?: number };
 }
 
 export interface LayerOrderConfig {
@@ -263,6 +275,15 @@ export interface AppState {
   // Data input panel
   isDataInputOpen: boolean;
   setDataInputOpen: (isOpen: boolean) => void;
+
+  // Story presets
+  activeStoryId: string | null;
+  previousStoryState: {
+    activeLayers: string[];
+    explodedView: ExplodedViewConfig;
+  } | null;
+  applyStory: (storyId: string) => void;
+  clearStory: () => void;
 }
 
 // Re-export GeoJSON types for convenience
