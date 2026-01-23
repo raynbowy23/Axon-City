@@ -549,8 +549,13 @@ export function MapView() {
       // Don't handle if in drawing mode or dragging vertices
       if (isDrawing || draggingVertexIndex !== null) return;
 
-      // Don't handle vertex handles or midpoint handles
-      if (info.layer?.id === 'vertex-handles' || info.layer?.id === 'midpoint-handles') return;
+      // Don't handle vertex handles, midpoint handles, or comparison area polygons
+      // (comparison areas have their own onClick handler for switching areas)
+      if (
+        info.layer?.id === 'vertex-handles' ||
+        info.layer?.id === 'midpoint-handles' ||
+        info.layer?.id === 'comparison-areas'
+      ) return;
 
       if (info.object && info.layer && info.x !== undefined && info.y !== undefined) {
         const layerId = info.layer.id
