@@ -28,7 +28,6 @@ import './App.css';
 function App() {
   const containerRef = useRef<HTMLDivElement>(null);
   const lastFetchedPolygonRef = useRef<string | null>(null);
-  const mouseDownPosRef = useRef<{ x: number; y: number } | null>(null);
 
   const {
     isDrawing,
@@ -220,7 +219,6 @@ function App() {
 
       const isTouch = e.pointerType === 'touch';
       handlePointerStart(e.clientX, e.clientY, isTouch);
-      mouseDownPosRef.current = { x: e.clientX, y: e.clientY };
     },
     [isDrawing, handlePointerStart]
   );
@@ -242,11 +240,9 @@ function App() {
       // Check if this was a drag
       if (isDrag(e.clientX, e.clientY)) {
         clearPointerStart();
-        mouseDownPosRef.current = null;
         return;
       }
       clearPointerStart();
-      mouseDownPosRef.current = null;
 
       // Don't capture clicks on UI elements
       if ((e.target as HTMLElement).closest('button, input, .control-panel, .stats-panel, .mobile-nav, .bottom-sheet')) {
@@ -269,48 +265,6 @@ function App() {
       }
     },
     [isDrawing]
-  );
-
-  // Legacy mouse handler for backwards compatibility
-  const handleMouseDown = useCallback(
-    (e: React.MouseEvent<HTMLDivElement>) => {
-      if (!isDrawing) return;
-      if (e.button !== 0) return;
-      mouseDownPosRef.current = { x: e.clientX, y: e.clientY };
-    },
-    [isDrawing]
-  );
-
-  // Legacy click handler for backwards compatibility
-  const handleContainerClick = useCallback(
-    (e: React.MouseEvent<HTMLDivElement>) => {
-      if (!isDrawing) return;
-
-      // Only add points on left-click (button 0)
-      if (e.button !== 0) return;
-
-      // Check if this was a drag (mouse moved more than 5 pixels)
-      if (mouseDownPosRef.current) {
-        const dx = e.clientX - mouseDownPosRef.current.x;
-        const dy = e.clientY - mouseDownPosRef.current.y;
-        const distance = Math.sqrt(dx * dx + dy * dy);
-
-        // If mouse moved more than 5 pixels, it was a drag, not a click
-        if (distance > 5) {
-          mouseDownPosRef.current = null;
-          return;
-        }
-      }
-      mouseDownPosRef.current = null;
-
-      // Don't capture clicks on UI elements
-      if ((e.target as HTMLElement).closest('button, input, .control-panel, .stats-panel, .mobile-nav, .bottom-sheet')) {
-        return;
-      }
-
-      addPoint(e.clientX, e.clientY, containerRef.current);
-    },
-    [isDrawing, addPoint]
   );
 
   // Handle keyboard shortcuts
@@ -365,8 +319,6 @@ function App() {
         cursor: isDrawing ? 'crosshair' : 'auto',
         touchAction: isDrawing ? 'none' : 'auto',
       }}
-      onMouseDown={handleMouseDown}
-      onClick={handleContainerClick}
       onPointerDown={handlePointerDown}
       onPointerUp={handlePointerUp}
       onTouchStart={handleTouchStart}
