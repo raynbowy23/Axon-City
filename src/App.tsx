@@ -9,6 +9,8 @@ import { ExtractedView } from './components/ExtractedView';
 import { DataInputPanel } from './components/DataInputPanel';
 import { BottomSheet, type BottomSheetState } from './components/BottomSheet';
 import { MobileNav, type MobileTab } from './components/MobileNav';
+import { MapStyleSwitcher } from './components/MapStyleSwitcher';
+import { MapSettingsPanel } from './components/MapSettingsPanel';
 import { usePolygonDrawing } from './hooks/usePolygonDrawing';
 import { useIsMobile } from './hooks/useMediaQuery';
 import { useStore } from './store/useStore';
@@ -66,7 +68,7 @@ function App() {
     setMobileTab(tab);
 
     if (tab === 'map') {
-      setBottomSheetState('collapsed');
+      setBottomSheetState('peek');
     } else if (tab === 'layers' || tab === 'stats') {
       setBottomSheetState('peek');
     } else if (tab === '3d') {
@@ -550,6 +552,18 @@ function App() {
           <ControlPanel />
           <StatsPanel />
 
+          {/* Map Style Switcher - Desktop (next to Stats panel) */}
+          <div
+            style={{
+              position: 'absolute',
+              bottom: '24px',
+              left: '300px',
+              zIndex: 1000,
+            }}
+          >
+            <MapStyleSwitcher />
+          </div>
+
           {/* Footer credit */}
           <div
             style={{
@@ -777,6 +791,18 @@ function App() {
               />
             </div>
           </div>
+
+          {/* Bottom Sheet for Map Settings */}
+          {mobileTab === 'map' && (
+            <BottomSheet
+              state={bottomSheetState}
+              onStateChange={setBottomSheetState}
+              title="Map Settings"
+              peekHeight={200}
+            >
+              <MapSettingsPanel />
+            </BottomSheet>
+          )}
 
           {/* Bottom Sheet for Layers */}
           {mobileTab === 'layers' && (

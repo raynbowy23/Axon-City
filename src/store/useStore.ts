@@ -1,10 +1,11 @@
 import { create } from 'zustand';
-import type { AppState, ViewState, LayerData, ExplodedViewConfig, SelectedFeature, Feature, LayerGroup, LayerOrderConfig, CustomLayerConfig, FeatureCollection } from '../types';
+import type { AppState, ViewState, LayerData, ExplodedViewConfig, SelectedFeature, Feature, LayerGroup, LayerOrderConfig, CustomLayerConfig, FeatureCollection, MapStyleType } from '../types';
 import { layerManifest } from '../data/layerManifest';
 
 // LocalStorage keys
 const STORAGE_KEYS = {
   VIEW_STATE: 'axoncity-viewstate',
+  MAP_STYLE: 'axoncity-mapstyle',
 } as const;
 
 // Distinct colors for selected features (colorblind-friendly palette)
@@ -63,6 +64,28 @@ function saveViewState(viewState: ViewState): void {
   }
 }
 
+// Load mapStyle from localStorage or return default
+function getInitialMapStyle(): MapStyleType {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEYS.MAP_STYLE);
+    if (stored && ['dark', 'light', 'satellite'].includes(stored)) {
+      return stored as MapStyleType;
+    }
+  } catch (e) {
+    console.warn('Failed to load mapStyle from localStorage:', e);
+  }
+  return 'dark';
+}
+
+// Save mapStyle to localStorage
+function saveMapStyle(style: MapStyleType): void {
+  try {
+    localStorage.setItem(STORAGE_KEYS.MAP_STYLE, style);
+  } catch (e) {
+    console.warn('Failed to save mapStyle to localStorage:', e);
+  }
+}
+
 const defaultExplodedView: ExplodedViewConfig = {
   enabled: false,
   layerSpacing: 100, // meters between groups (increased for better separation)
@@ -99,6 +122,13 @@ export const useStore = create<AppState>((set) => ({
   setViewState: (viewState) => {
     saveViewState(viewState);
     set({ viewState });
+  },
+
+  // Map style (loaded from localStorage or default to dark)
+  mapStyle: getInitialMapStyle(),
+  setMapStyle: (style) => {
+    saveMapStyle(style);
+    set({ mapStyle: style });
   },
 
   // Selection

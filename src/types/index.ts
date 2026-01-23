@@ -1,5 +1,15 @@
 import type { Feature, FeatureCollection, Polygon, MultiPolygon, LineString, MultiLineString, Point, Geometry } from 'geojson';
 
+// Map style options
+export type MapStyleType = 'dark' | 'light' | 'satellite';
+
+export interface MapStyleOption {
+  id: MapStyleType;
+  name: string;
+  url: string;
+  icon: 'moon' | 'sun' | 'satellite';
+}
+
 // Layer categories matching the poster aesthetic
 export type LayerGroup =
   | 'infrastructure'
@@ -121,6 +131,10 @@ export interface AppState {
   // Map view
   viewState: ViewState;
   setViewState: (viewState: ViewState) => void;
+
+  // Map style
+  mapStyle: MapStyleType;
+  setMapStyle: (style: MapStyleType) => void;
 
   // Selection
   selectionPolygon: SelectionPolygon | null;
