@@ -81,6 +81,7 @@ export function MapView() {
     // Multi-area support
     areas,
     activeAreaId,
+    setActiveAreaId,
   } = useStore();
 
   // Create areas layer separately to avoid it being affected by drawing state
@@ -118,7 +119,17 @@ export function MapView() {
       getLineWidth: (f: { properties: { isActive: boolean } }) =>
         f.properties.isActive ? 5 : 3,
       lineWidthUnits: 'pixels',
-      pickable: false,
+      pickable: true,
+      autoHighlight: true,
+      highlightColor: [255, 255, 255, 50],
+      onClick: (info: PickingInfo) => {
+        if (info.object?.properties?.id) {
+          const clickedAreaId = info.object.properties.id;
+          if (clickedAreaId !== activeAreaId) {
+            setActiveAreaId(clickedAreaId);
+          }
+        }
+      },
       updateTriggers: {
         data: [areas.length, areas.map(a => a.id).join(',')],
         getFillColor: [activeAreaId],
@@ -126,7 +137,7 @@ export function MapView() {
         getLineWidth: [activeAreaId],
       },
     });
-  }, [areas, activeAreaId]);
+  }, [areas, activeAreaId, setActiveAreaId]);
 
   // Get the current map style URL or configuration
   const currentMapStyle = useMemo(() => {
