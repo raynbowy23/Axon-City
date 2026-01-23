@@ -509,7 +509,7 @@ function App() {
           <div
             style={{
               position: 'absolute',
-              bottom: '24px',
+              bottom: '45px',
               left: '300px',
               zIndex: 1000,
               display: 'flex',
@@ -520,18 +520,22 @@ function App() {
             <MapLanguageSwitcher />
           </div>
 
-          {/* Footer credit */}
+          {/* Footer credit - bottom center */}
           <div
             style={{
               position: 'absolute',
-              top: '10px',
-              right: '300px',
+              bottom: '8px',
+              left: '50%',
+              transform: 'translateX(-50%)',
               zIndex: 900,
               fontSize: '11px',
-              color: 'rgba(255, 255, 255, 0.6)',
+              color: 'rgba(255, 255, 255, 0.5)',
               display: 'flex',
               alignItems: 'center',
               gap: '6px',
+              backgroundColor: 'rgba(0, 0, 0, 0.4)',
+              padding: '4px 8px',
+              borderRadius: '4px',
             }}
           >
             <span>Created by Rei Tamaru</span>
@@ -540,14 +544,14 @@ function App() {
               target="_blank"
               rel="noopener noreferrer"
               style={{
-                color: 'rgba(255, 255, 255, 0.8)',
+                color: 'rgba(255, 255, 255, 0.7)',
                 textDecoration: 'none',
                 display: 'flex',
                 alignItems: 'center',
                 gap: '4px',
               }}
               onMouseEnter={(e) => (e.currentTarget.style.color = 'white')}
-              onMouseLeave={(e) => (e.currentTarget.style.color = 'rgba(255, 255, 255, 0.8)')}
+              onMouseLeave={(e) => (e.currentTarget.style.color = 'rgba(255, 255, 255, 0.7)')}
             >
               <svg
                 width="14"

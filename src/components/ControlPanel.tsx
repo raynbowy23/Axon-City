@@ -210,7 +210,7 @@ export function ControlPanel({ isMobile = false }: ControlPanelProps) {
         padding: '16px',
         borderRadius: '8px',
         maxWidth: '280px',
-        maxHeight: 'calc(100vh - 40px)',
+        maxHeight: 'calc(100vh - 70px)',
         overflowY: 'auto',
         fontSize: '13px',
       }}

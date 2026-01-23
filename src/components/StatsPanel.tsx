@@ -314,7 +314,7 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
       <div
         style={{
           position: 'absolute',
-          bottom: '20px',
+          bottom: '45px',
           left: '10px',
           zIndex: 1000,
           backgroundColor: 'rgba(0, 0, 0, 0.85)',
@@ -340,7 +340,7 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
       ref={panelRef}
       style={{
         position: 'absolute',
-        bottom: '20px',
+        bottom: '45px',
         left: '10px',
         zIndex: 1000,
         backgroundColor: 'rgba(0, 0, 0, 0.9)',
@@ -349,7 +349,7 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
         borderRadius: '8px',
         width: size.width,
         height: size.height,
-        maxHeight: `calc(100vh - 250px)`, // Leave room for top drawing controls
+        maxHeight: `calc(100vh - 270px)`, // Leave room for top drawing controls and bottom credit
         overflowY: 'auto',
         fontSize: '13px',
         boxSizing: 'border-box',
