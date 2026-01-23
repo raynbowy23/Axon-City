@@ -1,3 +1,4 @@
+import { useState, useRef, useEffect } from 'react';
 import { useStore } from '../store/useStore';
 import { MAX_COMPARISON_AREAS } from '../types';
 
@@ -8,7 +9,39 @@ interface AreaSelectorProps {
 }
 
 export function AreaSelector({ onAddArea, disabled, isLoading }: AreaSelectorProps) {
-  const { areas, activeAreaId, setActiveAreaId, removeArea } = useStore();
+  const { areas, activeAreaId, setActiveAreaId, removeArea, renameArea } = useStore();
+
+  // Track which area is being edited
+  const [editingAreaId, setEditingAreaId] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Focus input when editing starts
+  useEffect(() => {
+    if (editingAreaId && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  }, [editingAreaId]);
+
+  const startEditing = (areaId: string, currentName: string) => {
+    if (isLoading) return;
+    setEditingAreaId(areaId);
+    setEditValue(currentName);
+  };
+
+  const finishEditing = () => {
+    if (editingAreaId && editValue.trim()) {
+      renameArea(editingAreaId, editValue.trim());
+    }
+    setEditingAreaId(null);
+    setEditValue('');
+  };
+
+  const cancelEditing = () => {
+    setEditingAreaId(null);
+    setEditValue('');
+  };
 
   if (areas.length === 0) {
     return null;
@@ -78,7 +111,46 @@ export function AreaSelector({ onAddArea, disabled, isLoading }: AreaSelectorPro
                   backgroundColor: `rgb(${r}, ${g}, ${b})`,
                 }}
               />
-              {area.name}
+              {editingAreaId === area.id ? (
+                <input
+                  ref={inputRef}
+                  type="text"
+                  value={editValue}
+                  onChange={(e) => setEditValue(e.target.value)}
+                  onBlur={finishEditing}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      finishEditing();
+                    } else if (e.key === 'Escape') {
+                      cancelEditing();
+                    }
+                    e.stopPropagation();
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                  style={{
+                    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                    border: 'none',
+                    borderRadius: '3px',
+                    color: 'white',
+                    fontSize: '12px',
+                    fontWeight: '600',
+                    padding: '2px 6px',
+                    width: '80px',
+                    outline: 'none',
+                  }}
+                />
+              ) : (
+                <span
+                  onDoubleClick={(e) => {
+                    e.stopPropagation();
+                    startEditing(area.id, area.name);
+                  }}
+                  title="Double-click to rename"
+                  style={{ cursor: 'text' }}
+                >
+                  {area.name}
+                </span>
+              )}
             </button>
 
             {/* Remove button */}
