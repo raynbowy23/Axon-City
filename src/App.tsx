@@ -12,6 +12,7 @@ import { MobileNav, type MobileTab } from './components/MobileNav';
 import { MapStyleSwitcher } from './components/MapStyleSwitcher';
 import { MapLanguageSwitcher } from './components/MapLanguageSwitcher';
 import { MapSettingsPanel } from './components/MapSettingsPanel';
+import { AreaSelector } from './components/AreaSelector';
 import { usePolygonDrawing } from './hooks/usePolygonDrawing';
 import { useIsMobile } from './hooks/useMediaQuery';
 import { useStore } from './store/useStore';
@@ -22,7 +23,8 @@ import {
   calculateLayerStats,
   calculatePolygonArea,
 } from './utils/geometryUtils';
-import type { CustomLayerConfig } from './types';
+import type { CustomLayerConfig, SelectionPolygon } from './types';
+import { MAX_COMPARISON_AREAS } from './types';
 import './App.css';
 
 function App() {
@@ -43,6 +45,14 @@ function App() {
     layerData,
     draggingVertexIndex,
     customLayers,
+    // Multi-area support
+    areas,
+    activeAreaId,
+    addArea,
+    updateAreaPolygon,
+    updateAreaLayerData,
+    setActiveAreaId,
+    clearAreas,
   } = useStore();
 
   const {
@@ -63,6 +73,9 @@ function App() {
   const [bottomSheetState, setBottomSheetState] = useState<BottomSheetState>('collapsed');
   const { isExtractedViewOpen, setExtractedViewOpen } = useStore();
 
+  // State to track if we're adding a new area or editing existing
+  const [isAddingNewArea, setIsAddingNewArea] = useState(false);
+
   // Handle mobile tab changes
   const handleMobileTabChange = useCallback((tab: MobileTab) => {
     setMobileTab(tab);
@@ -77,11 +90,37 @@ function App() {
   }, [setExtractedViewOpen]);
 
   // Handle fetching data when polygon is completed
+  // areaId parameter: if provided, update that area; if null, create a new area
   const handlePolygonComplete = useCallback(
-    async (polygon: Polygon) => {
+    async (polygon: Polygon, existingAreaId?: string) => {
       setIsLoading(true);
       setLoadingMessage('Preparing to fetch data...');
-      clearManifestLayerData(); // Only clear manifest layers, preserve custom layers
+
+      // Create selection polygon object
+      const selectionPoly: SelectionPolygon = {
+        id: `selection-${Date.now()}`,
+        geometry: polygon,
+        area: calculatePolygonArea(polygon) * 1_000_000,
+      };
+
+      // Determine the area ID: either update existing or create new
+      let areaId: string | null = existingAreaId || null;
+
+      if (!existingAreaId) {
+        // Create a new area
+        areaId = addArea(selectionPoly);
+        if (!areaId) {
+          setIsLoading(false);
+          setLoadingMessage(`Maximum ${MAX_COMPARISON_AREAS} areas allowed`);
+          return;
+        }
+      } else {
+        // Update existing area polygon
+        updateAreaPolygon(existingAreaId, selectionPoly);
+      }
+
+      // Clear manifest layer data for backward compatibility (global layerData)
+      clearManifestLayerData();
 
       try {
         // Get bbox from polygon
@@ -121,12 +160,19 @@ function App() {
           // Calculate stats
           const stats = calculateLayerStats(clippedFeatures, layer, polygonAreaKm2);
 
-          setLayerData(layerId, {
+          const layerDataEntry = {
             layerId,
             features,
             clippedFeatures,
             stats,
-          });
+          };
+
+          // Store in both global layerData (for backward compat) and per-area
+          setLayerData(layerId, layerDataEntry);
+
+          if (areaId) {
+            updateAreaLayerData(areaId, layerId, layerDataEntry);
+          }
         }
 
         setLoadingMessage('Complete!');
@@ -140,7 +186,7 @@ function App() {
         setIsLoading(false);
       }
     },
-    [activeLayers, clearManifestLayerData, setIsLoading, setLayerData, setLoadingMessage]
+    [activeLayers, clearManifestLayerData, setIsLoading, setLayerData, setLoadingMessage, addArea, updateAreaPolygon, updateAreaLayerData]
   );
 
   // Re-fetch data when polygon is edited (dragged)
@@ -160,11 +206,11 @@ function App() {
       const currentPolygonStr = JSON.stringify(selectionPolygon.geometry.coordinates);
 
       if (lastFetchedPolygonRef.current && lastFetchedPolygonRef.current !== currentPolygonStr) {
-        // Polygon was edited, re-fetch data
-        handlePolygonComplete(selectionPolygon.geometry as Polygon);
+        // Polygon was edited, re-fetch data for the active area
+        handlePolygonComplete(selectionPolygon.geometry as Polygon, activeAreaId || undefined);
       }
     }
-  }, [selectionPolygon, isDrawing, draggingVertexIndex, layerData.size, handlePolygonComplete]);
+  }, [selectionPolygon, isDrawing, draggingVertexIndex, layerData.size, handlePolygonComplete, activeAreaId]);
 
   // Track last processed polygon for custom layers
   const lastProcessedPolygonRef = useRef<string | null>(null);
@@ -272,12 +318,14 @@ function App() {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && isDrawing) {
         cancelDrawing();
+        setIsAddingNewArea(false);
       }
       if (e.key === 'Enter' && isDrawing && pointCount >= 3) {
         const polygon = completeDrawing();
         if (polygon) {
-          handlePolygonComplete(polygon);
+          handlePolygonComplete(polygon, isAddingNewArea ? undefined : activeAreaId || undefined);
         }
+        setIsAddingNewArea(false);
       }
       if ((e.key === 'z' || e.key === 'Z') && (e.ctrlKey || e.metaKey) && isDrawing) {
         undoLastPoint();
@@ -286,25 +334,38 @@ function App() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isDrawing, pointCount, cancelDrawing, completeDrawing, undoLastPoint, handlePolygonComplete]);
+  }, [isDrawing, pointCount, cancelDrawing, completeDrawing, undoLastPoint, handlePolygonComplete, isAddingNewArea, activeAreaId]);
 
   const handleStartDrawing = () => {
-    clearManifestLayerData(); // Preserve custom layers
-    setSelectionPolygon(null);
+    // When starting a new drawing for a new area, don't clear existing areas
+    setIsAddingNewArea(true);
+    setSelectionPolygon(null); // Clear preview polygon
     startDrawing();
   };
 
   const handleCompleteDrawing = () => {
     const polygon = completeDrawing();
     if (polygon) {
-      handlePolygonComplete(polygon);
+      // If adding new area, don't pass existing areaId
+      handlePolygonComplete(polygon, isAddingNewArea ? undefined : activeAreaId || undefined);
     }
+    setIsAddingNewArea(false);
   };
 
   const handleClearSelection = () => {
-    setSelectionPolygon(null);
+    // Clear all areas and reset
+    clearAreas();
     setSelectionLocationName(null);
-    clearManifestLayerData(); // Preserve custom layers
+    clearManifestLayerData();
+    lastFetchedPolygonRef.current = null;
+  };
+
+  const handleClearActiveArea = () => {
+    // Only remove the active area, keep others
+    if (activeAreaId) {
+      const { removeArea } = useStore.getState();
+      removeArea(activeAreaId);
+    }
   };
 
   return (
@@ -354,26 +415,57 @@ function App() {
 
             {!isDrawing ? (
               <>
-                <button
-                  onClick={handleStartDrawing}
-                  disabled={isLoading}
-                  style={{
-                    padding: '12px 24px',
-                    backgroundColor: isLoading ? '#666' : '#4A90D9',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '8px',
-                    cursor: isLoading ? 'not-allowed' : 'pointer',
-                    fontSize: '14px',
-                    fontWeight: '600',
-                    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.3)',
-                    opacity: isLoading ? 0.7 : 1,
-                  }}
-                >
-                  {isLoading ? 'Processing...' : 'Draw Selection Area'}
-                </button>
+                {/* Area selector - show when we have areas */}
+                {areas.length > 0 && (
+                  <div
+                    style={{
+                      backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                      padding: '10px 12px',
+                      borderRadius: '8px',
+                      marginBottom: '4px',
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: '10px',
+                        color: 'rgba(255, 255, 255, 0.6)',
+                        marginBottom: '6px',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.5px',
+                      }}
+                    >
+                      Comparison Areas
+                    </div>
+                    <AreaSelector
+                      onAddArea={handleStartDrawing}
+                      disabled={isLoading || areas.length >= MAX_COMPARISON_AREAS}
+                    />
+                  </div>
+                )}
 
-                {selectionPolygon && (
+                {/* Draw button - show when no areas or can add more */}
+                {areas.length === 0 && (
+                  <button
+                    onClick={handleStartDrawing}
+                    disabled={isLoading}
+                    style={{
+                      padding: '12px 24px',
+                      backgroundColor: isLoading ? '#666' : '#4A90D9',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '8px',
+                      cursor: isLoading ? 'not-allowed' : 'pointer',
+                      fontSize: '14px',
+                      fontWeight: '600',
+                      boxShadow: '0 2px 8px rgba(0, 0, 0, 0.3)',
+                      opacity: isLoading ? 0.7 : 1,
+                    }}
+                  >
+                    {isLoading ? 'Processing...' : 'Draw Selection Area'}
+                  </button>
+                )}
+
+                {(selectionPolygon || areas.length > 0) && (
                   <>
                     <button
                       onClick={handleClearSelection}
@@ -389,9 +481,9 @@ function App() {
                         opacity: isLoading ? 0.7 : 1,
                       }}
                     >
-                      Clear Selection
+                      {areas.length > 1 ? 'Clear All Areas' : 'Clear Selection'}
                     </button>
-                    {!isLoading && (
+                    {!isLoading && areas.length > 0 && (
                       <div
                         style={{
                           backgroundColor: 'rgba(0, 0, 0, 0.8)',
@@ -627,52 +719,76 @@ function App() {
               <div
                 style={{
                   display: 'flex',
+                  flexDirection: 'column',
                   gap: '8px',
                   padding: '12px 16px',
                   pointerEvents: 'auto',
+                  alignItems: 'center',
                 }}
               >
-                <button
-                  onClick={handleStartDrawing}
-                  disabled={isLoading}
-                  style={{
-                    padding: '14px 24px',
-                    backgroundColor: isLoading ? '#666' : '#4A90D9',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '12px',
-                    cursor: isLoading ? 'not-allowed' : 'pointer',
-                    fontSize: '15px',
-                    fontWeight: '600',
-                    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.4)',
-                    opacity: isLoading ? 0.7 : 1,
-                    minHeight: '48px',
-                  }}
-                >
-                  {isLoading ? 'Processing...' : 'Draw Area'}
-                </button>
-
-                {selectionPolygon && (
-                  <button
-                    onClick={handleClearSelection}
-                    disabled={isLoading}
+                {/* Mobile Area Selector */}
+                {areas.length > 0 && (
+                  <div
                     style={{
-                      padding: '14px 20px',
-                      backgroundColor: isLoading ? '#666' : '#D94A4A',
-                      color: 'white',
-                      border: 'none',
+                      backgroundColor: 'rgba(0, 0, 0, 0.85)',
+                      padding: '10px 14px',
                       borderRadius: '12px',
-                      cursor: isLoading ? 'not-allowed' : 'pointer',
-                      fontSize: '15px',
-                      fontWeight: '600',
-                      boxShadow: '0 4px 12px rgba(0, 0, 0, 0.4)',
-                      opacity: isLoading ? 0.7 : 1,
-                      minHeight: '48px',
+                      marginBottom: '4px',
                     }}
                   >
-                    Clear
-                  </button>
+                    <AreaSelector
+                      onAddArea={handleStartDrawing}
+                      disabled={isLoading || areas.length >= MAX_COMPARISON_AREAS}
+                    />
+                  </div>
                 )}
+
+                {/* Draw/Clear buttons row */}
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  {areas.length === 0 && (
+                    <button
+                      onClick={handleStartDrawing}
+                      disabled={isLoading}
+                      style={{
+                        padding: '14px 24px',
+                        backgroundColor: isLoading ? '#666' : '#4A90D9',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '12px',
+                        cursor: isLoading ? 'not-allowed' : 'pointer',
+                        fontSize: '15px',
+                        fontWeight: '600',
+                        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.4)',
+                        opacity: isLoading ? 0.7 : 1,
+                        minHeight: '48px',
+                      }}
+                    >
+                      {isLoading ? 'Processing...' : 'Draw Area'}
+                    </button>
+                  )}
+
+                  {(selectionPolygon || areas.length > 0) && (
+                    <button
+                      onClick={handleClearSelection}
+                      disabled={isLoading}
+                      style={{
+                        padding: '14px 20px',
+                        backgroundColor: isLoading ? '#666' : '#D94A4A',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '12px',
+                        cursor: isLoading ? 'not-allowed' : 'pointer',
+                        fontSize: '15px',
+                        fontWeight: '600',
+                        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.4)',
+                        opacity: isLoading ? 0.7 : 1,
+                        minHeight: '48px',
+                      }}
+                    >
+                      {areas.length > 1 ? 'Clear All' : 'Clear'}
+                    </button>
+                  )}
+                </div>
               </div>
             ) : (
               <div

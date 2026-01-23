@@ -92,6 +92,27 @@ export interface SelectionPolygon {
   area: number; // in m²
 }
 
+// Colors for comparison areas (colorblind-friendly, distinct)
+export const AREA_COLORS: [number, number, number, number][] = [
+  [59, 130, 246, 200],   // Blue
+  [249, 115, 22, 200],   // Orange
+  [34, 197, 94, 200],    // Green
+  [168, 85, 247, 200],   // Purple
+];
+
+export const AREA_NAMES = ['Area A', 'Area B', 'Area C', 'Area D'] as const;
+
+export const MAX_COMPARISON_AREAS = 4;
+
+// A comparison area represents one geographic region being analyzed
+export interface ComparisonArea {
+  id: string;
+  name: string;
+  color: [number, number, number, number];
+  polygon: SelectionPolygon;
+  layerData: Map<string, LayerData>;
+}
+
 export interface ViewState {
   longitude: number;
   latitude: number;
@@ -158,7 +179,19 @@ export interface AppState {
   removeFavoriteLocation: (id: string) => void;
   clearFavoriteLocations: () => void;
 
-  // Selection
+  // Comparison areas (multi-area selection)
+  areas: ComparisonArea[];
+  activeAreaId: string | null;
+  addArea: (polygon: SelectionPolygon) => string | null; // returns area id or null if max reached
+  updateAreaPolygon: (areaId: string, polygon: SelectionPolygon) => void;
+  updateAreaLayerData: (areaId: string, layerId: string, data: LayerData) => void;
+  removeArea: (areaId: string) => void;
+  setActiveAreaId: (areaId: string | null) => void;
+  renameArea: (areaId: string, name: string) => void;
+  clearAreas: () => void;
+  getActiveArea: () => ComparisonArea | null;
+
+  // Selection (legacy - bridges to active area)
   selectionPolygon: SelectionPolygon | null;
   setSelectionPolygon: (polygon: SelectionPolygon | null) => void;
   isDrawing: boolean;

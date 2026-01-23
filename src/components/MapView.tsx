@@ -78,6 +78,9 @@ export function MapView() {
     selectedFeatures,
     layerOrder,
     customLayers,
+    // Multi-area support
+    areas,
+    activeAreaId,
   } = useStore();
 
   // Get the current map style URL or configuration
@@ -636,8 +639,35 @@ export function MapView() {
   const deckLayers = useMemo((): Layer[] => {
     const layers: Layer[] = [];
 
-    // Selection polygon (drawing preview)
-    if (selectionPolygon) {
+    // Render all comparison areas with distinct colors
+    if (areas.length > 0) {
+      areas.forEach((area) => {
+        const isActive = area.id === activeAreaId;
+        const [r, g, b, a] = area.color;
+
+        // Area polygon fill
+        layers.push(
+          new PolygonLayer({
+            id: `area-polygon-${area.id}`,
+            data: [area.polygon.geometry],
+            getPolygon: (d: Polygon) => d.coordinates,
+            getFillColor: [r, g, b, isActive ? 60 : 40],
+            getLineColor: [r, g, b, isActive ? 255 : 180],
+            getLineWidth: isActive ? 4 : 2,
+            lineWidthUnits: 'pixels',
+            filled: true,
+            stroked: true,
+            pickable: false,
+          })
+        );
+
+        // Area label (positioned at centroid)
+        // Note: deck.gl TextLayer would be better, but for simplicity we skip for now
+      });
+    }
+
+    // Selection polygon preview during drawing (when no areas yet or drawing new)
+    if (selectionPolygon && areas.length === 0) {
       layers.push(
         new PolygonLayer({
           id: 'selection-polygon',
@@ -1210,7 +1240,7 @@ export function MapView() {
     }
 
     return layers;
-  }, [layerRenderInfo, selectionPolygon, hoveredLayerId, isolatedLayerId, explodedView, isDrawing, drawingPoints, editableVertices, draggingVertexIndex, hoveredVertexIndex, hoveredMidpointIndex, handleAddVertex, handleRemoveVertex, selectedFeatures, layerOrder, pinnedInfos]);
+  }, [layerRenderInfo, selectionPolygon, hoveredLayerId, isolatedLayerId, explodedView, isDrawing, drawingPoints, editableVertices, draggingVertexIndex, hoveredVertexIndex, hoveredMidpointIndex, handleAddVertex, handleRemoveVertex, selectedFeatures, layerOrder, pinnedInfos, areas, activeAreaId]);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const onViewStateChange = useCallback(

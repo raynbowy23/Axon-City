@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import type { AppState, ViewState, LayerData, ExplodedViewConfig, SelectedFeature, Feature, LayerGroup, LayerOrderConfig, CustomLayerConfig, FeatureCollection, MapStyleType, MapLanguage, FavoriteLocation } from '../types';
+import type { AppState, ViewState, LayerData, ExplodedViewConfig, SelectedFeature, Feature, LayerGroup, LayerOrderConfig, CustomLayerConfig, FeatureCollection, MapStyleType, MapLanguage, FavoriteLocation, ComparisonArea, SelectionPolygon } from '../types';
+import { AREA_COLORS, AREA_NAMES, MAX_COMPARISON_AREAS } from '../types';
 import { layerManifest } from '../data/layerManifest';
 
 // LocalStorage keys
@@ -219,7 +220,140 @@ export const useStore = create<AppState>((set) => ({
     set({ favoriteLocations: [] });
   },
 
-  // Selection
+  // Comparison areas (multi-area selection)
+  areas: [],
+  activeAreaId: null,
+
+  addArea: (polygon: SelectionPolygon) => {
+    let newAreaId: string | null = null;
+    set((state) => {
+      if (state.areas.length >= MAX_COMPARISON_AREAS) {
+        return state; // Max areas reached
+      }
+
+      const areaIndex = state.areas.length;
+      newAreaId = `area-${Date.now()}`;
+
+      const newArea: ComparisonArea = {
+        id: newAreaId,
+        name: AREA_NAMES[areaIndex] || `Area ${areaIndex + 1}`,
+        color: AREA_COLORS[areaIndex] || AREA_COLORS[0],
+        polygon,
+        layerData: new Map(),
+      };
+
+      return {
+        areas: [...state.areas, newArea],
+        activeAreaId: newAreaId,
+        // Also update legacy selectionPolygon for backward compatibility
+        selectionPolygon: polygon,
+      };
+    });
+    return newAreaId;
+  },
+
+  updateAreaPolygon: (areaId: string, polygon: SelectionPolygon) =>
+    set((state) => {
+      const areaIndex = state.areas.findIndex((a) => a.id === areaId);
+      if (areaIndex === -1) return state;
+
+      const newAreas = [...state.areas];
+      newAreas[areaIndex] = {
+        ...newAreas[areaIndex],
+        polygon,
+        layerData: new Map(), // Clear layer data when polygon changes
+      };
+
+      return {
+        areas: newAreas,
+        // Update legacy selectionPolygon if this is the active area
+        selectionPolygon: state.activeAreaId === areaId ? polygon : state.selectionPolygon,
+      };
+    }),
+
+  updateAreaLayerData: (areaId: string, layerId: string, data: LayerData) =>
+    set((state) => {
+      const areaIndex = state.areas.findIndex((a) => a.id === areaId);
+      if (areaIndex === -1) return state;
+
+      const newAreas = [...state.areas];
+      const newLayerData = new Map(newAreas[areaIndex].layerData);
+      newLayerData.set(layerId, data);
+
+      newAreas[areaIndex] = {
+        ...newAreas[areaIndex],
+        layerData: newLayerData,
+      };
+
+      return { areas: newAreas };
+    }),
+
+  removeArea: (areaId: string) =>
+    set((state) => {
+      const newAreas = state.areas.filter((a) => a.id !== areaId);
+
+      // Reassign colors and names to maintain consistency
+      const reassignedAreas = newAreas.map((area, index) => ({
+        ...area,
+        color: AREA_COLORS[index] || AREA_COLORS[0],
+        // Keep user-assigned names, only reassign if it was a default name
+        name: AREA_NAMES.includes(area.name as typeof AREA_NAMES[number])
+          ? AREA_NAMES[index] || `Area ${index + 1}`
+          : area.name,
+      }));
+
+      // If we removed the active area, set the first remaining area as active
+      let newActiveAreaId = state.activeAreaId;
+      if (state.activeAreaId === areaId) {
+        newActiveAreaId = reassignedAreas.length > 0 ? reassignedAreas[0].id : null;
+      }
+
+      // Update legacy selectionPolygon
+      const activeArea = reassignedAreas.find((a) => a.id === newActiveAreaId);
+
+      return {
+        areas: reassignedAreas,
+        activeAreaId: newActiveAreaId,
+        selectionPolygon: activeArea?.polygon || null,
+      };
+    }),
+
+  setActiveAreaId: (areaId: string | null) =>
+    set((state) => {
+      const activeArea = areaId ? state.areas.find((a) => a.id === areaId) : null;
+      return {
+        activeAreaId: areaId,
+        selectionPolygon: activeArea?.polygon || null,
+      };
+    }),
+
+  renameArea: (areaId: string, name: string) =>
+    set((state) => {
+      const areaIndex = state.areas.findIndex((a) => a.id === areaId);
+      if (areaIndex === -1) return state;
+
+      const newAreas = [...state.areas];
+      newAreas[areaIndex] = {
+        ...newAreas[areaIndex],
+        name,
+      };
+
+      return { areas: newAreas };
+    }),
+
+  clearAreas: () =>
+    set({
+      areas: [],
+      activeAreaId: null,
+      selectionPolygon: null,
+    }),
+
+  getActiveArea: () => {
+    const state = useStore.getState();
+    return state.areas.find((a) => a.id === state.activeAreaId) || null;
+  },
+
+  // Selection (legacy - bridges to active area for backward compatibility)
   selectionPolygon: null,
   setSelectionPolygon: (polygon) => set({ selectionPolygon: polygon }),
   isDrawing: false,
