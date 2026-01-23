@@ -18,7 +18,7 @@ import { usePolygonDrawing } from './hooks/usePolygonDrawing';
 import { useIsMobile } from './hooks/useMediaQuery';
 import { useStore } from './store/useStore';
 import { layerManifest } from './data/layerManifest';
-import { fetchMultipleLayers, getBboxFromPolygon } from './utils/osmFetcher';
+import { fetchMultipleLayers, fetchLayerData, getBboxFromPolygon } from './utils/osmFetcher';
 import {
   clipFeaturesToPolygon,
   calculateLayerStats,
@@ -282,6 +282,106 @@ function App() {
       lastProcessedPolygonRef.current = currentPolygonStr;
     }
   }, [selectionPolygon, customLayers, layerData, isDrawing, draggingVertexIndex, setLayerData]);
+
+  // Track previous active layers for auto-fetching
+  const prevActiveLayersRef = useRef<string[]>([]);
+  const isAutoFetchingRef = useRef(false);
+
+  // Auto-fetch data when new layers are activated while an area is selected
+  useEffect(() => {
+    // Skip if already fetching or no selection
+    if (isAutoFetchingRef.current || isLoading || !selectionPolygon || isDrawing) {
+      prevActiveLayersRef.current = activeLayers;
+      return;
+    }
+
+    // Find newly activated layers
+    const newlyActivatedLayers = activeLayers.filter(
+      (layerId) => !prevActiveLayersRef.current.includes(layerId)
+    );
+
+    // Find layers that need fetching (newly activated and no data yet)
+    const layersToFetch = newlyActivatedLayers.filter((layerId) => {
+      const existingData = layerData.get(layerId);
+      // Fetch if no data or no clipped features
+      return !existingData || !existingData.clippedFeatures;
+    });
+
+    // Update ref before async operation
+    prevActiveLayersRef.current = activeLayers;
+
+    if (layersToFetch.length === 0) return;
+
+    // Get layer configs for fetching
+    const layerConfigs = layersToFetch
+      .map((layerId) => layerManifest.layers.find((l) => l.id === layerId))
+      .filter((l): l is typeof layerManifest.layers[number] => l !== undefined);
+
+    if (layerConfigs.length === 0) return;
+
+    // Fetch the missing layers
+    const fetchMissingLayers = async () => {
+      isAutoFetchingRef.current = true;
+      setIsLoading(true);
+      setLoadingMessage(`Fetching ${layerConfigs.length} new layer(s)...`);
+
+      try {
+        const bbox = getBboxFromPolygon(selectionPolygon.geometry as Polygon, 0.001);
+        const polygonAreaKm2 = calculatePolygonArea(selectionPolygon.geometry as Polygon);
+
+        const results = await fetchMultipleLayers(
+          layerConfigs,
+          bbox,
+          (layerId, progress, total) => {
+            setLoadingMessage(`Fetching ${layerId}... (${progress}/${total})`);
+          }
+        );
+
+        // Process and clip each layer
+        setLoadingMessage('Processing features...');
+
+        for (const [layerId, features] of results.entries()) {
+          const layer = layerManifest.layers.find((l) => l.id === layerId);
+          if (!layer) continue;
+
+          // Clip features to selection polygon
+          const clippedFeatures = clipFeaturesToPolygon(
+            features,
+            selectionPolygon.geometry as Polygon,
+            layer.geometryType
+          );
+
+          // Calculate stats
+          const stats = calculateLayerStats(clippedFeatures, layer, polygonAreaKm2);
+
+          const layerDataEntry = {
+            layerId,
+            features,
+            clippedFeatures,
+            stats,
+          };
+
+          // Store in global layerData
+          setLayerData(layerId, layerDataEntry);
+
+          // Also store in active area if exists
+          if (activeAreaId) {
+            updateAreaLayerData(activeAreaId, layerId, layerDataEntry);
+          }
+        }
+
+        setLoadingMessage('Complete!');
+      } catch (error) {
+        console.error('Error auto-fetching layers:', error);
+        setLoadingMessage('Error fetching data');
+      } finally {
+        setIsLoading(false);
+        isAutoFetchingRef.current = false;
+      }
+    };
+
+    fetchMissingLayers();
+  }, [activeLayers, selectionPolygon, layerData, isLoading, isDrawing, activeAreaId, setIsLoading, setLoadingMessage, setLayerData, updateAreaLayerData]);
 
   // Track pointer down position to distinguish clicks/taps from drags
   const handlePointerDown = useCallback(
