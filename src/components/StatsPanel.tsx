@@ -7,9 +7,9 @@ import type { LayerStats, LayerGroup, AnyLayerConfig } from '../types';
 const MIN_WIDTH = 280;
 const MAX_WIDTH = 600;
 const MIN_HEIGHT = 200;
-const MAX_HEIGHT = 800;
+const MAX_HEIGHT = 500; // Reduced to prevent overlap with top controls
 const DEFAULT_WIDTH = 360;
-const DEFAULT_HEIGHT = 400;
+const DEFAULT_HEIGHT = 350;
 
 // LocalStorage key
 const STORAGE_KEY = 'axoncity-stats-panel-size';
@@ -349,7 +349,7 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
         borderRadius: '8px',
         width: size.width,
         height: size.height,
-        maxHeight: `calc(100vh - 40px)`,
+        maxHeight: `calc(100vh - 250px)`, // Leave room for top drawing controls
         overflowY: 'auto',
         fontSize: '13px',
         boxSizing: 'border-box',
