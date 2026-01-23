@@ -316,6 +316,8 @@ export const useStore = create<AppState>((set) => ({
         areas: reassignedAreas,
         activeAreaId: newActiveAreaId,
         selectionPolygon: activeArea?.polygon || null,
+        // Clear editable vertices when removing areas
+        editableVertices: activeArea ? state.editableVertices : [],
       };
     }),
 
@@ -347,6 +349,8 @@ export const useStore = create<AppState>((set) => ({
       areas: [],
       activeAreaId: null,
       selectionPolygon: null,
+      editableVertices: [],
+      drawingPoints: [],
     }),
 
   getActiveArea: () => {

@@ -10,6 +10,7 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 
 import { useStore } from '../store/useStore';
 import { layerManifest, getLayersByCustomOrder } from '../data/layerManifest';
+import { setMapInstance, setDeckCanvas } from '../utils/mapRef';
 import type { LayerData, LayerGroup, AnyLayerConfig, MapStyleType } from '../types';
 
 // Map style URLs - all free and publicly available
@@ -159,6 +160,52 @@ export function MapView() {
   const lastVertexClickRef = useRef<{ index: number; time: number } | null>(null);
   const deckRef = useRef<any>(null);
   const mapRef = useRef<MapRef>(null);
+
+  // Handler for when map loads
+  const handleMapLoad = useCallback(() => {
+    if (mapRef.current) {
+      const map = mapRef.current.getMap();
+      if (map) {
+        setMapInstance(map);
+        // Log canvas info for debugging
+        const canvas = map.getCanvas();
+        const gl = canvas?.getContext('webgl') || canvas?.getContext('webgl2');
+        const attrs = gl?.getContextAttributes();
+        console.log('Map instance registered for screenshot');
+        console.log('Canvas preserveDrawingBuffer:', attrs?.preserveDrawingBuffer);
+      }
+    }
+  }, []);
+
+  // Register map instance for screenshot capture
+  useEffect(() => {
+    const checkAndSetMap = () => {
+      if (mapRef.current) {
+        const map = mapRef.current.getMap();
+        if (map) {
+          setMapInstance(map);
+        }
+      }
+      if (deckRef.current) {
+        const deckCanvas = deckRef.current.deck?.canvas;
+        if (deckCanvas) {
+          setDeckCanvas(deckCanvas);
+        }
+      }
+    };
+
+    // Check immediately and after a short delay (for async loading)
+    checkAndSetMap();
+    const timer = setTimeout(checkAndSetMap, 1000);
+    const timer2 = setTimeout(checkAndSetMap, 3000);
+
+    return () => {
+      clearTimeout(timer);
+      clearTimeout(timer2);
+      setMapInstance(null);
+      setDeckCanvas(null);
+    };
+  }, []);
 
   // Pinned feature info (clicked to stick) - stores geographic coordinates and initial screen position
   interface PinnedInfo {
@@ -1438,7 +1485,13 @@ export function MapView() {
         onDragEnd={onDragEnd}
         getCursor={getCursor}
       >
-        <MapGL ref={mapRef} mapStyle={currentMapStyle} maxPitch={89} minPitch={0} />
+        <MapGL
+          ref={mapRef}
+          mapStyle={currentMapStyle}
+          maxPitch={89}
+          minPitch={0}
+          onLoad={handleMapLoad}
+        />
       </DeckGL>
 
       {/* Hover Tooltip */}

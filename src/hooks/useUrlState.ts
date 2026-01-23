@@ -85,8 +85,9 @@ export function useUrlState(onAreasRestored?: (polygons: { name: string; polygon
       setExplodedView({ enabled: true });
     }
 
-    // Restore areas from URL
-    if (urlState.areas.length > 0 && !areasRestoredRef.current) {
+    // Restore areas from URL (only if no areas exist yet)
+    const currentAreas = useStore.getState().areas;
+    if (urlState.areas.length > 0 && !areasRestoredRef.current && currentAreas.length === 0) {
       areasRestoredRef.current = true;
 
       const restoredPolygons: { name: string; polygon: Polygon }[] = [];

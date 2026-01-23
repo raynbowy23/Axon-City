@@ -75,8 +75,8 @@ function App() {
     async (restoredPolygons: { name: string; polygon: Polygon }[]) => {
       if (restoredPolygons.length === 0) return;
 
-      // Get current areas from store (they were just added)
-      const currentAreas = useStore.getState().areas;
+      // Get current state from store (they were just added)
+      const { areas: currentAreas, activeLayers: currentActiveLayers } = useStore.getState();
       if (currentAreas.length === 0) return;
 
       setIsLoading(true);
@@ -90,7 +90,7 @@ function App() {
 
           const bbox = getBboxFromPolygon(polygon, 0.001);
           const layersToFetch = layerManifest.layers.filter((layer) =>
-            activeLayers.includes(layer.id)
+            currentActiveLayers.includes(layer.id)
           );
 
           setLoadingMessage(`Fetching data for ${area.name}...`);
@@ -140,11 +140,24 @@ function App() {
         setIsLoading(false);
       }
     },
-    [activeLayers, setIsLoading, setLoadingMessage, setLayerData, updateAreaLayerData]
+    // Only depend on stable functions, not activeLayers (read from store at runtime)
+    [setIsLoading, setLoadingMessage, setLayerData, updateAreaLayerData]
+  );
+
+  // Stable ref for the callback to prevent re-triggering useUrlState effect
+  const handleAreasRestoredRef = useRef(handleAreasRestored);
+  handleAreasRestoredRef.current = handleAreasRestored;
+
+  // Stable callback that doesn't change identity
+  const stableHandleAreasRestored = useCallback(
+    (polygons: { name: string; polygon: Polygon }[]) => {
+      handleAreasRestoredRef.current(polygons);
+    },
+    []
   );
 
   // URL state sync for shareable links
-  useUrlState(handleAreasRestored);
+  useUrlState(stableHandleAreasRestored);
 
   // Mobile UI state
   const isMobile = useIsMobile();

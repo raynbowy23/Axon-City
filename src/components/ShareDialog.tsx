@@ -16,7 +16,7 @@ interface ShareDialogProps {
   isMobile?: boolean;
 }
 
-type ExportFormat = 'png' | 'csv';
+type ExportFormat = 'png-square' | 'png-portrait' | 'png-story' | 'csv';
 
 export function ShareDialog({ onClose, isMobile = false }: ShareDialogProps) {
   const { areas, activeLayers, activeStoryId } = useStore();
@@ -62,11 +62,19 @@ export function ShareDialog({ onClose, isMobile = false }: ShareDialogProps) {
     }
   }, [copyShareUrl]);
 
-  // Handle PNG export
-  const handleExportPNG = useCallback(async () => {
-    setExportingFormat('png');
+  // Handle PNG export with Instagram-friendly sizes
+  const handleExportPNG = useCallback(async (format: 'square' | 'portrait' | 'story' = 'square') => {
+    const formatKey = `png-${format}` as ExportFormat;
+    setExportingFormat(formatKey);
+
+    const resolutions = {
+      square: { width: 540, height: 540 },      // Square (1:1)
+      portrait: { width: 540, height: 675 },    // Portrait (4:5)
+      story: { width: 540, height: 960 },       // Story (9:16)
+    };
+
     const success = await exportSnapshot(
-      { width: 1920, height: 1080 },
+      resolutions[format],
       {
         presetName: preset?.name,
         areas,
@@ -107,7 +115,7 @@ export function ShareDialog({ onClose, isMobile = false }: ShareDialogProps) {
     setExportingFormat(null);
   }, [areas]);
 
-  // Handle copy image to clipboard
+  // Handle copy image to clipboard (uses square format)
   const handleCopyImage = useCallback(async () => {
     const blob = await captureSnapshot(defaultSnapshotOptions, {
       presetName: preset?.name,
@@ -221,7 +229,9 @@ export function ShareDialog({ onClose, isMobile = false }: ShareDialogProps) {
               backgroundColor: '#000',
               borderRadius: '8px',
               overflow: 'hidden',
-              aspectRatio: '16/9',
+              aspectRatio: '1/1',
+              maxWidth: '300px',
+              margin: '0 auto',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -312,15 +322,50 @@ export function ShareDialog({ onClose, isMobile = false }: ShareDialogProps) {
               letterSpacing: '0.5px',
             }}
           >
-            Download
+            Download Image
           </div>
-          <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '12px' }}>
             <DownloadButton
               icon="image"
-              label="PNG Image"
-              sublabel="1920×1080"
-              onClick={handleExportPNG}
-              loading={exportingFormat === 'png'}
+              label="Square"
+              sublabel="540×540"
+              onClick={() => handleExportPNG('square')}
+              loading={exportingFormat === 'png-square'}
+              recommended
+            />
+            <DownloadButton
+              icon="image"
+              label="Portrait"
+              sublabel="540×675"
+              onClick={() => handleExportPNG('portrait')}
+              loading={exportingFormat === 'png-portrait'}
+            />
+            <DownloadButton
+              icon="image"
+              label="Story"
+              sublabel="540×960"
+              onClick={() => handleExportPNG('story')}
+              loading={exportingFormat === 'png-story'}
+            />
+          </div>
+          <div
+            style={{
+              fontSize: '12px',
+              color: 'rgba(255, 255, 255, 0.6)',
+              marginBottom: '12px',
+              textTransform: 'uppercase',
+              letterSpacing: '0.5px',
+            }}
+          >
+            Other Exports
+          </div>
+          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+            <DownloadButton
+              icon="clipboard"
+              label="Copy Image"
+              sublabel="Clipboard"
+              onClick={handleCopyImage}
+              success={copySuccess === 'image'}
             />
             <DownloadButton
               icon="table"
@@ -329,13 +374,6 @@ export function ShareDialog({ onClose, isMobile = false }: ShareDialogProps) {
               onClick={handleExportCSV}
               loading={exportingFormat === 'csv'}
               disabled={areas.length === 0}
-            />
-            <DownloadButton
-              icon="clipboard"
-              label="Copy Image"
-              sublabel="Clipboard"
-              onClick={handleCopyImage}
-              success={copySuccess === 'image'}
             />
           </div>
         </div>
@@ -408,6 +446,7 @@ interface DownloadButtonProps {
   loading?: boolean;
   disabled?: boolean;
   success?: boolean;
+  recommended?: boolean;
 }
 
 function DownloadButton({
@@ -418,6 +457,7 @@ function DownloadButton({
   loading = false,
   disabled = false,
   success = false,
+  recommended = false,
 }: DownloadButtonProps) {
   const icons = {
     image: (
@@ -452,19 +492,42 @@ function DownloadButton({
         padding: '12px 16px',
         backgroundColor: success
           ? 'rgba(34, 197, 94, 0.2)'
+          : recommended
+          ? 'rgba(74, 144, 217, 0.2)'
           : 'rgba(255, 255, 255, 0.1)',
         border: success
           ? '1px solid rgba(34, 197, 94, 0.5)'
+          : recommended
+          ? '1px solid rgba(74, 144, 217, 0.6)'
           : '1px solid rgba(255, 255, 255, 0.2)',
         borderRadius: '8px',
         cursor: disabled || loading ? 'not-allowed' : 'pointer',
-        color: success ? '#22c55e' : 'white',
+        color: success ? '#22c55e' : recommended ? '#6BB3FF' : 'white',
         flex: 1,
         minWidth: '80px',
         opacity: disabled ? 0.5 : 1,
         transition: 'all 0.2s',
+        position: 'relative',
       }}
     >
+      {recommended && (
+        <span
+          style={{
+            position: 'absolute',
+            top: '-8px',
+            right: '-4px',
+            backgroundColor: '#4A90D9',
+            color: 'white',
+            fontSize: '9px',
+            fontWeight: '600',
+            padding: '2px 6px',
+            borderRadius: '4px',
+            textTransform: 'uppercase',
+          }}
+        >
+          Best
+        </span>
+      )}
       {loading ? (
         <div
           style={{
