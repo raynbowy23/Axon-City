@@ -5,11 +5,12 @@ import type { LayerStats, LayerGroup, AnyLayerConfig } from '../types';
 
 // Size constraints
 const MIN_WIDTH = 280;
-const MAX_WIDTH = 600;
+const MAX_WIDTH = 800; // Increased for comparison mode
 const MIN_HEIGHT = 200;
 const MAX_HEIGHT = 500; // Reduced to prevent overlap with top controls
 const DEFAULT_WIDTH = 360;
 const DEFAULT_HEIGHT = 350;
+const COMPARISON_WIDTH = 500; // Default width when in comparison mode
 
 // LocalStorage key
 const STORAGE_KEY = 'axoncity-stats-panel-size';
@@ -58,6 +59,10 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
   const [size, setSize] = useState<PanelSize>(loadSavedSize);
   const [isResizing, setIsResizing] = useState(false);
   const [resizeDirection, setResizeDirection] = useState<'right' | 'top' | 'corner' | null>(null);
+
+  // Comparison mode - show all areas side by side
+  const [isComparisonMode, setIsComparisonMode] = useState(false);
+  const canCompare = areas.length >= 2;
   const panelRef = useRef<HTMLDivElement>(null);
   const startPosRef = useRef<{ x: number; y: number; width: number; height: number }>({ x: 0, y: 0, width: 0, height: 0 });
 
@@ -163,6 +168,82 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
   const hasStats = Array.from(groupedStats.values()).some((layers) =>
     layers.some((l) => l.stats)
   );
+
+  // Comparison data - stats for all areas grouped by layer
+  const comparisonData = useMemo(() => {
+    if (!canCompare) return null;
+
+    const result: {
+      groupId: LayerGroup;
+      groupName: string;
+      groupColor: [number, number, number];
+      layers: {
+        layerId: string;
+        layerName: string;
+        fillColor?: [number, number, number, number];
+        areaStats: { areaId: string; areaName: string; areaColor: [number, number, number, number]; stats: LayerStats | undefined; areaSize: number }[];
+      }[];
+    }[] = [];
+
+    // Get all layer groups that have data in any area
+    const groupsWithData = new Set<LayerGroup>();
+    for (const layerId of activeLayers) {
+      const layer = getLayerConfig(layerId);
+      if (!layer) continue;
+      for (const area of areas) {
+        if (area.layerData.get(layerId)?.stats) {
+          groupsWithData.add(layer.group);
+          break;
+        }
+      }
+    }
+
+    for (const groupId of groupsWithData) {
+      const group = getGroupById(groupId);
+      if (!group) continue;
+
+      const layersInGroup = activeLayers
+        .map((layerId) => getLayerConfig(layerId))
+        .filter((layer): layer is AnyLayerConfig => layer !== undefined && layer.group === groupId);
+
+      const layersWithAnyStats = layersInGroup.filter((layer) =>
+        areas.some((area) => area.layerData.get(layer.id)?.stats)
+      );
+
+      if (layersWithAnyStats.length === 0) continue;
+
+      result.push({
+        groupId,
+        groupName: group.name,
+        groupColor: group.color,
+        layers: layersWithAnyStats.map((layer) => ({
+          layerId: layer.id,
+          layerName: layer.name,
+          fillColor: layer.style.fillColor,
+          areaStats: areas.map((area) => ({
+            areaId: area.id,
+            areaName: area.name,
+            areaColor: area.color,
+            stats: area.layerData.get(layer.id)?.stats,
+            areaSize: area.polygon.area,
+          })),
+        })),
+      });
+    }
+
+    return result;
+  }, [areas, activeLayers, getLayerConfig, canCompare]);
+
+  // Toggle comparison mode and adjust panel width
+  const toggleComparisonMode = useCallback(() => {
+    setIsComparisonMode((prev) => {
+      const newMode = !prev;
+      if (newMode && size.width < COMPARISON_WIDTH) {
+        setSize((s) => ({ ...s, width: COMPARISON_WIDTH }));
+      }
+      return newMode;
+    });
+  }, [size.width]);
 
   // Resize handle styles
   const resizeHandleStyle: React.CSSProperties = {
@@ -391,9 +472,9 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
         <div>
           <h3 style={{ margin: 0, fontSize: '14px' }}>
-            Selection Statistics
+            {isComparisonMode ? 'Area Comparison' : 'Selection Statistics'}
           </h3>
-          {activeArea && (
+          {!isComparisonMode && activeArea && (
             <div
               style={{
                 fontSize: '11px',
@@ -406,30 +487,49 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
             </div>
           )}
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          {canCompare && (
+            <button
+              onClick={toggleComparisonMode}
+              style={{
+                padding: '4px 8px',
+                backgroundColor: isComparisonMode ? '#22C55E' : 'rgba(34, 197, 94, 0.3)',
+                color: 'white',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                fontSize: '10px',
+                fontWeight: '500',
+              }}
+              title={isComparisonMode ? 'Show single area' : 'Compare all areas'}
+            >
+              {isComparisonMode ? 'Single' : 'Compare'}
+            </button>
+          )}
           <button
             onClick={() => setExtractedViewOpen(!isExtractedViewOpen)}
             style={{
-              padding: '4px 10px',
+              padding: '4px 8px',
               backgroundColor: isExtractedViewOpen ? '#4A90D9' : 'rgba(74, 144, 217, 0.3)',
               color: 'white',
               border: 'none',
               borderRadius: '4px',
               cursor: 'pointer',
-              fontSize: '11px',
+              fontSize: '10px',
               fontWeight: '500',
             }}
             title="Open extracted 3D view of selection"
           >
-            {isExtractedViewOpen ? 'Hide 3D' : 'Extract 3D'}
+            {isExtractedViewOpen ? 'Hide 3D' : '3D'}
           </button>
-          <span style={{ fontSize: '10px', opacity: 0.5 }}>
+          <span style={{ fontSize: '9px', opacity: 0.4 }}>
             {size.width}×{size.height}
           </span>
         </div>
       </div>
 
-      {selectionPolygon && (
+      {/* Area size - single mode shows active area, comparison mode shows all */}
+      {!isComparisonMode && selectionPolygon && (
         <div
           style={{
             padding: '8px',
@@ -475,7 +575,82 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
         </div>
       )}
 
-      {hasStats && (
+      {/* Comparison Mode View */}
+      {isComparisonMode && comparisonData && (
+        <div>
+          {/* Area size comparison header */}
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: `100px repeat(${areas.length}, 1fr)`,
+              gap: '8px',
+              marginBottom: '12px',
+              padding: '8px',
+              backgroundColor: 'rgba(255, 255, 255, 0.05)',
+              borderRadius: '4px',
+            }}
+          >
+            <div style={{ fontSize: '11px', fontWeight: '600' }}>Area Size</div>
+            {areas.map((area) => (
+              <div
+                key={area.id}
+                style={{
+                  fontSize: '10px',
+                  textAlign: 'center',
+                }}
+              >
+                <div
+                  style={{
+                    color: `rgba(${area.color.slice(0, 3).join(',')}, 1)`,
+                    fontWeight: '600',
+                    marginBottom: '2px',
+                  }}
+                >
+                  {area.name}
+                </div>
+                <div style={{ opacity: 0.8 }}>{formatArea(area.polygon.area)}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Layer stats comparison */}
+          {comparisonData.map(({ groupId, groupName, groupColor, layers }) => (
+            <div key={groupId} style={{ marginBottom: '16px' }}>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  marginBottom: '8px',
+                  paddingBottom: '4px',
+                  borderBottom: '1px solid rgba(255,255,255,0.1)',
+                }}
+              >
+                <div
+                  style={{
+                    width: '10px',
+                    height: '10px',
+                    borderRadius: '2px',
+                    backgroundColor: `rgb(${groupColor.join(',')})`,
+                  }}
+                />
+                <span style={{ fontWeight: '600', fontSize: '12px' }}>{groupName}</span>
+              </div>
+
+              {layers.map(({ layerId, layerName, areaStats }) => (
+                <ComparisonRow
+                  key={layerId}
+                  layerName={layerName}
+                  areaStats={areaStats}
+                />
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Single Area View */}
+      {!isComparisonMode && hasStats && (
         <div>
           {Array.from(groupedStats.entries()).map(([groupId, layers]) => {
             const group = getGroupById(groupId);
@@ -611,6 +786,166 @@ function StatItem({ label, value }: { label: string; value: string }) {
       <span style={{ fontWeight: '500' }}>{value}</span>
     </div>
   );
+}
+
+// Comparison row for multi-area view
+function ComparisonRow({
+  layerName,
+  areaStats,
+}: {
+  layerName: string;
+  areaStats: {
+    areaId: string;
+    areaName: string;
+    areaColor: [number, number, number, number];
+    stats: LayerStats | undefined;
+    areaSize: number;
+  }[];
+}) {
+  // Find max values for highlighting
+  const counts = areaStats.map((a) => a.stats?.count ?? 0);
+  const maxCount = Math.max(...counts);
+  const densities = areaStats.map((a) => a.stats?.density ?? 0);
+  const maxDensity = Math.max(...densities);
+
+  return (
+    <div
+      style={{
+        padding: '8px',
+        marginBottom: '4px',
+        backgroundColor: 'rgba(255, 255, 255, 0.03)',
+        borderRadius: '4px',
+      }}
+    >
+      <div style={{ fontWeight: '500', marginBottom: '8px', fontSize: '11px' }}>
+        {layerName}
+      </div>
+
+      {/* Stats comparison grid */}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: `70px repeat(${areaStats.length}, 1fr)`,
+          gap: '4px',
+          fontSize: '10px',
+        }}
+      >
+        {/* Count row */}
+        <div style={{ opacity: 0.6, alignSelf: 'center' }}>Count</div>
+        {areaStats.map((area) => {
+          const count = area.stats?.count ?? 0;
+          const isMax = count === maxCount && maxCount > 0;
+          return (
+            <div
+              key={`${area.areaId}-count`}
+              style={{
+                textAlign: 'center',
+                padding: '4px',
+                backgroundColor: isMax ? 'rgba(34, 197, 94, 0.2)' : 'rgba(255, 255, 255, 0.05)',
+                borderRadius: '3px',
+                borderLeft: `3px solid rgba(${area.areaColor.slice(0, 3).join(',')}, 0.8)`,
+              }}
+            >
+              <span style={{ fontWeight: isMax ? '600' : '400' }}>
+                {area.stats?.count?.toLocaleString() ?? '-'}
+              </span>
+            </div>
+          );
+        })}
+
+        {/* Density row */}
+        <div style={{ opacity: 0.6, alignSelf: 'center' }}>Density</div>
+        {areaStats.map((area) => {
+          const density = area.stats?.density ?? 0;
+          const isMax = density === maxDensity && maxDensity > 0;
+          return (
+            <div
+              key={`${area.areaId}-density`}
+              style={{
+                textAlign: 'center',
+                padding: '4px',
+                backgroundColor: isMax ? 'rgba(34, 197, 94, 0.2)' : 'rgba(255, 255, 255, 0.05)',
+                borderRadius: '3px',
+                borderLeft: `3px solid rgba(${area.areaColor.slice(0, 3).join(',')}, 0.8)`,
+              }}
+            >
+              <span style={{ fontWeight: isMax ? '600' : '400' }}>
+                {area.stats?.density !== undefined ? `${area.stats.density.toFixed(1)}/km²` : '-'}
+              </span>
+            </div>
+          );
+        })}
+
+        {/* Length row (if applicable) */}
+        {areaStats.some((a) => a.stats?.totalLength !== undefined) && (
+          <>
+            <div style={{ opacity: 0.6, alignSelf: 'center' }}>Length</div>
+            {areaStats.map((area) => {
+              const lengths = areaStats.map((a) => a.stats?.totalLength ?? 0);
+              const maxLength = Math.max(...lengths);
+              const length = area.stats?.totalLength ?? 0;
+              const isMax = length === maxLength && maxLength > 0;
+              return (
+                <div
+                  key={`${area.areaId}-length`}
+                  style={{
+                    textAlign: 'center',
+                    padding: '4px',
+                    backgroundColor: isMax ? 'rgba(34, 197, 94, 0.2)' : 'rgba(255, 255, 255, 0.05)',
+                    borderRadius: '3px',
+                    borderLeft: `3px solid rgba(${area.areaColor.slice(0, 3).join(',')}, 0.8)`,
+                  }}
+                >
+                  <span style={{ fontWeight: isMax ? '600' : '400' }}>
+                    {area.stats?.totalLength !== undefined
+                      ? formatLengthShort(area.stats.totalLength)
+                      : '-'}
+                  </span>
+                </div>
+              );
+            })}
+          </>
+        )}
+
+        {/* Coverage row (if applicable) */}
+        {areaStats.some((a) => a.stats?.areaShare !== undefined) && (
+          <>
+            <div style={{ opacity: 0.6, alignSelf: 'center' }}>Coverage</div>
+            {areaStats.map((area) => {
+              const coverages = areaStats.map((a) => a.stats?.areaShare ?? 0);
+              const maxCoverage = Math.max(...coverages);
+              const coverage = area.stats?.areaShare ?? 0;
+              const isMax = coverage === maxCoverage && maxCoverage > 0;
+              return (
+                <div
+                  key={`${area.areaId}-coverage`}
+                  style={{
+                    textAlign: 'center',
+                    padding: '4px',
+                    backgroundColor: isMax ? 'rgba(34, 197, 94, 0.2)' : 'rgba(255, 255, 255, 0.05)',
+                    borderRadius: '3px',
+                    borderLeft: `3px solid rgba(${area.areaColor.slice(0, 3).join(',')}, 0.8)`,
+                  }}
+                >
+                  <span style={{ fontWeight: isMax ? '600' : '400' }}>
+                    {area.stats?.areaShare !== undefined ? `${area.stats.areaShare.toFixed(1)}%` : '-'}
+                  </span>
+                </div>
+              );
+            })}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Short format for comparison view
+function formatLengthShort(meters: number): string {
+  if (meters < 1000) {
+    return `${meters.toFixed(0)}m`;
+  }
+  return `${(meters / 1000).toFixed(1)}km`;
 }
 
 function formatArea(areaM2: number): string {
