@@ -23,11 +23,13 @@ export function SearchBar({ isMobile = false }: SearchBarProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(-1);
+  const [showFavoritesMenu, setShowFavoritesMenu] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const favContainerRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const { setViewState, viewState, setSelectionLocationName } = useStore();
+  const { setViewState, viewState, setSelectionLocationName, favoriteLocations, addFavoriteLocation, removeFavoriteLocation } = useStore();
 
   // Debounced search function
   const searchLocation = useCallback(async (searchQuery: string) => {
@@ -179,6 +181,50 @@ export function SearchBar({ isMobile = false }: SearchBarProps) {
     };
   };
 
+  // Handle navigating to a favorite location
+  const handleGoToFavorite = useCallback((fav: { longitude: number; latitude: number; zoom: number; name: string }) => {
+    setViewState({
+      ...viewState,
+      longitude: fav.longitude,
+      latitude: fav.latitude,
+      zoom: fav.zoom,
+    });
+    setQuery(fav.name);
+    setShowFavoritesMenu(false);
+  }, [viewState, setViewState]);
+
+  // Handle adding current location as favorite
+  const handleAddFavorite = useCallback(() => {
+    const name = query.trim() || `Location ${favoriteLocations.length + 1}`;
+    addFavoriteLocation({
+      longitude: viewState.longitude,
+      latitude: viewState.latitude,
+      zoom: viewState.zoom,
+      name,
+    });
+    setShowFavoritesMenu(false);
+  }, [viewState, addFavoriteLocation, query, favoriteLocations.length]);
+
+  // Handle removing a favorite
+  const handleRemoveFavorite = useCallback((e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    removeFavoriteLocation(id);
+  }, [removeFavoriteLocation]);
+
+  // Close favorites menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (favContainerRef.current && !favContainerRef.current.contains(e.target as Node)) {
+        setShowFavoritesMenu(false);
+      }
+    };
+
+    if (showFavoritesMenu) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showFavoritesMenu]);
+
   return (
     <div
       ref={containerRef}
@@ -272,6 +318,159 @@ export function SearchBar({ isMobile = false }: SearchBarProps) {
             </svg>
           </button>
         )}
+
+        {/* Favorites/Star button */}
+        <div ref={favContainerRef} style={{ position: 'relative', marginLeft: '4px' }}>
+          <button
+            onClick={() => setShowFavoritesMenu(!showFavoritesMenu)}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: favoriteLocations.length > 0 ? '#FFD700' : 'rgba(255, 255, 255, 0.6)',
+              cursor: 'pointer',
+              padding: '4px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              transition: 'color 0.15s',
+            }}
+            title={favoriteLocations.length > 0 ? `${favoriteLocations.length} favorite(s)` : 'Add to favorites'}
+          >
+            {favoriteLocations.length > 0 ? (
+              // Filled star
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z" />
+              </svg>
+            ) : (
+              // Empty star
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z" />
+              </svg>
+            )}
+          </button>
+
+          {/* Favorites menu dropdown */}
+          {showFavoritesMenu && (
+            <div
+              style={{
+                position: 'absolute',
+                top: '100%',
+                right: 0,
+                marginTop: '4px',
+                backgroundColor: 'rgba(0, 0, 0, 0.95)',
+                borderRadius: '8px',
+                overflow: 'hidden',
+                boxShadow: '0 4px 12px rgba(0, 0, 0, 0.4)',
+                zIndex: 1001,
+                minWidth: '200px',
+                maxHeight: '300px',
+                overflowY: 'auto',
+              }}
+            >
+              {/* Add current location button */}
+              <button
+                onClick={handleAddFavorite}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  width: '100%',
+                  padding: '10px 14px',
+                  backgroundColor: 'transparent',
+                  color: '#4A90D9',
+                  border: 'none',
+                  borderBottom: favoriteLocations.length > 0 ? '1px solid rgba(255, 255, 255, 0.1)' : 'none',
+                  cursor: 'pointer',
+                  fontSize: '13px',
+                  textAlign: 'left',
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)'}
+                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" />
+                </svg>
+                Add Current Location
+              </button>
+
+              {/* List of favorites */}
+              {favoriteLocations.map((fav) => (
+                <div
+                  key={fav.id}
+                  onClick={() => handleGoToFavorite(fav)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '10px 14px',
+                    backgroundColor: 'transparent',
+                    cursor: 'pointer',
+                    borderBottom: '1px solid rgba(255, 255, 255, 0.05)',
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)'}
+                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, minWidth: 0 }}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="#FFD700" style={{ flexShrink: 0 }}>
+                      <path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z" />
+                    </svg>
+                    <span
+                      style={{
+                        color: 'white',
+                        fontSize: '13px',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {fav.name}
+                    </span>
+                  </div>
+                  <button
+                    onClick={(e) => handleRemoveFavorite(e, fav.id)}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: 'rgba(255, 255, 255, 0.4)',
+                      cursor: 'pointer',
+                      padding: '4px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                      marginLeft: '8px',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.color = '#ff6b6b';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.color = 'rgba(255, 255, 255, 0.4)';
+                    }}
+                    title="Remove favorite"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
+                    </svg>
+                  </button>
+                </div>
+              ))}
+
+              {/* Empty state */}
+              {favoriteLocations.length === 0 && (
+                <div
+                  style={{
+                    padding: '12px 14px',
+                    color: 'rgba(255, 255, 255, 0.5)',
+                    fontSize: '12px',
+                    textAlign: 'center',
+                  }}
+                >
+                  No favorites yet
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Results Dropdown */}

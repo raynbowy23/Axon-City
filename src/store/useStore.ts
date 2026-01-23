@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { AppState, ViewState, LayerData, ExplodedViewConfig, SelectedFeature, Feature, LayerGroup, LayerOrderConfig, CustomLayerConfig, FeatureCollection, MapStyleType, MapLanguage } from '../types';
+import type { AppState, ViewState, LayerData, ExplodedViewConfig, SelectedFeature, Feature, LayerGroup, LayerOrderConfig, CustomLayerConfig, FeatureCollection, MapStyleType, MapLanguage, FavoriteLocation } from '../types';
 import { layerManifest } from '../data/layerManifest';
 
 // LocalStorage keys
@@ -7,6 +7,7 @@ const STORAGE_KEYS = {
   VIEW_STATE: 'axoncity-viewstate',
   MAP_STYLE: 'axoncity-mapstyle',
   MAP_LANGUAGE: 'axoncity-maplanguage',
+  FAVORITE_LOCATIONS: 'axoncity-favorites',
 } as const;
 
 // Distinct colors for selected features (colorblind-friendly palette)
@@ -109,6 +110,38 @@ function saveMapLanguage(language: MapLanguage): void {
   }
 }
 
+// Load favoriteLocations from localStorage or return empty array
+function getInitialFavoriteLocations(): FavoriteLocation[] {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEYS.FAVORITE_LOCATIONS);
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      if (Array.isArray(parsed)) {
+        return parsed.filter(
+          (loc: FavoriteLocation) =>
+            typeof loc.id === 'string' &&
+            typeof loc.longitude === 'number' &&
+            typeof loc.latitude === 'number' &&
+            typeof loc.zoom === 'number' &&
+            typeof loc.name === 'string'
+        );
+      }
+    }
+  } catch (e) {
+    console.warn('Failed to load favoriteLocations from localStorage:', e);
+  }
+  return [];
+}
+
+// Save favoriteLocations to localStorage
+function saveFavoriteLocations(locations: FavoriteLocation[]): void {
+  try {
+    localStorage.setItem(STORAGE_KEYS.FAVORITE_LOCATIONS, JSON.stringify(locations));
+  } catch (e) {
+    console.warn('Failed to save favoriteLocations to localStorage:', e);
+  }
+}
+
 const defaultExplodedView: ExplodedViewConfig = {
   enabled: false,
   layerSpacing: 100, // meters between groups (increased for better separation)
@@ -159,6 +192,31 @@ export const useStore = create<AppState>((set) => ({
   setMapLanguage: (language) => {
     saveMapLanguage(language);
     set({ mapLanguage: language });
+  },
+
+  // Favorite locations (loaded from localStorage)
+  favoriteLocations: getInitialFavoriteLocations(),
+  addFavoriteLocation: (location) => {
+    set((state) => {
+      const newLocation: FavoriteLocation = {
+        ...location,
+        id: `fav-${Date.now()}`,
+      };
+      const newLocations = [...state.favoriteLocations, newLocation];
+      saveFavoriteLocations(newLocations);
+      return { favoriteLocations: newLocations };
+    });
+  },
+  removeFavoriteLocation: (id) => {
+    set((state) => {
+      const newLocations = state.favoriteLocations.filter((loc) => loc.id !== id);
+      saveFavoriteLocations(newLocations);
+      return { favoriteLocations: newLocations };
+    });
+  },
+  clearFavoriteLocations: () => {
+    saveFavoriteLocations([]);
+    set({ favoriteLocations: [] });
   },
 
   // Selection

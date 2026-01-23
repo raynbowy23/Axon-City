@@ -13,6 +13,15 @@ export interface MapStyleOption {
 // Map language options
 export type MapLanguage = 'local' | 'en';
 
+// Favorite location
+export interface FavoriteLocation {
+  id: string;
+  longitude: number;
+  latitude: number;
+  zoom: number;
+  name: string;
+}
+
 // Layer categories matching the poster aesthetic
 export type LayerGroup =
   | 'infrastructure'
@@ -142,6 +151,12 @@ export interface AppState {
   // Map language
   mapLanguage: MapLanguage;
   setMapLanguage: (language: MapLanguage) => void;
+
+  // Favorite locations
+  favoriteLocations: FavoriteLocation[];
+  addFavoriteLocation: (location: Omit<FavoriteLocation, 'id'>) => void;
+  removeFavoriteLocation: (id: string) => void;
+  clearFavoriteLocations: () => void;
 
   // Selection
   selectionPolygon: SelectionPolygon | null;
