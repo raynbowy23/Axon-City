@@ -82,6 +82,8 @@ export function MapView() {
     areas,
     activeAreaId,
     setActiveAreaId,
+    // Loading state
+    isLoading,
   } = useStore();
 
   // Create areas layer separately to avoid it being affected by drawing state
@@ -120,9 +122,12 @@ export function MapView() {
         f.properties.isActive ? 5 : 3,
       lineWidthUnits: 'pixels',
       pickable: true,
-      autoHighlight: true,
+      autoHighlight: !isLoading,
       highlightColor: [255, 255, 255, 50],
       onClick: (info: PickingInfo) => {
+        // Don't allow area switching while loading
+        if (isLoading) return;
+
         if (info.object?.properties?.id) {
           const clickedAreaId = info.object.properties.id;
           if (clickedAreaId !== activeAreaId) {
@@ -137,7 +142,7 @@ export function MapView() {
         getLineWidth: [activeAreaId],
       },
     });
-  }, [areas, activeAreaId, setActiveAreaId]);
+  }, [areas, activeAreaId, setActiveAreaId, isLoading]);
 
   // Get the current map style URL or configuration
   const currentMapStyle = useMemo(() => {
@@ -677,13 +682,16 @@ export function MapView() {
   // Handle drag start on vertex handles
   const onDragStart = useCallback(
     (info: PickingInfo) => {
+      // Don't allow editing while loading
+      if (isLoading) return false;
+
       if (info.layer?.id === 'vertex-handles' && info.index !== undefined) {
         setDraggingVertexIndex(info.index);
         return true; // Prevent map panning
       }
       return false;
     },
-    [setDraggingVertexIndex]
+    [setDraggingVertexIndex, isLoading]
   );
 
   // Handle drag movement
@@ -987,7 +995,7 @@ export function MapView() {
       const vertexData = editableVertices.map((vertex, index) => ({
         position: vertex,
         index,
-        canRemove: editableVertices.length > 3,
+        canRemove: editableVertices.length > 3 && !isLoading,
       }));
 
       // Calculate midpoints for adding new vertices
@@ -1011,7 +1019,8 @@ export function MapView() {
             data: edgeData,
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             getPath: (d: any) => d.path,
-            getColor: [255, 200, 50, 255],
+            // Grey when loading, orange when editable
+            getColor: isLoading ? [150, 150, 150, 180] : [255, 200, 50, 255],
             getWidth: 3,
             widthUnits: 'pixels' as const,
             pickable: false,
@@ -1019,38 +1028,40 @@ export function MapView() {
         );
       }
 
-      // Midpoint handles for adding new vertices
-      layers.push(
-        new ScatterplotLayer({
-          id: 'midpoint-handles',
-          data: midpointData,
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          getPosition: (d: any) => d.position,
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          getFillColor: (d: any) =>
-            d.afterIndex === hoveredMidpointIndex
-              ? [100, 200, 255, 255] // Light blue when hovered
-              : [100, 200, 255, 150], // Semi-transparent light blue
-          getLineColor: [255, 255, 255, 200],
-          getRadius: 8,
-          radiusUnits: 'pixels' as const,
-          filled: true,
-          stroked: true,
-          lineWidthMinPixels: 2,
-          pickable: true,
-          onHover: (info: PickingInfo) => {
-            setHoveredMidpointIndex(info.object?.afterIndex ?? null);
-          },
-          onClick: (info: PickingInfo) => {
-            if (info.object && info.coordinate) {
-              handleAddVertex(info.object.afterIndex, info.coordinate as [number, number]);
-            }
-          },
-          updateTriggers: {
-            getFillColor: [hoveredMidpointIndex],
-          },
-        })
-      );
+      // Midpoint handles for adding new vertices (hidden when loading)
+      if (!isLoading) {
+        layers.push(
+          new ScatterplotLayer({
+            id: 'midpoint-handles',
+            data: midpointData,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            getPosition: (d: any) => d.position,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            getFillColor: (d: any) =>
+              d.afterIndex === hoveredMidpointIndex
+                ? [100, 200, 255, 255] // Light blue when hovered
+                : [100, 200, 255, 150], // Semi-transparent light blue
+            getLineColor: [255, 255, 255, 200],
+            getRadius: 8,
+            radiusUnits: 'pixels' as const,
+            filled: true,
+            stroked: true,
+            lineWidthMinPixels: 2,
+            pickable: true,
+            onHover: (info: PickingInfo) => {
+              setHoveredMidpointIndex(info.object?.afterIndex ?? null);
+            },
+            onClick: (info: PickingInfo) => {
+              if (info.object && info.coordinate) {
+                handleAddVertex(info.object.afterIndex, info.coordinate as [number, number]);
+              }
+            },
+            updateTriggers: {
+              getFillColor: [hoveredMidpointIndex],
+            },
+          })
+        );
+      }
 
       // Draggable vertex handles (double-click to remove)
       layers.push(
@@ -1061,24 +1072,31 @@ export function MapView() {
           getPosition: (d: any) => d.position,
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           getFillColor: (d: any) =>
-            d.index === draggingVertexIndex
+            isLoading
+              ? [150, 150, 150, 200] // Grey when loading
+              : d.index === draggingVertexIndex
               ? [255, 100, 100, 255] // Red when dragging
               : d.index === hoveredVertexIndex
               ? d.canRemove
                 ? [255, 150, 100, 255] // Orange-red when hovered and can remove
                 : [255, 255, 100, 255] // Yellow when hovered but can't remove
               : [255, 200, 50, 255], // Orange default
-          getLineColor: [255, 255, 255, 255],
+          getLineColor: isLoading ? [200, 200, 200, 200] : [255, 255, 255, 255],
           getRadius: 14,
           radiusUnits: 'pixels' as const,
           filled: true,
           stroked: true,
           lineWidthMinPixels: 3,
-          pickable: true,
+          pickable: !isLoading, // Not pickable when loading
           onHover: (info: PickingInfo) => {
-            setHoveredVertexIndex(info.index ?? null);
+            if (!isLoading) {
+              setHoveredVertexIndex(info.index ?? null);
+            }
           },
           onClick: (info: PickingInfo) => {
+            // Don't allow removal while loading
+            if (isLoading) return;
+
             if (info.object && info.object.canRemove) {
               const now = Date.now();
               const lastClick = lastVertexClickRef.current;
@@ -1092,7 +1110,9 @@ export function MapView() {
             }
           },
           updateTriggers: {
-            getFillColor: [draggingVertexIndex, hoveredVertexIndex, editableVertices.length],
+            getFillColor: [draggingVertexIndex, hoveredVertexIndex, editableVertices.length, isLoading],
+            getLineColor: [isLoading],
+            pickable: [isLoading],
           },
         })
       );
@@ -1353,7 +1373,7 @@ export function MapView() {
     }
 
     return layers;
-  }, [layerRenderInfo, selectionPolygon, hoveredLayerId, isolatedLayerId, explodedView, isDrawing, drawingPoints, editableVertices, draggingVertexIndex, hoveredVertexIndex, hoveredMidpointIndex, handleAddVertex, handleRemoveVertex, selectedFeatures, layerOrder, pinnedInfos, areasLayer]);
+  }, [layerRenderInfo, selectionPolygon, hoveredLayerId, isolatedLayerId, explodedView, isDrawing, drawingPoints, editableVertices, draggingVertexIndex, hoveredVertexIndex, hoveredMidpointIndex, handleAddVertex, handleRemoveVertex, selectedFeatures, layerOrder, pinnedInfos, areasLayer, isLoading]);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const onViewStateChange = useCallback(

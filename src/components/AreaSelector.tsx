@@ -4,9 +4,10 @@ import { MAX_COMPARISON_AREAS } from '../types';
 interface AreaSelectorProps {
   onAddArea?: () => void;
   disabled?: boolean;
+  isLoading?: boolean;
 }
 
-export function AreaSelector({ onAddArea, disabled }: AreaSelectorProps) {
+export function AreaSelector({ onAddArea, disabled, isLoading }: AreaSelectorProps) {
   const { areas, activeAreaId, setActiveAreaId, removeArea } = useStore();
 
   if (areas.length === 0) {
@@ -27,6 +28,7 @@ export function AreaSelector({ onAddArea, disabled }: AreaSelectorProps) {
       {areas.map((area) => {
         const isActive = area.id === activeAreaId;
         const [r, g, b] = area.color;
+        const canSwitch = !isLoading && !isActive;
 
         return (
           <div
@@ -38,7 +40,8 @@ export function AreaSelector({ onAddArea, disabled }: AreaSelectorProps) {
             }}
           >
             <button
-              onClick={() => setActiveAreaId(area.id)}
+              onClick={() => canSwitch && setActiveAreaId(area.id)}
+              disabled={isLoading && !isActive}
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -49,14 +52,15 @@ export function AreaSelector({ onAddArea, disabled }: AreaSelectorProps) {
                   : 'rgba(255, 255, 255, 0.1)',
                 border: `2px solid rgba(${r}, ${g}, ${b}, ${isActive ? 1 : 0.5})`,
                 borderRadius: '6px',
-                cursor: 'pointer',
+                cursor: isLoading && !isActive ? 'not-allowed' : 'pointer',
                 color: 'white',
                 fontSize: '12px',
                 fontWeight: isActive ? '600' : '400',
                 transition: 'all 0.15s ease',
+                opacity: isLoading && !isActive ? 0.5 : 1,
               }}
               onMouseEnter={(e) => {
-                if (!isActive) {
+                if (!isActive && !isLoading) {
                   e.currentTarget.style.backgroundColor = `rgba(${r}, ${g}, ${b}, 0.2)`;
                 }
               }}
@@ -81,8 +85,11 @@ export function AreaSelector({ onAddArea, disabled }: AreaSelectorProps) {
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                removeArea(area.id);
+                if (!isLoading) {
+                  removeArea(area.id);
+                }
               }}
+              disabled={isLoading}
               style={{
                 width: '20px',
                 height: '20px',
@@ -90,7 +97,7 @@ export function AreaSelector({ onAddArea, disabled }: AreaSelectorProps) {
                 backgroundColor: 'rgba(255, 255, 255, 0.1)',
                 border: 'none',
                 borderRadius: '4px',
-                cursor: 'pointer',
+                cursor: isLoading ? 'not-allowed' : 'pointer',
                 color: 'rgba(255, 255, 255, 0.6)',
                 fontSize: '14px',
                 lineHeight: '1',
@@ -98,16 +105,19 @@ export function AreaSelector({ onAddArea, disabled }: AreaSelectorProps) {
                 alignItems: 'center',
                 justifyContent: 'center',
                 transition: 'all 0.15s ease',
+                opacity: isLoading ? 0.5 : 1,
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.backgroundColor = 'rgba(217, 74, 74, 0.8)';
-                e.currentTarget.style.color = 'white';
+                if (!isLoading) {
+                  e.currentTarget.style.backgroundColor = 'rgba(217, 74, 74, 0.8)';
+                  e.currentTarget.style.color = 'white';
+                }
               }}
               onMouseLeave={(e) => {
                 e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
                 e.currentTarget.style.color = 'rgba(255, 255, 255, 0.6)';
               }}
-              title={`Remove ${area.name}`}
+              title={isLoading ? 'Please wait...' : `Remove ${area.name}`}
             >
               ×
             </button>

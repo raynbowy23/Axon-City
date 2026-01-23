@@ -464,6 +464,7 @@ function App() {
                     <AreaSelector
                       onAddArea={handleStartDrawing}
                       disabled={isLoading || areas.length >= MAX_COMPARISON_AREAS}
+                      isLoading={isLoading}
                     />
                   </div>
                 )}
@@ -764,6 +765,7 @@ function App() {
                     <AreaSelector
                       onAddArea={handleStartDrawing}
                       disabled={isLoading || areas.length >= MAX_COMPARISON_AREAS}
+                      isLoading={isLoading}
                     />
                   </div>
                 )}
