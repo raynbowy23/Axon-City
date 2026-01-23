@@ -14,8 +14,10 @@ import { MapLanguageSwitcher } from './components/MapLanguageSwitcher';
 import { MapSettingsPanel } from './components/MapSettingsPanel';
 import { AreaSelector } from './components/AreaSelector';
 import { EditSelectionInfo } from './components/EditSelectionInfo';
+import { ShareButton } from './components/ShareButton';
 import { usePolygonDrawing } from './hooks/usePolygonDrawing';
 import { useIsMobile } from './hooks/useMediaQuery';
+import { useUrlState } from './hooks/useUrlState';
 import { useStore } from './store/useStore';
 import { layerManifest } from './data/layerManifest';
 import { fetchMultipleLayers, fetchLayerData, getBboxFromPolygon } from './utils/osmFetcher';
@@ -67,6 +69,82 @@ function App() {
     isDrag,
     clearPointerStart,
   } = usePolygonDrawing();
+
+  // Callback to fetch data when areas are restored from URL
+  const handleAreasRestored = useCallback(
+    async (restoredPolygons: { name: string; polygon: Polygon }[]) => {
+      if (restoredPolygons.length === 0) return;
+
+      // Get current areas from store (they were just added)
+      const currentAreas = useStore.getState().areas;
+      if (currentAreas.length === 0) return;
+
+      setIsLoading(true);
+      setLoadingMessage('Loading shared areas...');
+
+      try {
+        // Fetch data for each area
+        for (let i = 0; i < currentAreas.length && i < restoredPolygons.length; i++) {
+          const area = currentAreas[i];
+          const polygon = restoredPolygons[i].polygon;
+
+          const bbox = getBboxFromPolygon(polygon, 0.001);
+          const layersToFetch = layerManifest.layers.filter((layer) =>
+            activeLayers.includes(layer.id)
+          );
+
+          setLoadingMessage(`Fetching data for ${area.name}...`);
+
+          const results = await fetchMultipleLayers(
+            layersToFetch,
+            bbox,
+            (layerId, progress, total) => {
+              setLoadingMessage(`${area.name}: ${layerId} (${progress}/${total})`);
+            }
+          );
+
+          const polygonAreaKm2 = calculatePolygonArea(polygon);
+
+          for (const [layerId, features] of results.entries()) {
+            const layer = layerManifest.layers.find((l) => l.id === layerId);
+            if (!layer) continue;
+
+            const clippedFeatures = clipFeaturesToPolygon(
+              features,
+              polygon,
+              layer.geometryType
+            );
+
+            const stats = calculateLayerStats(clippedFeatures, layer, polygonAreaKm2);
+
+            const layerDataEntry = {
+              layerId,
+              features,
+              clippedFeatures,
+              stats,
+            };
+
+            setLayerData(layerId, layerDataEntry);
+            updateAreaLayerData(area.id, layerId, layerDataEntry);
+          }
+
+          // Update the last fetched polygon ref
+          lastFetchedPolygonRef.current = JSON.stringify(polygon.coordinates);
+        }
+
+        setLoadingMessage('Complete!');
+      } catch (error) {
+        console.error('Error fetching data for shared areas:', error);
+        setLoadingMessage('Error loading shared data');
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [activeLayers, setIsLoading, setLoadingMessage, setLayerData, updateAreaLayerData]
+  );
+
+  // URL state sync for shareable links
+  useUrlState(handleAreasRestored);
 
   // Mobile UI state
   const isMobile = useIsMobile();
@@ -725,6 +803,7 @@ function App() {
           >
             <MapStyleSwitcher />
             <MapLanguageSwitcher />
+            <ShareButton disabled={areas.length === 0} />
           </div>
 
           {/* Footer credit - bottom center */}
@@ -859,7 +938,7 @@ function App() {
                   </div>
                 )}
 
-                {/* Draw/Clear buttons row */}
+                {/* Draw/Clear/Share buttons row */}
                 <div style={{ display: 'flex', gap: '8px' }}>
                   {areas.length === 0 && (
                     <button
@@ -884,25 +963,28 @@ function App() {
                   )}
 
                   {(selectionPolygon || areas.length > 0) && (
-                    <button
-                      onClick={handleClearSelection}
-                      disabled={isLoading}
-                      style={{
-                        padding: '14px 20px',
-                        backgroundColor: isLoading ? '#666' : '#D94A4A',
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: '12px',
-                        cursor: isLoading ? 'not-allowed' : 'pointer',
-                        fontSize: '15px',
-                        fontWeight: '600',
-                        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.4)',
-                        opacity: isLoading ? 0.7 : 1,
-                        minHeight: '48px',
-                      }}
-                    >
-                      {areas.length > 1 ? 'Clear All' : 'Clear'}
-                    </button>
+                    <>
+                      <button
+                        onClick={handleClearSelection}
+                        disabled={isLoading}
+                        style={{
+                          padding: '14px 20px',
+                          backgroundColor: isLoading ? '#666' : '#D94A4A',
+                          color: 'white',
+                          border: 'none',
+                          borderRadius: '12px',
+                          cursor: isLoading ? 'not-allowed' : 'pointer',
+                          fontSize: '15px',
+                          fontWeight: '600',
+                          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.4)',
+                          opacity: isLoading ? 0.7 : 1,
+                          minHeight: '48px',
+                        }}
+                      >
+                        {areas.length > 1 ? 'Clear All' : 'Clear'}
+                      </button>
+                      <ShareButton disabled={areas.length === 0} isMobile />
+                    </>
                   )}
                 </div>
               </div>

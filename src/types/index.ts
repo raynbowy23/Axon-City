@@ -286,6 +286,35 @@ export interface AppState {
   clearStory: () => void;
 }
 
+// Shareable state for URL encoding
+export interface ShareableState {
+  center: [number, number]; // [lng, lat]
+  zoom: number;
+  pitch: number;
+  bearing: number;
+  areas: EncodedArea[];
+  presetId?: string;
+  activeLayers?: string[];
+  explodedView: boolean;
+  mapStyle?: MapStyleType;
+}
+
+export interface EncodedArea {
+  name: string;
+  coordinates: number[][]; // Flattened [lng, lat, lng, lat, ...]
+}
+
+// Snapshot export options
+export interface SnapshotOptions {
+  width: number;
+  height: number;
+  includeLegend: boolean;
+  includeMetrics: boolean;
+  includeAttribution: boolean;
+  format: 'png' | 'jpeg';
+  quality: number; // 0-1 for jpeg
+}
+
 // Re-export GeoJSON types for convenience
 export type {
   Feature,

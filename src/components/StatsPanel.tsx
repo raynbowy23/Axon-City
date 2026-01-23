@@ -1,7 +1,11 @@
 import { useMemo, useState, useCallback, useEffect, useRef } from 'react';
 import { useStore } from '../store/useStore';
 import { getLayerById, getGroupById } from '../data/layerManifest';
-import type { LayerStats, LayerGroup, AnyLayerConfig } from '../types';
+import { MetricsPanel } from './MetricsPanel';
+import { exportMetrics } from '../utils/exportMetrics';
+import { calculatePOIMetrics } from '../utils/metricsCalculator';
+import { calculatePolygonArea } from '../utils/geometryUtils';
+import type { LayerStats, LayerGroup, AnyLayerConfig, Polygon } from '../types';
 
 // Size constraints
 const MIN_WIDTH = 280;
@@ -66,6 +70,9 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
   // Comparison mode - show all areas side by side
   const [isComparisonMode, setIsComparisonMode] = useState(false);
   const canCompare = areas.length >= 2;
+
+  // View mode - layer stats or POI metrics
+  const [viewMode, setViewMode] = useState<'layers' | 'metrics'>('layers');
   const panelRef = useRef<HTMLDivElement>(null);
   const startPosRef = useRef<{ x: number; y: number; width: number; height: number }>({ x: 0, y: 0, width: 0, height: 0 });
 
@@ -478,9 +485,9 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
         <div>
           <h3 style={{ margin: 0, fontSize: '14px' }}>
-            {isComparisonMode ? 'Area Comparison' : 'Selection Statistics'}
+            {viewMode === 'metrics' ? 'POI Analysis' : isComparisonMode ? 'Area Comparison' : 'Selection Statistics'}
           </h3>
-          {!isComparisonMode && activeArea && (
+          {!isComparisonMode && activeArea && viewMode === 'layers' && (
             <div
               style={{
                 fontSize: '11px',
@@ -494,7 +501,47 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
           )}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          {canCompare && (
+          {/* View mode toggle */}
+          <div
+            style={{
+              display: 'flex',
+              backgroundColor: 'rgba(255, 255, 255, 0.1)',
+              borderRadius: '4px',
+              overflow: 'hidden',
+            }}
+          >
+            <button
+              onClick={() => setViewMode('layers')}
+              style={{
+                padding: '4px 8px',
+                backgroundColor: viewMode === 'layers' ? '#4A90D9' : 'transparent',
+                color: 'white',
+                border: 'none',
+                cursor: 'pointer',
+                fontSize: '10px',
+                fontWeight: '500',
+              }}
+              title="Layer statistics"
+            >
+              Layers
+            </button>
+            <button
+              onClick={() => setViewMode('metrics')}
+              style={{
+                padding: '4px 8px',
+                backgroundColor: viewMode === 'metrics' ? '#4A90D9' : 'transparent',
+                color: 'white',
+                border: 'none',
+                cursor: 'pointer',
+                fontSize: '10px',
+                fontWeight: '500',
+              }}
+              title="POI metrics analysis"
+            >
+              Metrics
+            </button>
+          </div>
+          {canCompare && viewMode === 'layers' && (
             <button
               onClick={toggleComparisonMode}
               style={{
@@ -528,9 +575,6 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
           >
             {isExtractedViewOpen ? 'Hide 3D' : '3D'}
           </button>
-          <span style={{ fontSize: '9px', opacity: 0.4 }}>
-            {size.width}×{size.height}
-          </span>
         </div>
       </div>
 
@@ -581,8 +625,58 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
         </div>
       )}
 
+      {/* Metrics View */}
+      {viewMode === 'metrics' && (
+        <div>
+          <MetricsPanel />
+          {/* Export Button */}
+          <button
+            onClick={() => {
+              const exportAreas = areas.length > 0
+                ? areas.map((area) => ({
+                    name: area.name,
+                    metrics: calculatePOIMetrics(
+                      area.layerData.size > 0 ? area.layerData : layerData,
+                      area.polygon.area / 1_000_000
+                    ),
+                  }))
+                : selectionPolygon
+                ? [{
+                    name: 'Selected Area',
+                    metrics: calculatePOIMetrics(
+                      layerData,
+                      calculatePolygonArea(selectionPolygon.geometry as Polygon)
+                    ),
+                  }]
+                : [];
+              if (exportAreas.length > 0) {
+                exportMetrics(exportAreas);
+              }
+            }}
+            style={{
+              width: '100%',
+              marginTop: '12px',
+              padding: '10px',
+              backgroundColor: 'rgba(75, 192, 192, 0.3)',
+              border: '1px solid rgba(75, 192, 192, 0.5)',
+              borderRadius: '6px',
+              color: 'white',
+              cursor: 'pointer',
+              fontSize: '12px',
+              fontWeight: '500',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '6px',
+            }}
+          >
+            <span>Export CSV</span>
+          </button>
+        </div>
+      )}
+
       {/* Comparison Mode View */}
-      {isComparisonMode && comparisonData && (
+      {viewMode === 'layers' && isComparisonMode && comparisonData && (
         <div>
           {/* Area size comparison header */}
           <div
@@ -656,7 +750,7 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
       )}
 
       {/* Single Area View */}
-      {!isComparisonMode && hasStats && (
+      {viewMode === 'layers' && !isComparisonMode && hasStats && (
         <div>
           {Array.from(groupedStats.entries()).map(([groupId, layers]) => {
             const group = getGroupById(groupId);
