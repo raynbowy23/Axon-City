@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState, useEffect, useRef } from 'react';
-import Map from 'react-map-gl/maplibre';
+import Map, { type MapRef } from 'react-map-gl/maplibre';
 import DeckGL from '@deck.gl/react';
 import { GeoJsonLayer, ScatterplotLayer, PathLayer, PolygonLayer } from '@deck.gl/layers';
 import { SimpleMeshLayer } from '@deck.gl/mesh-layers';
@@ -57,6 +57,7 @@ export function MapView() {
     viewState,
     setViewState,
     mapStyle,
+    mapLanguage,
     layerData,
     activeLayers,
     explodedView,
@@ -93,6 +94,7 @@ export function MapView() {
   const [hoveredMidpointIndex, setHoveredMidpointIndex] = useState<number | null>(null);
   const lastVertexClickRef = useRef<{ index: number; time: number } | null>(null);
   const deckRef = useRef<any>(null);
+  const mapRef = useRef<MapRef>(null);
 
   // Pinned feature info (clicked to stick) - stores geographic coordinates and initial screen position
   interface PinnedInfo {
@@ -228,6 +230,40 @@ export function MapView() {
 
     return () => cancelAnimationFrame(frameId);
   }, [viewState, pinnedInfos, explodedView, getLayerZOffset]);
+
+  // Update map labels when language changes
+  useEffect(() => {
+    const map = mapRef.current?.getMap();
+    if (!map) return;
+
+    const updateLabels = () => {
+      const style = map.getStyle();
+      if (!style || !style.layers) return;
+
+      // Determine the text field based on language setting
+      const textField = mapLanguage === 'en'
+        ? ['coalesce', ['get', 'name:en'], ['get', 'name_en'], ['get', 'name']]
+        : ['get', 'name'];
+
+      // Update all symbol layers that have text-field
+      for (const layer of style.layers) {
+        if (layer.type === 'symbol' && layer.layout && 'text-field' in layer.layout) {
+          try {
+            map.setLayoutProperty(layer.id, 'text-field', textField);
+          } catch {
+            // Some layers may not support this, ignore errors
+          }
+        }
+      }
+    };
+
+    // Update labels when map style is loaded
+    if (map.isStyleLoaded()) {
+      updateLabels();
+    } else {
+      map.once('styledata', updateLabels);
+    }
+  }, [mapLanguage, mapStyle]);
 
   // Remove a pinned info
   const removePinnedInfo = useCallback((id: string) => {
@@ -1239,7 +1275,7 @@ export function MapView() {
         onDragEnd={onDragEnd}
         getCursor={getCursor}
       >
-        <Map mapStyle={currentMapStyle} maxPitch={89} minPitch={0} />
+        <Map ref={mapRef} mapStyle={currentMapStyle} maxPitch={89} minPitch={0} />
       </DeckGL>
 
       {/* Hover Tooltip */}

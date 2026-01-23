@@ -10,6 +10,9 @@ export interface MapStyleOption {
   icon: 'moon' | 'sun' | 'satellite';
 }
 
+// Map language options
+export type MapLanguage = 'local' | 'en';
+
 // Layer categories matching the poster aesthetic
 export type LayerGroup =
   | 'infrastructure'
@@ -135,6 +138,10 @@ export interface AppState {
   // Map style
   mapStyle: MapStyleType;
   setMapStyle: (style: MapStyleType) => void;
+
+  // Map language
+  mapLanguage: MapLanguage;
+  setMapLanguage: (language: MapLanguage) => void;
 
   // Selection
   selectionPolygon: SelectionPolygon | null;

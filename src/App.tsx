@@ -10,6 +10,7 @@ import { DataInputPanel } from './components/DataInputPanel';
 import { BottomSheet, type BottomSheetState } from './components/BottomSheet';
 import { MobileNav, type MobileTab } from './components/MobileNav';
 import { MapStyleSwitcher } from './components/MapStyleSwitcher';
+import { MapLanguageSwitcher } from './components/MapLanguageSwitcher';
 import { MapSettingsPanel } from './components/MapSettingsPanel';
 import { usePolygonDrawing } from './hooks/usePolygonDrawing';
 import { useIsMobile } from './hooks/useMediaQuery';
@@ -552,16 +553,19 @@ function App() {
           <ControlPanel />
           <StatsPanel />
 
-          {/* Map Style Switcher - Desktop (next to Stats panel) */}
+          {/* Map Controls - Desktop (next to Stats panel) */}
           <div
             style={{
               position: 'absolute',
               bottom: '24px',
               left: '300px',
               zIndex: 1000,
+              display: 'flex',
+              gap: '8px',
             }}
           >
             <MapStyleSwitcher />
+            <MapLanguageSwitcher />
           </div>
 
           {/* Footer credit */}

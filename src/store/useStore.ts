@@ -1,11 +1,12 @@
 import { create } from 'zustand';
-import type { AppState, ViewState, LayerData, ExplodedViewConfig, SelectedFeature, Feature, LayerGroup, LayerOrderConfig, CustomLayerConfig, FeatureCollection, MapStyleType } from '../types';
+import type { AppState, ViewState, LayerData, ExplodedViewConfig, SelectedFeature, Feature, LayerGroup, LayerOrderConfig, CustomLayerConfig, FeatureCollection, MapStyleType, MapLanguage } from '../types';
 import { layerManifest } from '../data/layerManifest';
 
 // LocalStorage keys
 const STORAGE_KEYS = {
   VIEW_STATE: 'axoncity-viewstate',
   MAP_STYLE: 'axoncity-mapstyle',
+  MAP_LANGUAGE: 'axoncity-maplanguage',
 } as const;
 
 // Distinct colors for selected features (colorblind-friendly palette)
@@ -86,6 +87,28 @@ function saveMapStyle(style: MapStyleType): void {
   }
 }
 
+// Load mapLanguage from localStorage or return default
+function getInitialMapLanguage(): MapLanguage {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEYS.MAP_LANGUAGE);
+    if (stored && ['local', 'en'].includes(stored)) {
+      return stored as MapLanguage;
+    }
+  } catch (e) {
+    console.warn('Failed to load mapLanguage from localStorage:', e);
+  }
+  return 'local';
+}
+
+// Save mapLanguage to localStorage
+function saveMapLanguage(language: MapLanguage): void {
+  try {
+    localStorage.setItem(STORAGE_KEYS.MAP_LANGUAGE, language);
+  } catch (e) {
+    console.warn('Failed to save mapLanguage to localStorage:', e);
+  }
+}
+
 const defaultExplodedView: ExplodedViewConfig = {
   enabled: false,
   layerSpacing: 100, // meters between groups (increased for better separation)
@@ -129,6 +152,13 @@ export const useStore = create<AppState>((set) => ({
   setMapStyle: (style) => {
     saveMapStyle(style);
     set({ mapStyle: style });
+  },
+
+  // Map language (loaded from localStorage or default to local)
+  mapLanguage: getInitialMapLanguage(),
+  setMapLanguage: (language) => {
+    saveMapLanguage(language);
+    set({ mapLanguage: language });
   },
 
   // Selection

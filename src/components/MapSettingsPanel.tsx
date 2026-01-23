@@ -1,5 +1,5 @@
 import { useStore } from '../store/useStore';
-import type { MapStyleType } from '../types';
+import type { MapStyleType, MapLanguage } from '../types';
 
 interface MapStyleOption {
   id: MapStyleType;
@@ -29,11 +29,31 @@ const mapStyleOptions: MapStyleOption[] = [
   },
 ];
 
+interface LanguageOption {
+  id: MapLanguage;
+  name: string;
+  description: string;
+}
+
+const languageOptions: LanguageOption[] = [
+  {
+    id: 'local',
+    name: 'Local',
+    description: 'Local language names',
+  },
+  {
+    id: 'en',
+    name: 'English',
+    description: 'English names',
+  },
+];
+
 export function MapSettingsPanel() {
-  const { mapStyle, setMapStyle } = useStore();
+  const { mapStyle, setMapStyle, mapLanguage, setMapLanguage } = useStore();
 
   return (
     <div style={{ padding: '8px 0' }}>
+      {/* Map Style Section */}
       <div
         style={{
           fontSize: '13px',
@@ -52,6 +72,7 @@ export function MapSettingsPanel() {
           display: 'grid',
           gridTemplateColumns: 'repeat(3, 1fr)',
           gap: '12px',
+          marginBottom: '20px',
         }}
       >
         {mapStyleOptions.map((option) => (
@@ -96,6 +117,56 @@ export function MapSettingsPanel() {
             >
               {option.name}
             </div>
+          </button>
+        ))}
+      </div>
+
+      {/* Language Section */}
+      <div
+        style={{
+          fontSize: '13px',
+          fontWeight: '600',
+          color: 'rgba(255, 255, 255, 0.7)',
+          marginBottom: '12px',
+          textTransform: 'uppercase',
+          letterSpacing: '0.5px',
+        }}
+      >
+        Map Labels
+      </div>
+
+      <div
+        style={{
+          display: 'flex',
+          gap: '8px',
+        }}
+      >
+        {languageOptions.map((option) => (
+          <button
+            key={option.id}
+            onClick={() => setMapLanguage(option.id)}
+            style={{
+              flex: 1,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '8px',
+              padding: '12px 16px',
+              backgroundColor: mapLanguage === option.id
+                ? 'rgba(74, 144, 217, 0.2)'
+                : 'rgba(255, 255, 255, 0.05)',
+              border: mapLanguage === option.id
+                ? '2px solid #4A90D9'
+                : '2px solid transparent',
+              borderRadius: '10px',
+              cursor: 'pointer',
+              transition: 'all 0.15s',
+              color: mapLanguage === option.id ? '#4A90D9' : 'white',
+              fontSize: '14px',
+              fontWeight: mapLanguage === option.id ? '600' : '500',
+            }}
+          >
+            {option.name}
           </button>
         ))}
       </div>
