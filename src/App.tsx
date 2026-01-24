@@ -683,25 +683,9 @@ function App() {
                 {areas.length === 0 && !isLoading && (
                   <div
                     style={{
-                      backgroundColor: 'rgba(0, 0, 0, 0.85)',
-                      padding: '14px 16px',
-                      borderRadius: '10px',
                       marginTop: '12px',
                     }}
                   >
-                    <div
-                      style={{
-                        fontSize: '14px',
-                        fontWeight: '600',
-                        color: 'white',
-                        marginBottom: '12px',
-                        letterSpacing: '0.5px',
-                        textTransform: 'uppercase',
-                        opacity: 0.9,
-                      }}
-                    >
-                      Select an Area
-                    </div>
                     <DrawingTool
                       onComplete={(polygon) => {
                         handlePolygonComplete(polygon, isAddingNewArea ? undefined : activeAreaId || undefined);
@@ -935,26 +919,9 @@ function App() {
                 {areas.length === 0 && !isLoading && (
                   <div
                     style={{
-                      backgroundColor: 'rgba(0, 0, 0, 0.9)',
-                      padding: '12px 16px',
-                      borderRadius: '12px',
                       marginBottom: '8px',
-                      textAlign: 'center',
                     }}
                   >
-                    <div
-                      style={{
-                        fontSize: '13px',
-                        fontWeight: '600',
-                        color: 'white',
-                        marginBottom: '12px',
-                        letterSpacing: '0.5px',
-                        textTransform: 'uppercase',
-                        opacity: 0.9,
-                      }}
-                    >
-                      Select an Area
-                    </div>
                     <DrawingTool
                       onComplete={(polygon) => {
                         handlePolygonComplete(polygon, isAddingNewArea ? undefined : activeAreaId || undefined);

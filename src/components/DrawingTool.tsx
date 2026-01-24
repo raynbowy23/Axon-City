@@ -92,6 +92,7 @@ export function DrawingTool({ onComplete }: DrawingToolProps) {
   } = useStore();
   const drawingMode = storeDrawingMode as DrawingMode;
   const [previewPolygon, setPreviewPolygon] = useState<Polygon | null>(null);
+  const [showOptions, setShowOptions] = useState(false);
 
   // Use refs to avoid dependency issues in useEffect
   const onCompleteRef = useRef(onComplete);
@@ -261,65 +262,124 @@ export function DrawingTool({ onComplete }: DrawingToolProps) {
         <div
           style={{
             display: 'flex',
-            gap: '6px',
+            flexDirection: 'column',
+            gap: '10px',
+            ...(showOptions && {
+              backgroundColor: 'rgba(0, 0, 0, 0.85)',
+              padding: '12px',
+              borderRadius: '8px',
+              margin: '-12px',
+            }),
+            transition: 'all 0.15s ease',
           }}
         >
-          {(['polygon', 'rectangle', 'circle'] as DrawingMode[]).map((mode) => {
-            const iconColors: Record<DrawingMode, string> = {
-              polygon: 'inherit',
-              rectangle: '#F59E0B',
-              circle: '#A78BFA',
-            };
-            return (
-              <button
-                key={mode}
-                onClick={() => startDrawing(mode)}
-                style={{
-                  padding: '10px 14px',
-                  backgroundColor: 'rgba(255, 255, 255, 0.08)',
-                  color: 'rgba(255, 255, 255, 0.9)',
-                  border: '1px solid rgba(255, 255, 255, 0.12)',
-                  borderRadius: '6px',
-                  cursor: 'pointer',
-                  fontSize: '12px',
-                  fontWeight: '500',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  transition: 'all 0.15s ease',
-                }}
-                title={`Draw ${MODE_LABELS[mode]}`}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.backgroundColor = 'rgba(74, 144, 217, 0.25)';
-                  e.currentTarget.style.borderColor = 'rgba(74, 144, 217, 0.4)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.08)';
-                  e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.12)';
-                }}
-              >
-                <span style={{ fontSize: '14px', color: iconColors[mode] }}>{MODE_ICONS[mode]}</span>
-                <span>{MODE_LABELS[mode]}</span>
-              </button>
-            );
-          })}
+          {/* Main button */}
+          <button
+            onClick={() => setShowOptions(!showOptions)}
+            style={{
+              padding: '12px 16px',
+              backgroundColor: showOptions ? 'rgba(74, 144, 217, 0.7)' : 'rgba(74, 144, 217, 0.55)',
+              color: 'white',
+              border: `1px solid ${showOptions ? 'rgba(74, 144, 217, 0.8)' : 'rgba(74, 144, 217, 0.6)'}`,
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontSize: '13px',
+              fontWeight: '500',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '8px',
+              transition: 'all 0.15s ease',
+              width: '100%',
+            }}
+            onMouseEnter={(e) => {
+              if (!showOptions) {
+                e.currentTarget.style.backgroundColor = 'rgba(74, 144, 217, 0.65)';
+                e.currentTarget.style.borderColor = 'rgba(74, 144, 217, 0.7)';
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (!showOptions) {
+                e.currentTarget.style.backgroundColor = 'rgba(74, 144, 217, 0.55)';
+                e.currentTarget.style.borderColor = 'rgba(74, 144, 217, 0.6)';
+              }
+            }}
+          >
+            <span>Draw Selection Area</span>
+            <span style={{ fontSize: '10px', opacity: 0.6 }}>{showOptions ? '▲' : '▼'}</span>
+          </button>
+
+          {/* Drawing mode options */}
+          {showOptions && (
+            <div
+              style={{
+                display: 'flex',
+                gap: '6px',
+              }}
+            >
+              {(['polygon', 'rectangle', 'circle'] as DrawingMode[]).map((mode) => {
+                const iconColors: Record<DrawingMode, string> = {
+                  polygon: 'inherit',
+                  rectangle: '#F59E0B',
+                  circle: '#A78BFA',
+                };
+                return (
+                  <button
+                    key={mode}
+                    onClick={() => {
+                      startDrawing(mode);
+                      setShowOptions(false);
+                    }}
+                    style={{
+                      flex: 1,
+                      padding: '10px 12px',
+                      backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                      color: 'white',
+                      border: '1px solid rgba(255, 255, 255, 0.15)',
+                      borderRadius: '6px',
+                      cursor: 'pointer',
+                      fontSize: '12px',
+                      fontWeight: '500',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '6px',
+                      transition: 'all 0.15s ease',
+                    }}
+                    title={`Draw ${MODE_LABELS[mode]}`}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.backgroundColor = 'rgba(74, 144, 217, 0.25)';
+                      e.currentTarget.style.borderColor = 'rgba(74, 144, 217, 0.4)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
+                      e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.15)';
+                    }}
+                  >
+                    <span style={{ fontSize: '14px', color: iconColors[mode] }}>{MODE_ICONS[mode]}</span>
+                    <span>{MODE_LABELS[mode]}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
       ) : (
         <div
           style={{
-            backgroundColor: 'rgba(0, 0, 0, 0.85)',
-            padding: '16px',
-            borderRadius: '8px',
             color: 'white',
             minWidth: '240px',
-            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.3)',
+            backgroundColor: 'rgba(0, 0, 0, 0.85)',
+            padding: '12px',
+            borderRadius: '8px',
+            margin: '-12px',
           }}
         >
           {/* Mode selector in drawing mode */}
           <div
             style={{
               display: 'flex',
-              gap: '4px',
+              gap: '6px',
               marginBottom: '12px',
             }}
           >
@@ -336,11 +396,11 @@ export function DrawingTool({ onComplete }: DrawingToolProps) {
                   onClick={() => handleModeChange(mode)}
                   style={{
                     flex: 1,
-                    padding: '6px 8px',
-                    backgroundColor: isActive ? '#4A90D9' : 'rgba(255, 255, 255, 0.1)',
+                    padding: '8px 10px',
+                    backgroundColor: isActive ? 'rgba(74, 144, 217, 0.3)' : 'rgba(255, 255, 255, 0.1)',
                     color: 'white',
-                    border: 'none',
-                    borderRadius: '4px',
+                    border: `1px solid ${isActive ? 'rgba(74, 144, 217, 0.5)' : 'rgba(255, 255, 255, 0.15)'}`,
+                    borderRadius: '6px',
                     cursor: 'pointer',
                     fontSize: '11px',
                     fontWeight: '500',
@@ -348,6 +408,7 @@ export function DrawingTool({ onComplete }: DrawingToolProps) {
                     alignItems: 'center',
                     justifyContent: 'center',
                     gap: '4px',
+                    transition: 'all 0.15s ease',
                   }}
                 >
                   <span style={{ color: isActive ? 'white' : iconColors[mode] }}>{MODE_ICONS[mode]}</span>
@@ -394,13 +455,15 @@ export function DrawingTool({ onComplete }: DrawingToolProps) {
                   onClick={undoLastPoint}
                   disabled={drawingPoints.length === 0}
                   style={{
-                    padding: '8px 12px',
-                    backgroundColor: drawingPoints.length === 0 ? '#444' : '#666',
+                    padding: '8px 14px',
+                    backgroundColor: drawingPoints.length === 0 ? 'rgba(255, 255, 255, 0.1)' : 'rgba(255, 255, 255, 0.15)',
                     color: 'white',
-                    border: 'none',
-                    borderRadius: '4px',
+                    border: '1px solid rgba(255, 255, 255, 0.15)',
+                    borderRadius: '6px',
                     cursor: drawingPoints.length === 0 ? 'not-allowed' : 'pointer',
                     fontSize: '12px',
+                    opacity: drawingPoints.length === 0 ? 0.5 : 1,
+                    transition: 'all 0.15s ease',
                   }}
                 >
                   ↩ Undo
@@ -409,13 +472,15 @@ export function DrawingTool({ onComplete }: DrawingToolProps) {
                   onClick={completeDrawing}
                   disabled={drawingPoints.length < 3}
                   style={{
-                    padding: '8px 12px',
-                    backgroundColor: drawingPoints.length < 3 ? '#444' : '#22C55E',
+                    padding: '8px 14px',
+                    backgroundColor: drawingPoints.length < 3 ? 'rgba(34, 197, 94, 0.2)' : 'rgba(34, 197, 94, 0.4)',
                     color: 'white',
-                    border: 'none',
-                    borderRadius: '4px',
+                    border: `1px solid ${drawingPoints.length < 3 ? 'rgba(34, 197, 94, 0.3)' : 'rgba(34, 197, 94, 0.6)'}`,
+                    borderRadius: '6px',
                     cursor: drawingPoints.length < 3 ? 'not-allowed' : 'pointer',
                     fontSize: '12px',
+                    opacity: drawingPoints.length < 3 ? 0.5 : 1,
+                    transition: 'all 0.15s ease',
                   }}
                 >
                   ✓ Complete
@@ -425,12 +490,13 @@ export function DrawingTool({ onComplete }: DrawingToolProps) {
             <button
               onClick={cancelDrawing}
               style={{
-                padding: '8px 12px',
-                backgroundColor: '#D94A4A',
+                padding: '8px 14px',
+                backgroundColor: 'rgba(217, 74, 74, 0.3)',
                 color: 'white',
-                border: 'none',
-                borderRadius: '4px',
+                border: '1px solid rgba(217, 74, 74, 0.5)',
+                borderRadius: '6px',
                 cursor: 'pointer',
+                transition: 'all 0.15s ease',
                 fontSize: '12px',
               }}
             >
