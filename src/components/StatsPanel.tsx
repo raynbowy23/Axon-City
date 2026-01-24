@@ -353,6 +353,24 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
           >
             <div style={{ marginBottom: '8px' }}>Loading data...</div>
             <div style={{ fontSize: '12px', opacity: 0.7 }}>{loadingMessage}</div>
+            <div
+              style={{
+                marginTop: '12px',
+                height: '4px',
+                backgroundColor: 'rgba(255,255,255,0.2)',
+                borderRadius: '2px',
+                overflow: 'hidden',
+              }}
+            >
+              <div
+                style={{
+                  height: '100%',
+                  backgroundColor: '#4A90D9',
+                  animation: 'loading 1.5s ease-in-out infinite',
+                  width: '30%',
+                }}
+              />
+            </div>
           </div>
         )}
 

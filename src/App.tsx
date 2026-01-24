@@ -39,6 +39,7 @@ function App() {
   const {
     isDrawing,
     isLoading,
+    loadingMessage,
     setIsLoading,
     setLoadingMessage,
     setLayerData,
@@ -897,6 +898,35 @@ function App() {
                   alignItems: 'center',
                 }}
               >
+                {/* Mobile Processing Indicator */}
+                {isLoading && (
+                  <div
+                    style={{
+                      backgroundColor: 'rgba(0, 0, 0, 0.85)',
+                      padding: '10px 16px',
+                      borderRadius: '20px',
+                      marginBottom: '8px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '10px',
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: '16px',
+                        height: '16px',
+                        border: '2px solid rgba(255,255,255,0.3)',
+                        borderTopColor: '#4A90D9',
+                        borderRadius: '50%',
+                        animation: 'spin 0.8s linear infinite',
+                      }}
+                    />
+                    <span style={{ color: 'white', fontSize: '13px' }}>
+                      {loadingMessage || 'Loading...'}
+                    </span>
+                  </div>
+                )}
+
                 {/* Mobile Area Selector */}
                 {areas.length > 0 && (
                   <div
