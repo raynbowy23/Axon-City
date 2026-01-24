@@ -94,6 +94,15 @@ export interface SelectionPolygon {
   id: string;
   geometry: Polygon | MultiPolygon;
   area: number; // in m²
+  shapeType?: DrawingMode; // Original shape type for shape-preserving edits
+  // For rectangles and circles: store parameters for shape-preserving edits
+  shapeParams?: {
+    // Rectangle: 4 corner points for maintaining rectangular shape during resize
+    rectangleCorners?: [[number, number], [number, number], [number, number], [number, number]];
+    // Circle: center and radius for maintaining circular shape during resize
+    circleCenter?: [number, number];
+    circleRadius?: number;
+  };
 }
 
 // Colors for comparison areas (colorblind-friendly, distinct)

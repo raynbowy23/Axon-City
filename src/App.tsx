@@ -15,7 +15,7 @@ import { MapSettingsPanel } from './components/MapSettingsPanel';
 import { AreaSelector } from './components/AreaSelector';
 import { EditSelectionInfo } from './components/EditSelectionInfo';
 import { ShareButton } from './components/ShareButton';
-import { DrawingTool } from './components/DrawingTool';
+import { DrawingTool, type ShapeInfo } from './components/DrawingTool';
 import { usePolygonDrawing } from './hooks/usePolygonDrawing';
 import { useIsMobile, useIsTablet } from './hooks/useMediaQuery';
 import { useUrlState } from './hooks/useUrlState';
@@ -204,7 +204,13 @@ function App() {
   // Handle fetching data when polygon is completed
   // areaId parameter: if provided, update that area; if null, create a new area
   const handlePolygonComplete = useCallback(
-    async (polygon: Polygon, existingAreaId?: string) => {
+    async (shapeInfoOrPolygon: ShapeInfo | Polygon, existingAreaId?: string) => {
+      // Support both ShapeInfo (from drawing) and Polygon (from editing)
+      const isShapeInfo = 'shapeType' in shapeInfoOrPolygon;
+      const polygon = isShapeInfo ? shapeInfoOrPolygon.polygon : shapeInfoOrPolygon;
+      const shapeType = isShapeInfo ? shapeInfoOrPolygon.shapeType : undefined;
+      const shapeParams = isShapeInfo ? shapeInfoOrPolygon.shapeParams : undefined;
+
       // Create abort controller for this fetch
       fetchAbortControllerRef.current = new AbortController();
       const signal = fetchAbortControllerRef.current.signal;
@@ -212,11 +218,13 @@ function App() {
       setIsLoading(true);
       setLoadingMessage('Preparing to fetch data...');
 
-      // Create selection polygon object
+      // Create selection polygon object with shape info for shape-preserving edits
       const selectionPoly: SelectionPolygon = {
         id: `selection-${Date.now()}`,
         geometry: polygon,
         area: calculatePolygonArea(polygon) * 1_000_000,
+        shapeType,
+        shapeParams,
       };
 
       // Determine the area ID: either update existing or create new
@@ -352,7 +360,13 @@ function App() {
         isFetchingRef.current = true;
 
         // Polygon was edited, re-fetch data for the active area
-        handlePolygonComplete(selectionPolygon.geometry as Polygon, activeAreaId)
+        // Preserve shape info (shapeType and shapeParams) for shape-preserving edits
+        const shapeInfo: ShapeInfo = {
+          polygon: selectionPolygon.geometry as Polygon,
+          shapeType: selectionPolygon.shapeType || 'polygon',
+          shapeParams: selectionPolygon.shapeParams,
+        };
+        handlePolygonComplete(shapeInfo, activeAreaId)
           .finally(() => {
             isFetchingRef.current = false;
           });
@@ -690,8 +704,8 @@ function App() {
                     }}
                   >
                     <DrawingTool
-                      onComplete={(polygon) => {
-                        handlePolygonComplete(polygon, isAddingNewArea ? undefined : activeAreaId || undefined);
+                      onComplete={(shapeInfo) => {
+                        handlePolygonComplete(shapeInfo, isAddingNewArea ? undefined : activeAreaId || undefined);
                         setIsAddingNewArea(false);
                       }}
                     />
@@ -746,8 +760,8 @@ function App() {
               </>
             ) : (
               <DrawingTool
-                onComplete={(polygon) => {
-                  handlePolygonComplete(polygon, isAddingNewArea ? undefined : activeAreaId || undefined);
+                onComplete={(shapeInfo) => {
+                  handlePolygonComplete(shapeInfo, isAddingNewArea ? undefined : activeAreaId || undefined);
                   setIsAddingNewArea(false);
                 }}
               />
@@ -956,8 +970,8 @@ function App() {
                     }}
                   >
                     <DrawingTool
-                      onComplete={(polygon) => {
-                        handlePolygonComplete(polygon, isAddingNewArea ? undefined : activeAreaId || undefined);
+                      onComplete={(shapeInfo) => {
+                        handlePolygonComplete(shapeInfo, isAddingNewArea ? undefined : activeAreaId || undefined);
                         setIsAddingNewArea(false);
                       }}
                     />
@@ -1033,8 +1047,8 @@ function App() {
                 }}
               >
                 <DrawingTool
-                  onComplete={(polygon) => {
-                    handlePolygonComplete(polygon, isAddingNewArea ? undefined : activeAreaId || undefined);
+                  onComplete={(shapeInfo) => {
+                    handlePolygonComplete(shapeInfo, isAddingNewArea ? undefined : activeAreaId || undefined);
                     setIsAddingNewArea(false);
                   }}
                 />

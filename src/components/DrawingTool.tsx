@@ -4,8 +4,20 @@ import { useStore } from '../store/useStore';
 import { calculatePolygonArea } from '../utils/geometryUtils';
 import type { DrawingMode } from '../types';
 
+export interface ShapeInfo {
+  polygon: Polygon;
+  shapeType: DrawingMode;
+  shapeParams?: {
+    // Rectangle: 4 corner points
+    rectangleCorners?: [[number, number], [number, number], [number, number], [number, number]];
+    // Circle: center and radius
+    circleCenter?: [number, number];
+    circleRadius?: number;
+  };
+}
+
 interface DrawingToolProps {
-  onComplete: (polygon: Polygon) => void;
+  onComplete: (shapeInfo: ShapeInfo) => void;
 }
 
 // Generate a rectangle polygon from three points (origin, edge point, width point)
@@ -161,6 +173,7 @@ export function DrawingTool({ onComplete }: DrawingToolProps) {
     }
 
     let polygon: Polygon | null = null;
+    let shapeInfo: ShapeInfo | null = null;
     let shouldAutoComplete = false;
 
     if (drawingMode === 'polygon') {
@@ -169,6 +182,7 @@ export function DrawingTool({ onComplete }: DrawingToolProps) {
           type: 'Polygon',
           coordinates: [[...drawingPoints, drawingPoints[0]]],
         };
+        shapeInfo = { polygon, shapeType: 'polygon' };
       }
     } else if (drawingMode === 'rectangle') {
       if (drawingPoints.length >= 2) {
@@ -176,12 +190,33 @@ export function DrawingTool({ onComplete }: DrawingToolProps) {
         // For 3 points, show the complete rectangle and auto-complete
         if (drawingPoints.length === 3) {
           polygon = createRectanglePolygon(drawingPoints[0], drawingPoints[1], drawingPoints[2]);
+          const coords = polygon.coordinates[0] as [number, number][];
+          shapeInfo = {
+            polygon,
+            shapeType: 'rectangle',
+            shapeParams: {
+              rectangleCorners: [coords[0], coords[1], coords[2], coords[3]],
+            },
+          };
           shouldAutoComplete = true;
         }
       }
     } else if (drawingMode === 'circle') {
       if (drawingPoints.length === 2) {
-        polygon = createCirclePolygon(drawingPoints[0], drawingPoints[1]);
+        const center = drawingPoints[0];
+        const edgePoint = drawingPoints[1];
+        polygon = createCirclePolygon(center, edgePoint);
+        const dLng = edgePoint[0] - center[0];
+        const dLat = edgePoint[1] - center[1];
+        const radius = Math.sqrt(dLng * dLng + dLat * dLat);
+        shapeInfo = {
+          polygon,
+          shapeType: 'circle',
+          shapeParams: {
+            circleCenter: center,
+            circleRadius: radius,
+          },
+        };
         shouldAutoComplete = true;
       }
     }
@@ -196,15 +231,13 @@ export function DrawingTool({ onComplete }: DrawingToolProps) {
 
       // Auto-complete for rectangle and circle (deferred to avoid state conflicts)
       // Only trigger once per drawing session
-      if (shouldAutoComplete && !autoCompleteTriggeredRef.current) {
+      if (shouldAutoComplete && !autoCompleteTriggeredRef.current && shapeInfo) {
         autoCompleteTriggeredRef.current = true;
+        const completedShapeInfo = shapeInfo;
         const timeoutId = setTimeout(() => {
-          const completedPolygon = polygon;
           setIsDrawing(false);
           setDrawingPoints([]);
-          if (completedPolygon) {
-            onCompleteRef.current(completedPolygon);
-          }
+          onCompleteRef.current(completedShapeInfo);
         }, 100);
         return () => clearTimeout(timeoutId);
       }
@@ -238,24 +271,48 @@ export function DrawingTool({ onComplete }: DrawingToolProps) {
   const completeDrawing = useCallback(() => {
     if (drawingMode === 'polygon' && drawingPoints.length < 3) return;
 
-    let polygon: Polygon;
+    let shapeInfo: ShapeInfo;
 
     if (drawingMode === 'polygon') {
-      polygon = {
-        type: 'Polygon',
-        coordinates: [[...drawingPoints, drawingPoints[0]]],
+      shapeInfo = {
+        polygon: {
+          type: 'Polygon',
+          coordinates: [[...drawingPoints, drawingPoints[0]]],
+        },
+        shapeType: 'polygon',
       };
     } else if (drawingMode === 'rectangle' && drawingPoints.length === 3) {
-      polygon = createRectanglePolygon(drawingPoints[0], drawingPoints[1], drawingPoints[2]);
+      const polygon = createRectanglePolygon(drawingPoints[0], drawingPoints[1], drawingPoints[2]);
+      const coords = polygon.coordinates[0] as [number, number][];
+      shapeInfo = {
+        polygon,
+        shapeType: 'rectangle',
+        shapeParams: {
+          rectangleCorners: [coords[0], coords[1], coords[2], coords[3]],
+        },
+      };
     } else if (drawingMode === 'circle' && drawingPoints.length === 2) {
-      polygon = createCirclePolygon(drawingPoints[0], drawingPoints[1]);
+      const center = drawingPoints[0];
+      const edgePoint = drawingPoints[1];
+      // Calculate radius
+      const dLng = edgePoint[0] - center[0];
+      const dLat = edgePoint[1] - center[1];
+      const radius = Math.sqrt(dLng * dLng + dLat * dLat);
+      shapeInfo = {
+        polygon: createCirclePolygon(center, edgePoint),
+        shapeType: 'circle',
+        shapeParams: {
+          circleCenter: center,
+          circleRadius: radius,
+        },
+      };
     } else {
       return;
     }
 
     setIsDrawing(false);
     setDrawingPoints([]);
-    onComplete(polygon);
+    onComplete(shapeInfo);
   }, [drawingMode, drawingPoints, setIsDrawing, setDrawingPoints, onComplete]);
 
   const undoLastPoint = useCallback(() => {
