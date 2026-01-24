@@ -53,9 +53,20 @@ function createTimeoutController(timeoutMs: number): { controller: AbortControll
 async function fetchWithTimeout(
   url: string,
   options: RequestInit,
-  timeoutMs: number = FETCH_TIMEOUT
+  timeoutMs: number = FETCH_TIMEOUT,
+  externalSignal?: AbortSignal
 ): Promise<Response> {
   const { controller, timeoutId } = createTimeoutController(timeoutMs);
+
+  // If external signal is provided, listen to it
+  const abortHandler = () => controller.abort();
+  if (externalSignal) {
+    if (externalSignal.aborted) {
+      clearTimeout(timeoutId);
+      throw new Error('Cancelled');
+    }
+    externalSignal.addEventListener('abort', abortHandler);
+  }
 
   try {
     const response = await fetch(url, {
@@ -67,9 +78,17 @@ async function fetchWithTimeout(
   } catch (error) {
     clearTimeout(timeoutId);
     if (error instanceof Error && error.name === 'AbortError') {
+      // Check if it was cancelled externally
+      if (externalSignal?.aborted) {
+        throw new Error('Cancelled');
+      }
       throw new Error('Request timeout');
     }
     throw error;
+  } finally {
+    if (externalSignal) {
+      externalSignal.removeEventListener('abort', abortHandler);
+    }
   }
 }
 
@@ -87,8 +106,14 @@ function getBboxCacheKey(bbox: [number, number, number, number]): string {
 export async function fetchLayerData(
   layer: LayerConfig,
   bbox: [number, number, number, number],
-  maxRetries: number = 3
+  maxRetries: number = 3,
+  signal?: AbortSignal
 ): Promise<FeatureCollection> {
+  // Check if already cancelled
+  if (signal?.aborted) {
+    throw new Error('Cancelled');
+  }
+
   // Check cache first
   const cacheKey = getBboxCacheKey(bbox);
   const layerCache = responseCache.get(cacheKey);
@@ -107,6 +132,11 @@ export async function fetchLayerData(
   let endpointIndex = 0;
 
   for (let attempt = 0; attempt < maxRetries * OVERPASS_ENDPOINTS.length; attempt++) {
+    // Check if cancelled before each attempt
+    if (signal?.aborted) {
+      throw new Error('Cancelled');
+    }
+
     const endpoint = OVERPASS_ENDPOINTS[endpointIndex];
 
     try {
@@ -121,7 +151,8 @@ export async function fetchLayerData(
           },
           body: `data=${encodeURIComponent(query)}`,
         },
-        FETCH_TIMEOUT
+        FETCH_TIMEOUT,
+        signal
       );
 
       if (response.status === 429) {
@@ -417,16 +448,22 @@ function elementToFeature(
 export async function fetchMultipleLayers(
   layers: LayerConfig[],
   bbox: [number, number, number, number],
-  onProgress?: (layerId: string, progress: number, total: number) => void
+  onProgress?: (layerId: string, progress: number, total: number) => void,
+  signal?: AbortSignal
 ): Promise<Map<string, FeatureCollection>> {
   const results = new Map<string, FeatureCollection>();
   const total = layers.length;
   let completed = 0;
 
+  // Check if already cancelled
+  if (signal?.aborted) {
+    throw new Error('Cancelled');
+  }
+
   // Process layers in batches with limited concurrency
   const processBatch = async (batch: LayerConfig[]) => {
     const promises = batch.map(async (layer) => {
-      const data = await fetchLayerData(layer, bbox);
+      const data = await fetchLayerData(layer, bbox, 3, signal);
       results.set(layer.id, data);
       completed++;
       onProgress?.(layer.id, completed, total);
@@ -437,6 +474,11 @@ export async function fetchMultipleLayers(
 
   // Split into batches
   for (let i = 0; i < layers.length; i += MAX_CONCURRENT) {
+    // Check if cancelled before each batch
+    if (signal?.aborted) {
+      throw new Error('Cancelled');
+    }
+
     const batch = layers.slice(i, i + MAX_CONCURRENT);
     await processBatch(batch);
 

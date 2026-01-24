@@ -1191,7 +1191,71 @@ export function ExtractedView({ isMobile = false }: ExtractedViewProps) {
     customLayers,
     selectionLocationName,
     setSelectionLocationName,
+    areas,
+    activeAreaId,
   } = useStore();
+
+  // Get the active area's layer data, falling back to global layerData
+  const activeArea = areas.find((a) => a.id === activeAreaId);
+  const activeLayerData = activeArea?.layerData || layerData;
+
+  // Comparison mode - show all areas side by side
+  const [isComparisonMode, setIsComparisonMode] = useState(false);
+  const canCompare = areas.length >= 2;
+
+  // Track comparison mode changes to force DeckGL remount
+  const [comparisonModeCount, setComparisonModeCount] = useState(0);
+  const toggleComparisonMode = useCallback(() => {
+    setIsComparisonMode((prev) => !prev);
+    // Force fresh WebGL contexts by incrementing count
+    setComparisonModeCount((c) => c + 1);
+  }, []);
+
+  // Camera sync mode for comparison view: 'sync' = all move together, 'separate' = independent
+  const [cameraSyncMode, setCameraSyncMode] = useState<'sync' | 'separate'>('sync');
+
+  // Separate view states for each area when in 'separate' mode
+  const [separateViewStates, setSeparateViewStates] = useState<Map<string, OrbitViewState>>(new Map());
+
+  // Initialize separate view states when areas change
+  useEffect(() => {
+    if (areas.length > 0) {
+      setSeparateViewStates((prev) => {
+        const newStates = new Map(prev);
+        for (const area of areas) {
+          if (!newStates.has(area.id)) {
+            // Initialize with default view state
+            newStates.set(area.id, {
+              target: [0, 0, 200],
+              rotationX: 45,
+              rotationOrbit: -30,
+              zoom: 0,
+              minZoom: -2,
+              maxZoom: 5,
+            });
+          }
+        }
+        return newStates;
+      });
+    }
+  }, [areas]);
+
+  // Handler for separate view state changes
+  const handleSeparateViewStateChange = useCallback((areaId: string, newViewState: OrbitViewState) => {
+    setSeparateViewStates((prev) => {
+      const newStates = new Map(prev);
+      newStates.set(areaId, newViewState);
+      return newStates;
+    });
+  }, []);
+
+  // Local state for location name input to avoid re-renders on every keystroke
+  const [localLocationName, setLocalLocationName] = useState(selectionLocationName || '');
+
+  // Sync local state when store value changes externally
+  useEffect(() => {
+    setLocalLocationName(selectionLocationName || '');
+  }, [selectionLocationName]);
 
   // Mobile settings panel collapsed state
   const [isSettingsExpanded, setIsSettingsExpanded] = useState(false);
@@ -1413,9 +1477,11 @@ export function ExtractedView({ isMobile = false }: ExtractedViewProps) {
     await new Promise(resolve => setTimeout(resolve, 100));
 
     try {
-      // Find the DeckGL canvas inside the container
-      const deckCanvas = viewContainerRef.current.querySelector('canvas');
-      if (!deckCanvas) {
+      const scale = window.devicePixelRatio || 1;
+
+      // Find all DeckGL canvases inside the container
+      const allCanvases = viewContainerRef.current.querySelectorAll('canvas');
+      if (allCanvases.length === 0) {
         throw new Error('Canvas not found');
       }
 
@@ -1426,22 +1492,77 @@ export function ExtractedView({ isMobile = false }: ExtractedViewProps) {
         throw new Error('Could not create canvas context');
       }
 
-      // Set output canvas size to match the DeckGL canvas
-      outputCanvas.width = deckCanvas.width;
-      outputCanvas.height = deckCanvas.height;
+      if (isComparisonMode && allCanvases.length > 1) {
+        // Comparison mode: combine multiple canvases into a grid
+        const numAreas = areas.length;
+        const cols = 2;
+        const rows = numAreas <= 2 ? 1 : 2;
+        const gap = 2 * scale;
 
-      // Draw the DeckGL canvas
-      ctx.drawImage(deckCanvas, 0, 0);
+        // Get dimensions from first canvas
+        const firstCanvas = allCanvases[0] as HTMLCanvasElement;
+        const canvasWidth = firstCanvas.width;
+        const canvasHeight = firstCanvas.height;
 
-      // Draw the location name if present
-      if (selectionLocationName) {
-        const scale = window.devicePixelRatio || 1;
+        // Calculate output size
+        outputCanvas.width = canvasWidth * cols + gap * (cols - 1);
+        outputCanvas.height = canvasHeight * rows + gap * (rows - 1);
+
+        // Fill background (gap color)
+        ctx.fillStyle = '#0a0a14';
+        ctx.fillRect(0, 0, outputCanvas.width, outputCanvas.height);
+
+        // Draw each canvas in grid position
+        allCanvases.forEach((canvas, index) => {
+          if (index >= numAreas) return;
+          const col = index % cols;
+          const row = Math.floor(index / cols);
+          const x = col * (canvasWidth + gap);
+          const y = row * (canvasHeight + gap);
+
+          ctx.drawImage(canvas, x, y);
+
+          // Draw area label on each canvas
+          if (areas[index]) {
+            const area = areas[index];
+            const labelPadding = 8 * scale;
+            const labelFontSize = 12 * scale;
+            const labelText = area.name;
+
+            ctx.font = `600 ${labelFontSize}px system-ui, -apple-system, sans-serif`;
+            const labelMetrics = ctx.measureText(labelText);
+            const labelBgWidth = labelMetrics.width + 20 * scale;
+            const labelBgHeight = labelFontSize + 8 * scale;
+
+            // Draw label background with area color
+            const [r, g, b] = area.color;
+            ctx.fillStyle = `rgba(${r}, ${g}, ${b}, 0.9)`;
+            ctx.beginPath();
+            ctx.roundRect(x + labelPadding, y + labelPadding, labelBgWidth, labelBgHeight, 4 * scale);
+            ctx.fill();
+
+            // Draw label text
+            ctx.fillStyle = 'white';
+            ctx.fillText(labelText, x + labelPadding + 10 * scale, y + labelPadding + labelFontSize + 1 * scale);
+          }
+        });
+      } else {
+        // Single view mode: just copy the single canvas
+        const deckCanvas = allCanvases[0] as HTMLCanvasElement;
+        outputCanvas.width = deckCanvas.width;
+        outputCanvas.height = deckCanvas.height;
+        ctx.drawImage(deckCanvas, 0, 0);
+      }
+
+      // Draw the location name if present (bottom left of entire output)
+      const locationName = localLocationName || selectionLocationName;
+      if (locationName) {
         const padding = 16 * scale;
         const fontSize = 14 * scale;
 
         // Draw background
         ctx.font = `500 ${fontSize}px system-ui, -apple-system, sans-serif`;
-        const textMetrics = ctx.measureText(selectionLocationName);
+        const textMetrics = ctx.measureText(locationName);
         const bgWidth = textMetrics.width + 24 * scale;
         const bgHeight = fontSize + 12 * scale;
         const bgX = padding;
@@ -1459,14 +1580,16 @@ export function ExtractedView({ isMobile = false }: ExtractedViewProps) {
 
         // Draw text
         ctx.fillStyle = 'white';
-        ctx.fillText(selectionLocationName, bgX + 12 * scale, bgY + fontSize + 3 * scale);
+        ctx.fillText(locationName, bgX + 12 * scale, bgY + fontSize + 3 * scale);
       }
 
       // Create download link
       const link = document.createElement('a');
-      const filename = selectionLocationName
-        ? `axoncity-${selectionLocationName.replace(/[^a-z0-9]/gi, '-').toLowerCase()}.png`
-        : `axoncity-extracted-view-${Date.now()}.png`;
+      const baseFilename = locationName
+        ? `axoncity-${locationName.replace(/[^a-z0-9]/gi, '-').toLowerCase()}`
+        : 'axoncity-extracted-view';
+      const suffix = isComparisonMode ? '-comparison' : '';
+      const filename = `${baseFilename}${suffix}-${Date.now()}.png`;
       link.download = filename;
       link.href = outputCanvas.toDataURL('image/png');
       link.click();
@@ -1489,7 +1612,7 @@ export function ExtractedView({ isMobile = false }: ExtractedViewProps) {
     } finally {
       setIsSaving(false);
     }
-  }, [selectionLocationName]);
+  }, [selectionLocationName, localLocationName, isComparisonMode, areas]);
 
   // Don't render anything if closed or no selection
   if (!isExtractedViewOpen || !selectionPolygon) return null;
@@ -1614,6 +1737,52 @@ export function ExtractedView({ isMobile = false }: ExtractedViewProps) {
                 <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
               </svg>
               {isSettingsExpanded ? 'Hide' : 'Settings'}
+            </button>
+          )}
+
+          {/* Compare button - only show when 2+ areas */}
+          {canCompare && (
+            <button
+              onClick={toggleComparisonMode}
+              style={{
+                padding: isMobile ? '10px 16px' : '4px 8px',
+                backgroundColor: isComparisonMode ? '#22C55E' : 'rgba(34, 197, 94, 0.5)',
+                color: 'white',
+                border: 'none',
+                borderRadius: isMobile ? '8px' : '4px',
+                cursor: 'pointer',
+                fontSize: isMobile ? '14px' : '11px',
+                minHeight: isMobile ? '44px' : 'auto',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+              }}
+              title={isComparisonMode ? 'Show single area' : 'Compare all areas side by side'}
+            >
+              {isComparisonMode ? 'Single' : 'Compare'}
+            </button>
+          )}
+
+          {/* Camera sync mode toggle - only show in comparison mode */}
+          {isComparisonMode && (
+            <button
+              onClick={() => setCameraSyncMode((prev) => (prev === 'sync' ? 'separate' : 'sync'))}
+              style={{
+                padding: isMobile ? '10px 16px' : '4px 8px',
+                backgroundColor: cameraSyncMode === 'sync' ? 'rgba(168, 85, 247, 0.8)' : 'rgba(168, 85, 247, 0.4)',
+                color: 'white',
+                border: 'none',
+                borderRadius: isMobile ? '8px' : '4px',
+                cursor: 'pointer',
+                fontSize: isMobile ? '14px' : '10px',
+                minHeight: isMobile ? '44px' : 'auto',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+              }}
+              title={cameraSyncMode === 'sync' ? 'Switch to separate camera control' : 'Switch to synchronized camera control'}
+            >
+              {cameraSyncMode === 'sync' ? 'Sync' : 'Separate'}
             </button>
           )}
 
@@ -1921,68 +2090,198 @@ export function ExtractedView({ isMobile = false }: ExtractedViewProps) {
         </button>
       </div>
 
-      {/* 3D View */}
+      {/* 3D View - Single or Comparison Mode */}
       <div ref={viewContainerRef} style={{ flex: 1, position: 'relative', backgroundColor: '#1a1a2e' }}>
-        <DeckGLView
-          key={`deck-${openCount}`}
-          viewState={localViewState}
-          onViewStateChange={handleViewStateChange}
-          selectionPolygon={selectionPolygon}
-          layerData={layerData}
-          activeLayers={activeLayers}
-          layerOrder={layerOrder}
-          layerSpacing={layerSpacing}
-          intraGroupRatio={intraGroupRatio}
-          center={center}
-          enabledGroups={enabledGroups}
-          showPlatforms={showPlatforms}
-          customLayers={customLayers}
-          customGroupEnabled={customGroupEnabled}
-        />
+        {/* Single area view */}
+        {!isComparisonMode && selectionPolygon && (
+          <>
+            <DeckGLView
+              key={`deck-single-${openCount}-${comparisonModeCount}`}
+              viewState={localViewState}
+              onViewStateChange={handleViewStateChange}
+              selectionPolygon={selectionPolygon}
+              layerData={activeLayerData}
+              activeLayers={activeLayers}
+              layerOrder={layerOrder}
+              layerSpacing={layerSpacing}
+              intraGroupRatio={intraGroupRatio}
+              center={center}
+              enabledGroups={enabledGroups}
+              showPlatforms={showPlatforms}
+              customLayers={customLayers}
+              customGroupEnabled={customGroupEnabled}
+            />
 
-        {/* Location name overlay for screenshots - editable */}
-        <div
-          style={{
-            position: 'absolute',
-            bottom: '16px',
-            left: '16px',
-            backgroundColor: 'rgba(0, 0, 0, 0.75)',
-            color: 'white',
-            padding: '6px 12px',
-            borderRadius: '8px',
-            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.3)',
-            border: '1px solid rgba(255, 255, 255, 0.1)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-          }}
-        >
-          <input
-            type="text"
-            value={selectionLocationName || ''}
-            onChange={(e) => setSelectionLocationName(e.target.value || null)}
-            placeholder="Enter location name..."
+            {/* Location name overlay for screenshots - editable */}
+            <div
+              style={{
+                position: 'absolute',
+                bottom: '16px',
+                left: '16px',
+                backgroundColor: 'rgba(0, 0, 0, 0.75)',
+                color: 'white',
+                padding: '6px 12px',
+                borderRadius: '8px',
+                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.3)',
+                border: '1px solid rgba(255, 255, 255, 0.1)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+              }}
+            >
+              <input
+                type="text"
+                value={localLocationName}
+                onChange={(e) => setLocalLocationName(e.target.value)}
+                onBlur={(e) => setSelectionLocationName(e.target.value || null)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    setSelectionLocationName(localLocationName || null);
+                    (e.target as HTMLInputElement).blur();
+                  }
+                }}
+                placeholder="Enter location name..."
+                style={{
+                  backgroundColor: 'transparent',
+                  border: 'none',
+                  outline: 'none',
+                  color: 'white',
+                  fontSize: '14px',
+                  fontWeight: '500',
+                  letterSpacing: '0.5px',
+                  width: '180px',
+                  fontFamily: 'inherit',
+                }}
+              />
+              <span
+                style={{
+                  fontSize: '10px',
+                  opacity: 0.5,
+                  whiteSpace: 'nowrap',
+                }}
+              >
+              </span>
+            </div>
+          </>
+        )}
+
+        {/* Comparison mode - multiple areas side by side */}
+        {isComparisonMode && areas.length >= 2 && (
+          <div
+            key={`compare-container-${openCount}`}
             style={{
-              backgroundColor: 'transparent',
-              border: 'none',
-              outline: 'none',
-              color: 'white',
-              fontSize: '14px',
-              fontWeight: '500',
-              letterSpacing: '0.5px',
-              width: '180px',
-              fontFamily: 'inherit',
-            }}
-          />
-          <span
-            style={{
-              fontSize: '10px',
-              opacity: 0.5,
-              whiteSpace: 'nowrap',
+              display: 'grid',
+              gridTemplateColumns: areas.length <= 2 ? 'repeat(2, 1fr)' : 'repeat(2, 1fr)',
+              gridTemplateRows: areas.length <= 2 ? '1fr' : 'repeat(2, 1fr)',
+              gap: '2px',
+              width: '100%',
+              height: '100%',
+              backgroundColor: '#0a0a14',
             }}
           >
-          </span>
-        </div>
+            {areas.map((area, index) => {
+              const areaCenter = getCentroid(area.polygon.geometry);
+              // Use separate or synced view state based on camera mode
+              const areaViewState = cameraSyncMode === 'separate'
+                ? (separateViewStates.get(area.id) || localViewState)
+                : localViewState;
+              const areaViewStateHandler = cameraSyncMode === 'separate'
+                ? (params: { viewState: OrbitViewState }) => handleSeparateViewStateChange(area.id, params.viewState)
+                : handleViewStateChange;
+
+              return (
+                <div
+                  key={`area-view-${area.id}`}
+                  style={{
+                    position: 'relative',
+                    backgroundColor: '#1a1a2e',
+                    overflow: 'hidden',
+                  }}
+                >
+                  <DeckGLView
+                    key={`deck-compare-${index}-${openCount}-${comparisonModeCount}-${cameraSyncMode}`}
+                    viewState={areaViewState}
+                    onViewStateChange={areaViewStateHandler}
+                    selectionPolygon={{ geometry: area.polygon.geometry }}
+                    layerData={area.layerData}
+                    activeLayers={activeLayers}
+                    layerOrder={layerOrder}
+                    layerSpacing={layerSpacing}
+                    intraGroupRatio={intraGroupRatio}
+                    center={areaCenter}
+                    enabledGroups={enabledGroups}
+                    showPlatforms={showPlatforms}
+                    customLayers={customLayers}
+                    customGroupEnabled={customGroupEnabled}
+                  />
+                  {/* Area label */}
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: '8px',
+                      left: '8px',
+                      backgroundColor: `rgba(${area.color.slice(0, 3).join(',')}, 0.9)`,
+                      color: 'white',
+                      padding: '4px 10px',
+                      borderRadius: '4px',
+                      fontSize: '12px',
+                      fontWeight: '600',
+                      boxShadow: '0 2px 4px rgba(0, 0, 0, 0.3)',
+                    }}
+                  >
+                    {area.name}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Location name overlay for comparison mode */}
+        {isComparisonMode && (
+          <div
+            style={{
+              position: 'absolute',
+              bottom: '16px',
+              left: '16px',
+              backgroundColor: 'rgba(0, 0, 0, 0.75)',
+              color: 'white',
+              padding: '6px 12px',
+              borderRadius: '8px',
+              boxShadow: '0 2px 8px rgba(0, 0, 0, 0.3)',
+              border: '1px solid rgba(255, 255, 255, 0.1)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              zIndex: 10,
+            }}
+          >
+            <input
+              type="text"
+              value={localLocationName}
+              onChange={(e) => setLocalLocationName(e.target.value)}
+              onBlur={(e) => setSelectionLocationName(e.target.value || null)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  setSelectionLocationName(localLocationName || null);
+                  (e.target as HTMLInputElement).blur();
+                }
+              }}
+              placeholder="Enter location name..."
+              style={{
+                backgroundColor: 'transparent',
+                border: 'none',
+                outline: 'none',
+                color: 'white',
+                fontSize: '14px',
+                fontWeight: '500',
+                letterSpacing: '0.5px',
+                width: '200px',
+                fontFamily: 'inherit',
+              }}
+            />
+          </div>
+        )}
 
         {/* Save toast notification */}
         {saveToast.show && (

@@ -13,6 +13,9 @@ export interface MapStyleOption {
 // Map language options
 export type MapLanguage = 'local' | 'en';
 
+// Drawing tool modes
+export type DrawingMode = 'polygon' | 'rectangle' | 'circle';
+
 // Favorite location
 export interface FavoriteLocation {
   id: string;
@@ -29,6 +32,7 @@ export type LayerGroup =
   | 'usage'
   | 'traffic'
   | 'environment'
+  | 'amenities'
   | 'custom';
 
 export type GeometryType = 'polygon' | 'line' | 'point';
@@ -92,6 +96,27 @@ export interface SelectionPolygon {
   area: number; // in m²
 }
 
+// Colors for comparison areas (colorblind-friendly, distinct)
+export const AREA_COLORS: [number, number, number, number][] = [
+  [59, 130, 246, 200],   // Blue
+  [249, 115, 22, 200],   // Orange
+  [34, 197, 94, 200],    // Green
+  [168, 85, 247, 200],   // Purple
+];
+
+export const AREA_NAMES = ['Area A', 'Area B', 'Area C', 'Area D'] as const;
+
+export const MAX_COMPARISON_AREAS = 4;
+
+// A comparison area represents one geographic region being analyzed
+export interface ComparisonArea {
+  id: string;
+  name: string;
+  color: [number, number, number, number];
+  polygon: SelectionPolygon;
+  layerData: Map<string, LayerData>;
+}
+
 export interface ViewState {
   longitude: number;
   latitude: number;
@@ -108,6 +133,17 @@ export interface ExplodedViewConfig {
   intraGroupRatio: number; // ratio of layerSpacing for spacing between layers in same group
   baseElevation: number;
   animationDuration: number;
+}
+
+// Story preset for one-click urban analysis perspectives
+export interface StoryPreset {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+  activeLayers: string[];
+  camera: { pitch: number; bearing: number };
+  explodedView: { enabled: boolean; layerSpacing?: number; intraGroupRatio?: number };
 }
 
 export interface LayerOrderConfig {
@@ -158,11 +194,25 @@ export interface AppState {
   removeFavoriteLocation: (id: string) => void;
   clearFavoriteLocations: () => void;
 
-  // Selection
+  // Comparison areas (multi-area selection)
+  areas: ComparisonArea[];
+  activeAreaId: string | null;
+  addArea: (polygon: SelectionPolygon) => string | null; // returns area id or null if max reached
+  updateAreaPolygon: (areaId: string, polygon: SelectionPolygon) => void;
+  updateAreaLayerData: (areaId: string, layerId: string, data: LayerData) => void;
+  removeArea: (areaId: string) => void;
+  setActiveAreaId: (areaId: string | null) => void;
+  renameArea: (areaId: string, name: string) => void;
+  clearAreas: () => void;
+  getActiveArea: () => ComparisonArea | null;
+
+  // Selection (legacy - bridges to active area)
   selectionPolygon: SelectionPolygon | null;
   setSelectionPolygon: (polygon: SelectionPolygon | null) => void;
   isDrawing: boolean;
   setIsDrawing: (isDrawing: boolean) => void;
+  drawingMode: DrawingMode;
+  setDrawingMode: (mode: DrawingMode) => void;
   drawingPoints: [number, number][];
   setDrawingPoints: (points: [number, number][]) => void;
   addDrawingPoint: (point: [number, number]) => void;
@@ -230,6 +280,124 @@ export interface AppState {
   // Data input panel
   isDataInputOpen: boolean;
   setDataInputOpen: (isOpen: boolean) => void;
+
+  // Story presets
+  activeStoryId: string | null;
+  previousStoryState: {
+    activeLayers: string[];
+    explodedView: ExplodedViewConfig;
+  } | null;
+  applyStory: (storyId: string) => void;
+  clearStory: () => void;
+
+  // Visual settings
+  globalOpacity: number; // 0-100
+  setGlobalOpacity: (opacity: number) => void;
+  layerStyleOverrides: Map<string, LayerStyleOverride>;
+  setLayerStyleOverride: (layerId: string, override: LayerStyleOverride) => void;
+  clearLayerStyleOverrides: () => void;
+}
+
+// Shareable state for URL encoding
+export interface ShareableState {
+  center: [number, number]; // [lng, lat]
+  zoom: number;
+  pitch: number;
+  bearing: number;
+  areas: EncodedArea[];
+  presetId?: string;
+  activeLayers?: string[];
+  explodedView: boolean;
+  mapStyle?: MapStyleType;
+}
+
+export interface EncodedArea {
+  name: string;
+  coordinates: number[][]; // Flattened [lng, lat, lng, lat, ...]
+}
+
+// Snapshot export options
+export interface SnapshotOptions {
+  width: number;
+  height: number;
+  includeLegend: boolean;
+  includeMetrics: boolean;
+  includeAttribution: boolean;
+  format: 'png' | 'jpeg';
+  quality: number; // 0-1 for jpeg
+}
+
+// Phase 4: Comparison Clarity Types
+
+// Normalization modes for fair comparisons
+export type NormalizationMode = 'raw' | 'per_km2';
+
+// Delta indicators for comparison table
+export type DeltaIndicator = '▲▲' | '▲' | '' | '▼' | '▼▼';
+
+// Comparison row for side-by-side metrics
+export interface ComparisonRow {
+  metric: string;
+  metricId: string;
+  values: (number | null)[];  // One per area, null if no data
+  unit: string;
+  delta: number | null;       // Percentage difference (null if only one area)
+  deltaIndicator: DeltaIndicator;
+  tooltip?: string;
+}
+
+// Data quality assessment
+export interface DataQuality {
+  overallScore: number;       // 0-100
+  categoryScores: CategoryScore[];
+  warnings: QualityWarning[];
+  lastUpdated: Date;
+}
+
+export interface CategoryScore {
+  category: string;
+  score: number;
+  count: number;
+  expectedMin: number;
+}
+
+export interface QualityWarning {
+  type: 'missing_category' | 'low_count' | 'region_coverage';
+  message: string;
+  severity: 'info' | 'warning' | 'caution';
+}
+
+// Layer style override for visual controls
+export interface LayerStyleOverride {
+  opacity: number; // 0-100
+  fillColor?: [number, number, number, number];
+  extrusionMultiplier?: number;
+}
+
+// Metric interpretation
+export interface InterpretationRange {
+  min: number;
+  max: number;
+  label: string;
+  description: string;
+}
+
+export interface MetricDefinition {
+  id: string;
+  name: string;
+  formula?: string;
+  description: string;
+  unit: string;
+  interpretation: InterpretationRange[];
+}
+
+// Auto-generated insights
+export interface Insight {
+  title: string;
+  description: string;
+  confidence: 'high' | 'medium' | 'low';
+  relatedMetrics: string[];
+  type: 'positive' | 'neutral' | 'caution';
 }
 
 // Re-export GeoJSON types for convenience

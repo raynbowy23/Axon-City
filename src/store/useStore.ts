@@ -1,6 +1,8 @@
 import { create } from 'zustand';
-import type { AppState, ViewState, LayerData, ExplodedViewConfig, SelectedFeature, Feature, LayerGroup, LayerOrderConfig, CustomLayerConfig, FeatureCollection, MapStyleType, MapLanguage, FavoriteLocation } from '../types';
+import type { AppState, ViewState, LayerData, ExplodedViewConfig, SelectedFeature, Feature, LayerGroup, LayerOrderConfig, CustomLayerConfig, FeatureCollection, MapStyleType, MapLanguage, FavoriteLocation, ComparisonArea, SelectionPolygon, LayerStyleOverride } from '../types';
+import { AREA_COLORS, AREA_NAMES, MAX_COMPARISON_AREAS } from '../types';
 import { layerManifest } from '../data/layerManifest';
+import { getStoryById } from '../data/storyPresets';
 
 // LocalStorage keys
 const STORAGE_KEYS = {
@@ -219,11 +221,155 @@ export const useStore = create<AppState>((set) => ({
     set({ favoriteLocations: [] });
   },
 
-  // Selection
+  // Comparison areas (multi-area selection)
+  areas: [],
+  activeAreaId: null,
+
+  addArea: (polygon: SelectionPolygon) => {
+    let newAreaId: string | null = null;
+    set((state) => {
+      if (state.areas.length >= MAX_COMPARISON_AREAS) {
+        return state; // Max areas reached
+      }
+
+      const areaIndex = state.areas.length;
+      newAreaId = `area-${Date.now()}`;
+
+      const newArea: ComparisonArea = {
+        id: newAreaId,
+        name: AREA_NAMES[areaIndex] || `Area ${areaIndex + 1}`,
+        color: AREA_COLORS[areaIndex] || AREA_COLORS[0],
+        polygon,
+        layerData: new Map(),
+      };
+
+      return {
+        areas: [...state.areas, newArea],
+        activeAreaId: newAreaId,
+        // Also update legacy selectionPolygon for backward compatibility
+        selectionPolygon: polygon,
+      };
+    });
+    return newAreaId;
+  },
+
+  updateAreaPolygon: (areaId: string, polygon: SelectionPolygon) =>
+    set((state) => {
+      const areaIndex = state.areas.findIndex((a) => a.id === areaId);
+      if (areaIndex === -1) return state;
+
+      const newAreas = [...state.areas];
+      newAreas[areaIndex] = {
+        ...newAreas[areaIndex],
+        polygon,
+        layerData: new Map(), // Clear layer data when polygon changes
+      };
+
+      return {
+        areas: newAreas,
+        // Update legacy selectionPolygon if this is the active area
+        selectionPolygon: state.activeAreaId === areaId ? polygon : state.selectionPolygon,
+      };
+    }),
+
+  updateAreaLayerData: (areaId: string, layerId: string, data: LayerData) =>
+    set((state) => {
+      const areaIndex = state.areas.findIndex((a) => a.id === areaId);
+      if (areaIndex === -1) return state;
+
+      const newAreas = [...state.areas];
+      const newLayerData = new Map(newAreas[areaIndex].layerData);
+      newLayerData.set(layerId, data);
+
+      newAreas[areaIndex] = {
+        ...newAreas[areaIndex],
+        layerData: newLayerData,
+      };
+
+      return { areas: newAreas };
+    }),
+
+  removeArea: (areaId: string) =>
+    set((state) => {
+      const newAreas = state.areas.filter((a) => a.id !== areaId);
+
+      // Reassign colors and names to maintain consistency
+      const reassignedAreas = newAreas.map((area, index) => ({
+        ...area,
+        color: AREA_COLORS[index] || AREA_COLORS[0],
+        // Keep user-assigned names, only reassign if it was a default name
+        name: AREA_NAMES.includes(area.name as typeof AREA_NAMES[number])
+          ? AREA_NAMES[index] || `Area ${index + 1}`
+          : area.name,
+      }));
+
+      // If we removed the active area, set the first remaining area as active
+      let newActiveAreaId = state.activeAreaId;
+      if (state.activeAreaId === areaId) {
+        newActiveAreaId = reassignedAreas.length > 0 ? reassignedAreas[0].id : null;
+      }
+
+      // Update legacy selectionPolygon
+      const activeArea = reassignedAreas.find((a) => a.id === newActiveAreaId);
+
+      // Clear layerData when no areas remain
+      const newLayerData = reassignedAreas.length === 0 ? new Map() : state.layerData;
+
+      return {
+        areas: reassignedAreas,
+        activeAreaId: newActiveAreaId,
+        selectionPolygon: activeArea?.polygon || null,
+        // Clear editable vertices when removing areas
+        editableVertices: activeArea ? state.editableVertices : [],
+        // Clear layer data when all areas are removed
+        layerData: newLayerData,
+      };
+    }),
+
+  setActiveAreaId: (areaId: string | null) =>
+    set((state) => {
+      const activeArea = areaId ? state.areas.find((a) => a.id === areaId) : null;
+      return {
+        activeAreaId: areaId,
+        selectionPolygon: activeArea?.polygon || null,
+      };
+    }),
+
+  renameArea: (areaId: string, name: string) =>
+    set((state) => {
+      const areaIndex = state.areas.findIndex((a) => a.id === areaId);
+      if (areaIndex === -1) return state;
+
+      const newAreas = [...state.areas];
+      newAreas[areaIndex] = {
+        ...newAreas[areaIndex],
+        name,
+      };
+
+      return { areas: newAreas };
+    }),
+
+  clearAreas: () =>
+    set({
+      areas: [],
+      activeAreaId: null,
+      selectionPolygon: null,
+      editableVertices: [],
+      drawingPoints: [],
+    }),
+
+  getActiveArea: (): ComparisonArea | null => {
+    const state = useStore.getState();
+    return state.areas.find((a: ComparisonArea) => a.id === state.activeAreaId) || null;
+  },
+
+  // Selection (legacy - bridges to active area for backward compatibility)
   selectionPolygon: null,
   setSelectionPolygon: (polygon) => set({ selectionPolygon: polygon }),
   isDrawing: false,
   setIsDrawing: (isDrawing) => set({ isDrawing }),
+  drawingMode: 'polygon' as 'polygon' | 'rectangle' | 'circle',
+  setDrawingMode: (mode: 'polygon' | 'rectangle' | 'circle') => set({ drawingMode: mode }),
   drawingPoints: [],
   setDrawingPoints: (points) => set({ drawingPoints: points }),
   addDrawingPoint: (point) => set((state) => ({ drawingPoints: [...state.drawingPoints, point] })),
@@ -444,4 +590,81 @@ export const useStore = create<AppState>((set) => ({
   // Data input panel
   isDataInputOpen: false,
   setDataInputOpen: (isOpen) => set({ isDataInputOpen: isOpen }),
+
+  // Story presets
+  activeStoryId: null,
+  previousStoryState: null,
+
+  applyStory: (storyId: string) =>
+    set((state) => {
+      const story = getStoryById(storyId);
+      if (!story) return state;
+
+      // If clicking the same story, clear it
+      if (state.activeStoryId === storyId) {
+        // Restore previous state
+        if (state.previousStoryState) {
+          return {
+            activeStoryId: null,
+            previousStoryState: null,
+            activeLayers: state.previousStoryState.activeLayers,
+            explodedView: state.previousStoryState.explodedView,
+          };
+        }
+        return { activeStoryId: null, previousStoryState: null };
+      }
+
+      // Save current state before applying story (only if not already in a story)
+      const previousState = state.activeStoryId === null
+        ? {
+            activeLayers: state.activeLayers,
+            explodedView: state.explodedView,
+          }
+        : state.previousStoryState;
+
+      // Apply story config - preserve current view state entirely
+      const newExplodedView: ExplodedViewConfig = {
+        ...state.explodedView,
+        enabled: story.explodedView.enabled,
+        ...(story.explodedView.layerSpacing !== undefined && {
+          layerSpacing: story.explodedView.layerSpacing,
+        }),
+        ...(story.explodedView.intraGroupRatio !== undefined && {
+          intraGroupRatio: story.explodedView.intraGroupRatio,
+        }),
+      };
+
+      return {
+        activeStoryId: storyId,
+        previousStoryState: previousState,
+        activeLayers: story.activeLayers,
+        explodedView: newExplodedView,
+      };
+    }),
+
+  clearStory: () =>
+    set((state) => {
+      if (!state.previousStoryState) {
+        return { activeStoryId: null };
+      }
+
+      return {
+        activeStoryId: null,
+        previousStoryState: null,
+        activeLayers: state.previousStoryState.activeLayers,
+        explodedView: state.previousStoryState.explodedView,
+      };
+    }),
+
+  // Visual settings
+  globalOpacity: 100,
+  setGlobalOpacity: (opacity: number) => set({ globalOpacity: opacity }),
+  layerStyleOverrides: new Map<string, LayerStyleOverride>(),
+  setLayerStyleOverride: (layerId: string, override: LayerStyleOverride) =>
+    set((state) => {
+      const newMap = new Map(state.layerStyleOverrides);
+      newMap.set(layerId, override);
+      return { layerStyleOverrides: newMap };
+    }),
+  clearLayerStyleOverrides: () => set({ layerStyleOverrides: new Map<string, LayerStyleOverride>() }),
 }));

@@ -1,15 +1,103 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type { Polygon } from 'geojson';
 import { useStore } from '../store/useStore';
 import { calculatePolygonArea } from '../utils/geometryUtils';
+import type { DrawingMode } from '../types';
 
 interface DrawingToolProps {
   onComplete: (polygon: Polygon) => void;
 }
 
+// Generate a rectangle polygon from two corner points
+function createRectanglePolygon(
+  corner1: [number, number],
+  corner2: [number, number]
+): Polygon {
+  const [lng1, lat1] = corner1;
+  const [lng2, lat2] = corner2;
+
+  return {
+    type: 'Polygon',
+    coordinates: [[
+      [lng1, lat1],
+      [lng2, lat1],
+      [lng2, lat2],
+      [lng1, lat2],
+      [lng1, lat1], // Close the polygon
+    ]],
+  };
+}
+
+// Generate a circle polygon from center and edge point
+function createCirclePolygon(
+  center: [number, number],
+  edgePoint: [number, number],
+  numPoints: number = 64
+): Polygon {
+  const [cLng, cLat] = center;
+  const [eLng, eLat] = edgePoint;
+
+  // Calculate radius in degrees (approximate for small areas)
+  const radiusLng = Math.abs(eLng - cLng);
+  const radiusLat = Math.abs(eLat - cLat);
+  const radius = Math.sqrt(radiusLng * radiusLng + radiusLat * radiusLat);
+
+  // Generate circle points
+  const points: [number, number][] = [];
+  for (let i = 0; i < numPoints; i++) {
+    const angle = (i / numPoints) * 2 * Math.PI;
+    // Adjust for latitude distortion (longitude degrees are smaller at higher latitudes)
+    const latCorrectionFactor = Math.cos((cLat * Math.PI) / 180);
+    const lng = cLng + (radius * Math.cos(angle)) / latCorrectionFactor;
+    const lat = cLat + radius * Math.sin(angle);
+    points.push([lng, lat]);
+  }
+
+  // Close the polygon
+  points.push(points[0]);
+
+  return {
+    type: 'Polygon',
+    coordinates: [points],
+  };
+}
+
+const MODE_ICONS: Record<DrawingMode, string> = {
+  polygon: '✏️',
+  rectangle: '▭',
+  circle: '○',
+};
+
+const MODE_LABELS: Record<DrawingMode, string> = {
+  polygon: 'Polygon',
+  rectangle: 'Rectangle',
+  circle: 'Circle',
+};
+
+const MODE_INSTRUCTIONS: Record<DrawingMode, string> = {
+  polygon: 'Click to add points, Enter to complete',
+  rectangle: 'Click two corners to create rectangle',
+  circle: 'Click center, then edge to set radius',
+};
+
 export function DrawingTool({ onComplete }: DrawingToolProps) {
-  const { isDrawing, setIsDrawing, setSelectionPolygon, drawingPoints, setDrawingPoints } = useStore();
+  const {
+    isDrawing,
+    setIsDrawing,
+    setSelectionPolygon,
+    drawingPoints,
+    setDrawingPoints,
+    drawingMode: storeDrawingMode,
+    setDrawingMode,
+  } = useStore();
+  const drawingMode = storeDrawingMode as DrawingMode;
   const [previewPolygon, setPreviewPolygon] = useState<Polygon | null>(null);
+  const [showOptions, setShowOptions] = useState(false);
+
+  // Use refs to avoid dependency issues in useEffect
+  const onCompleteRef = useRef(onComplete);
+  onCompleteRef.current = onComplete;
+  const autoCompleteTriggeredRef = useRef(false);
 
   // Handle keyboard shortcuts
   useEffect(() => {
@@ -17,114 +105,334 @@ export function DrawingTool({ onComplete }: DrawingToolProps) {
       if (e.key === 'Escape') {
         cancelDrawing();
       }
-      if (e.key === 'Enter' && drawingPoints.length >= 3) {
+      if (e.key === 'Enter' && drawingMode === 'polygon' && drawingPoints.length >= 3) {
         completeDrawing();
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [drawingPoints]);
+  }, [drawingPoints, drawingMode]);
 
-  // Update preview polygon when drawing points change (points are added by MapView via DeckGL onClick)
+  // Update preview polygon when drawing points change
   useEffect(() => {
-    if (drawingPoints.length >= 3) {
-      const polygon: Polygon = {
-        type: 'Polygon',
-        coordinates: [[...drawingPoints, drawingPoints[0]]],
-      };
+    // Reset auto-complete flag when points change
+    if (drawingPoints.length < 2) {
+      autoCompleteTriggeredRef.current = false;
+    }
+
+    if (drawingPoints.length === 0) {
+      setPreviewPolygon(null);
+      setSelectionPolygon(null);
+      // Clear editable vertices too
+      const { setEditableVertices } = useStore.getState();
+      setEditableVertices([]);
+      return;
+    }
+
+    let polygon: Polygon | null = null;
+    let shouldAutoComplete = false;
+
+    if (drawingMode === 'polygon') {
+      if (drawingPoints.length >= 3) {
+        polygon = {
+          type: 'Polygon',
+          coordinates: [[...drawingPoints, drawingPoints[0]]],
+        };
+      }
+    } else if (drawingMode === 'rectangle') {
+      if (drawingPoints.length === 2) {
+        polygon = createRectanglePolygon(drawingPoints[0], drawingPoints[1]);
+        shouldAutoComplete = true;
+      }
+    } else if (drawingMode === 'circle') {
+      if (drawingPoints.length === 2) {
+        polygon = createCirclePolygon(drawingPoints[0], drawingPoints[1]);
+        shouldAutoComplete = true;
+      }
+    }
+
+    if (polygon) {
       setPreviewPolygon(polygon);
       setSelectionPolygon({
         id: 'preview',
         geometry: polygon,
-        area: calculatePolygonArea(polygon) * 1_000_000, // m²
+        area: calculatePolygonArea(polygon) * 1_000_000,
       });
+
+      // Auto-complete for rectangle and circle (deferred to avoid state conflicts)
+      // Only trigger once per drawing session
+      if (shouldAutoComplete && !autoCompleteTriggeredRef.current) {
+        autoCompleteTriggeredRef.current = true;
+        const timeoutId = setTimeout(() => {
+          const completedPolygon = polygon;
+          setIsDrawing(false);
+          setDrawingPoints([]);
+          if (completedPolygon) {
+            onCompleteRef.current(completedPolygon);
+          }
+        }, 100);
+        return () => clearTimeout(timeoutId);
+      }
     } else {
       setPreviewPolygon(null);
       setSelectionPolygon(null);
     }
-  }, [drawingPoints, setSelectionPolygon]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [drawingPoints.length, drawingMode]);
 
-  const startDrawing = () => {
+  const startDrawing = useCallback((mode?: DrawingMode) => {
+    if (mode) {
+      setDrawingMode(mode);
+    }
     setIsDrawing(true);
     setDrawingPoints([]);
     setPreviewPolygon(null);
     setSelectionPolygon(null);
-  };
+  }, [setIsDrawing, setDrawingPoints, setSelectionPolygon, setDrawingMode]);
 
-  const cancelDrawing = () => {
+  const cancelDrawing = useCallback(() => {
     setIsDrawing(false);
     setDrawingPoints([]);
     setPreviewPolygon(null);
     setSelectionPolygon(null);
-  };
+    // Also clear editable vertices to ensure no leftover visual state
+    const { setEditableVertices } = useStore.getState();
+    setEditableVertices([]);
+  }, [setIsDrawing, setDrawingPoints, setSelectionPolygon]);
 
-  const completeDrawing = () => {
-    if (drawingPoints.length < 3) return;
+  const completeDrawing = useCallback(() => {
+    if (drawingMode === 'polygon' && drawingPoints.length < 3) return;
 
-    const polygon: Polygon = {
-      type: 'Polygon',
-      coordinates: [[...drawingPoints, drawingPoints[0]]],
-    };
+    let polygon: Polygon;
+
+    if (drawingMode === 'polygon') {
+      polygon = {
+        type: 'Polygon',
+        coordinates: [[...drawingPoints, drawingPoints[0]]],
+      };
+    } else if (drawingMode === 'rectangle' && drawingPoints.length === 2) {
+      polygon = createRectanglePolygon(drawingPoints[0], drawingPoints[1]);
+    } else if (drawingMode === 'circle' && drawingPoints.length === 2) {
+      polygon = createCirclePolygon(drawingPoints[0], drawingPoints[1]);
+    } else {
+      return;
+    }
 
     setIsDrawing(false);
     setDrawingPoints([]);
     onComplete(polygon);
-  };
+  }, [drawingMode, drawingPoints, setIsDrawing, setDrawingPoints, onComplete]);
 
-  const undoLastPoint = () => {
+  const undoLastPoint = useCallback(() => {
     setDrawingPoints(drawingPoints.slice(0, -1));
+  }, [drawingPoints, setDrawingPoints]);
+
+  const handleModeChange = useCallback((mode: DrawingMode) => {
+    setDrawingMode(mode);
+    setDrawingPoints([]);
+    setPreviewPolygon(null);
+    setSelectionPolygon(null);
+  }, [setDrawingMode, setDrawingPoints, setSelectionPolygon]);
+
+  // Get status message based on mode and points
+  const getStatusMessage = (): string => {
+    if (drawingMode === 'polygon') {
+      return `${drawingPoints.length} point${drawingPoints.length !== 1 ? 's' : ''} added`;
+    } else if (drawingMode === 'rectangle') {
+      if (drawingPoints.length === 0) return 'Click first corner';
+      if (drawingPoints.length === 1) return 'Click second corner';
+      return 'Rectangle complete';
+    } else if (drawingMode === 'circle') {
+      if (drawingPoints.length === 0) return 'Click center point';
+      if (drawingPoints.length === 1) return 'Click to set radius';
+      return 'Circle complete';
+    }
+    return '';
   };
 
   return (
     <div
       style={{
-        position: 'absolute',
-        top: '10px',
-        left: '10px',
-        zIndex: 1000,
         display: 'flex',
         flexDirection: 'column',
         gap: '8px',
       }}
     >
       {!isDrawing ? (
-        <button
-          onClick={startDrawing}
+        <div
           style={{
-            padding: '12px 24px',
-            backgroundColor: '#4A90D9',
-            color: 'white',
-            border: 'none',
-            borderRadius: '8px',
-            cursor: 'pointer',
-            fontSize: '14px',
-            fontWeight: '600',
-            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.3)',
-            transition: 'all 0.2s',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '10px',
+            ...(showOptions && {
+              backgroundColor: 'rgba(0, 0, 0, 0.85)',
+              padding: '12px',
+              borderRadius: '8px',
+              margin: '-12px',
+            }),
+            transition: 'all 0.15s ease',
           }}
         >
-          🖊️ Draw Selection Area
-        </button>
+          {/* Main button */}
+          <button
+            onClick={() => setShowOptions(!showOptions)}
+            style={{
+              padding: '12px 16px',
+              backgroundColor: showOptions ? 'rgba(74, 144, 217, 0.7)' : 'rgba(74, 144, 217, 0.55)',
+              color: 'white',
+              border: `1px solid ${showOptions ? 'rgba(74, 144, 217, 0.8)' : 'rgba(74, 144, 217, 0.6)'}`,
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontSize: '13px',
+              fontWeight: '500',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '8px',
+              transition: 'all 0.15s ease',
+              width: '100%',
+            }}
+            onMouseEnter={(e) => {
+              if (!showOptions) {
+                e.currentTarget.style.backgroundColor = 'rgba(74, 144, 217, 0.65)';
+                e.currentTarget.style.borderColor = 'rgba(74, 144, 217, 0.7)';
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (!showOptions) {
+                e.currentTarget.style.backgroundColor = 'rgba(74, 144, 217, 0.55)';
+                e.currentTarget.style.borderColor = 'rgba(74, 144, 217, 0.6)';
+              }
+            }}
+          >
+            <span>Draw Selection Area</span>
+            <span style={{ fontSize: '10px', opacity: 0.6 }}>{showOptions ? '▲' : '▼'}</span>
+          </button>
+
+          {/* Drawing mode options */}
+          {showOptions && (
+            <div
+              style={{
+                display: 'flex',
+                gap: '6px',
+              }}
+            >
+              {(['polygon', 'rectangle', 'circle'] as DrawingMode[]).map((mode) => {
+                const iconColors: Record<DrawingMode, string> = {
+                  polygon: 'inherit',
+                  rectangle: '#F59E0B',
+                  circle: '#A78BFA',
+                };
+                return (
+                  <button
+                    key={mode}
+                    onClick={() => {
+                      startDrawing(mode);
+                      setShowOptions(false);
+                    }}
+                    style={{
+                      flex: 1,
+                      padding: '10px 12px',
+                      backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                      color: 'white',
+                      border: '1px solid rgba(255, 255, 255, 0.15)',
+                      borderRadius: '6px',
+                      cursor: 'pointer',
+                      fontSize: '12px',
+                      fontWeight: '500',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '6px',
+                      transition: 'all 0.15s ease',
+                    }}
+                    title={`Draw ${MODE_LABELS[mode]}`}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.backgroundColor = 'rgba(74, 144, 217, 0.25)';
+                      e.currentTarget.style.borderColor = 'rgba(74, 144, 217, 0.4)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
+                      e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.15)';
+                    }}
+                  >
+                    <span style={{ fontSize: '14px', color: iconColors[mode] }}>{MODE_ICONS[mode]}</span>
+                    <span>{MODE_LABELS[mode]}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
       ) : (
         <div
           style={{
-            backgroundColor: 'rgba(0, 0, 0, 0.85)',
-            padding: '16px',
-            borderRadius: '8px',
             color: 'white',
-            minWidth: '200px',
+            minWidth: '240px',
+            backgroundColor: 'rgba(0, 0, 0, 0.85)',
+            padding: '12px',
+            borderRadius: '8px',
+            margin: '-12px',
           }}
         >
-          <div style={{ marginBottom: '12px', fontWeight: '600' }}>
-            Drawing Mode
+          {/* Mode selector in drawing mode */}
+          <div
+            style={{
+              display: 'flex',
+              gap: '6px',
+              marginBottom: '12px',
+            }}
+          >
+            {(['polygon', 'rectangle', 'circle'] as DrawingMode[]).map((mode) => {
+              const iconColors: Record<DrawingMode, string> = {
+                polygon: 'inherit',
+                rectangle: '#F59E0B',
+                circle: '#A78BFA',
+              };
+              const isActive = drawingMode === mode;
+              return (
+                <button
+                  key={mode}
+                  onClick={() => handleModeChange(mode)}
+                  style={{
+                    flex: 1,
+                    padding: '8px 10px',
+                    backgroundColor: isActive ? 'rgba(74, 144, 217, 0.3)' : 'rgba(255, 255, 255, 0.1)',
+                    color: 'white',
+                    border: `1px solid ${isActive ? 'rgba(74, 144, 217, 0.5)' : 'rgba(255, 255, 255, 0.15)'}`,
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    fontSize: '11px',
+                    fontWeight: '500',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '4px',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  <span style={{ color: isActive ? 'white' : iconColors[mode] }}>{MODE_ICONS[mode]}</span>
+                  <span>{MODE_LABELS[mode]}</span>
+                </button>
+              );
+            })}
           </div>
-          <div style={{ fontSize: '12px', opacity: 0.8, marginBottom: '12px' }}>
-            Click to add points ({drawingPoints.length} added)
-            <br />
-            Press Enter to complete
-            <br />
-            Press Escape to cancel
+
+          <div style={{ fontSize: '12px', opacity: 0.8, marginBottom: '8px' }}>
+            {MODE_INSTRUCTIONS[drawingMode]}
+          </div>
+
+          <div
+            style={{
+              fontSize: '12px',
+              padding: '6px 10px',
+              backgroundColor: 'rgba(74, 144, 217, 0.2)',
+              borderRadius: '4px',
+              marginBottom: '12px',
+            }}
+          >
+            {getStatusMessage()}
           </div>
 
           {previewPolygon && (
@@ -132,7 +440,7 @@ export function DrawingTool({ onComplete }: DrawingToolProps) {
               style={{
                 fontSize: '12px',
                 padding: '8px',
-                backgroundColor: 'rgba(74, 144, 217, 0.3)',
+                backgroundColor: 'rgba(34, 197, 94, 0.2)',
                 borderRadius: '4px',
                 marginBottom: '12px',
               }}
@@ -142,45 +450,54 @@ export function DrawingTool({ onComplete }: DrawingToolProps) {
           )}
 
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-            <button
-              onClick={undoLastPoint}
-              disabled={drawingPoints.length === 0}
-              style={{
-                padding: '8px 12px',
-                backgroundColor: drawingPoints.length === 0 ? '#444' : '#666',
-                color: 'white',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: drawingPoints.length === 0 ? 'not-allowed' : 'pointer',
-                fontSize: '12px',
-              }}
-            >
-              ↩️ Undo
-            </button>
-            <button
-              onClick={completeDrawing}
-              disabled={drawingPoints.length < 3}
-              style={{
-                padding: '8px 12px',
-                backgroundColor: drawingPoints.length < 3 ? '#444' : '#4A90D9',
-                color: 'white',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: drawingPoints.length < 3 ? 'not-allowed' : 'pointer',
-                fontSize: '12px',
-              }}
-            >
-              ✓ Complete
-            </button>
+            {drawingMode === 'polygon' && (
+              <>
+                <button
+                  onClick={undoLastPoint}
+                  disabled={drawingPoints.length === 0}
+                  style={{
+                    padding: '8px 14px',
+                    backgroundColor: drawingPoints.length === 0 ? 'rgba(255, 255, 255, 0.1)' : 'rgba(255, 255, 255, 0.15)',
+                    color: 'white',
+                    border: '1px solid rgba(255, 255, 255, 0.15)',
+                    borderRadius: '6px',
+                    cursor: drawingPoints.length === 0 ? 'not-allowed' : 'pointer',
+                    fontSize: '12px',
+                    opacity: drawingPoints.length === 0 ? 0.5 : 1,
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  ↩ Undo
+                </button>
+                <button
+                  onClick={completeDrawing}
+                  disabled={drawingPoints.length < 3}
+                  style={{
+                    padding: '8px 14px',
+                    backgroundColor: drawingPoints.length < 3 ? 'rgba(34, 197, 94, 0.2)' : 'rgba(34, 197, 94, 0.4)',
+                    color: 'white',
+                    border: `1px solid ${drawingPoints.length < 3 ? 'rgba(34, 197, 94, 0.3)' : 'rgba(34, 197, 94, 0.6)'}`,
+                    borderRadius: '6px',
+                    cursor: drawingPoints.length < 3 ? 'not-allowed' : 'pointer',
+                    fontSize: '12px',
+                    opacity: drawingPoints.length < 3 ? 0.5 : 1,
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  ✓ Complete
+                </button>
+              </>
+            )}
             <button
               onClick={cancelDrawing}
               style={{
-                padding: '8px 12px',
-                backgroundColor: '#D94A4A',
+                padding: '8px 14px',
+                backgroundColor: 'rgba(217, 74, 74, 0.3)',
                 color: 'white',
-                border: 'none',
-                borderRadius: '4px',
+                border: '1px solid rgba(217, 74, 74, 0.5)',
+                borderRadius: '6px',
                 cursor: 'pointer',
+                transition: 'all 0.15s ease',
                 fontSize: '12px',
               }}
             >
@@ -196,7 +513,7 @@ export function DrawingTool({ onComplete }: DrawingToolProps) {
 function formatArea(areaKm2: number): string {
   const areaM2 = areaKm2 * 1_000_000;
   const areaHa = areaKm2 * 100;
-  const areaAcres = areaKm2 * 247.105; // 1 km² = 247.105 acres
+  const areaAcres = areaKm2 * 247.105;
   const areaSqFt = areaM2 * 10.7639;
 
   if (areaKm2 < 0.01) {

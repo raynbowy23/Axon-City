@@ -12,8 +12,13 @@ import { MobileNav, type MobileTab } from './components/MobileNav';
 import { MapStyleSwitcher } from './components/MapStyleSwitcher';
 import { MapLanguageSwitcher } from './components/MapLanguageSwitcher';
 import { MapSettingsPanel } from './components/MapSettingsPanel';
+import { AreaSelector } from './components/AreaSelector';
+import { EditSelectionInfo } from './components/EditSelectionInfo';
+import { ShareButton } from './components/ShareButton';
+import { DrawingTool } from './components/DrawingTool';
 import { usePolygonDrawing } from './hooks/usePolygonDrawing';
 import { useIsMobile } from './hooks/useMediaQuery';
+import { useUrlState } from './hooks/useUrlState';
 import { useStore } from './store/useStore';
 import { layerManifest } from './data/layerManifest';
 import { fetchMultipleLayers, getBboxFromPolygon } from './utils/osmFetcher';
@@ -22,12 +27,14 @@ import {
   calculateLayerStats,
   calculatePolygonArea,
 } from './utils/geometryUtils';
-import type { CustomLayerConfig } from './types';
+import type { CustomLayerConfig, SelectionPolygon, LayerConfig } from './types';
+import { MAX_COMPARISON_AREAS } from './types';
 import './App.css';
 
 function App() {
   const containerRef = useRef<HTMLDivElement>(null);
   const lastFetchedPolygonRef = useRef<string | null>(null);
+  const fetchAbortControllerRef = useRef<AbortController | null>(null);
 
   const {
     isDrawing,
@@ -43,25 +50,140 @@ function App() {
     layerData,
     draggingVertexIndex,
     customLayers,
+    // Multi-area support
+    areas,
+    activeAreaId,
+    addArea,
+    updateAreaPolygon,
+    updateAreaLayerData,
+    clearAreas,
   } = useStore();
 
   const {
     startDrawing,
     addPoint,
-    undoLastPoint,
-    completeDrawing,
-    cancelDrawing,
-    pointCount,
     handlePointerStart,
     isDrag,
     clearPointerStart,
   } = usePolygonDrawing();
+
+  // Cancel fetch operation (keeps the selected area)
+  const cancelFetch = useCallback(() => {
+    if (fetchAbortControllerRef.current) {
+      fetchAbortControllerRef.current.abort();
+      fetchAbortControllerRef.current = null;
+    }
+    setIsLoading(false);
+    setLoadingMessage('');
+  }, [setIsLoading, setLoadingMessage]);
+
+  // Callback to fetch data when areas are restored from URL
+  const handleAreasRestored = useCallback(
+    async (restoredPolygons: { name: string; polygon: Polygon }[]) => {
+      if (restoredPolygons.length === 0) return;
+
+      // Get current state from store (they were just added)
+      const { areas: currentAreas, activeLayers: currentActiveLayers } = useStore.getState();
+      if (currentAreas.length === 0) return;
+
+      // Create abort controller for this fetch
+      fetchAbortControllerRef.current = new AbortController();
+      const signal = fetchAbortControllerRef.current.signal;
+
+      setIsLoading(true);
+      setLoadingMessage('Loading shared areas...');
+
+      try {
+        // Fetch data for each area
+        for (let i = 0; i < currentAreas.length && i < restoredPolygons.length; i++) {
+          const area = currentAreas[i];
+          const polygon = restoredPolygons[i].polygon;
+
+          const bbox = getBboxFromPolygon(polygon, 0.001);
+          const layersToFetch = layerManifest.layers.filter((layer) =>
+            currentActiveLayers.includes(layer.id)
+          );
+
+          setLoadingMessage(`Fetching data for ${area.name}...`);
+
+          const results = await fetchMultipleLayers(
+            layersToFetch,
+            bbox,
+            (layerId, progress, total) => {
+              setLoadingMessage(`${area.name}: ${layerId} (${progress}/${total})`);
+            },
+            signal
+          );
+
+          const polygonAreaKm2 = calculatePolygonArea(polygon);
+
+          for (const [layerId, features] of results.entries()) {
+            const layer = layerManifest.layers.find((l) => l.id === layerId);
+            if (!layer) continue;
+
+            const clippedFeatures = clipFeaturesToPolygon(
+              features,
+              polygon,
+              layer.geometryType
+            );
+
+            const stats = calculateLayerStats(clippedFeatures, layer, polygonAreaKm2);
+
+            const layerDataEntry = {
+              layerId,
+              features,
+              clippedFeatures,
+              stats,
+            };
+
+            setLayerData(layerId, layerDataEntry);
+            updateAreaLayerData(area.id, layerId, layerDataEntry);
+          }
+
+          // Update the last fetched polygon ref
+          lastFetchedPolygonRef.current = JSON.stringify(polygon.coordinates);
+        }
+
+        setLoadingMessage('Complete!');
+      } catch (error) {
+        if (error instanceof Error && error.message === 'Cancelled') {
+          console.log('Fetch cancelled by user');
+          return;
+        }
+        console.error('Error fetching data for shared areas:', error);
+        setLoadingMessage('Error loading shared data');
+      } finally {
+        fetchAbortControllerRef.current = null;
+        setIsLoading(false);
+      }
+    },
+    // Only depend on stable functions, not activeLayers (read from store at runtime)
+    [setIsLoading, setLoadingMessage, setLayerData, updateAreaLayerData]
+  );
+
+  // Stable ref for the callback to prevent re-triggering useUrlState effect
+  const handleAreasRestoredRef = useRef(handleAreasRestored);
+  handleAreasRestoredRef.current = handleAreasRestored;
+
+  // Stable callback that doesn't change identity
+  const stableHandleAreasRestored = useCallback(
+    (polygons: { name: string; polygon: Polygon }[]) => {
+      handleAreasRestoredRef.current(polygons);
+    },
+    []
+  );
+
+  // URL state sync for shareable links
+  useUrlState(stableHandleAreasRestored);
 
   // Mobile UI state
   const isMobile = useIsMobile();
   const [mobileTab, setMobileTab] = useState<MobileTab>('map');
   const [bottomSheetState, setBottomSheetState] = useState<BottomSheetState>('collapsed');
   const { isExtractedViewOpen, setExtractedViewOpen } = useStore();
+
+  // State to track if we're adding a new area or editing existing
+  const [isAddingNewArea, setIsAddingNewArea] = useState(false);
 
   // Handle mobile tab changes
   const handleMobileTabChange = useCallback((tab: MobileTab) => {
@@ -77,11 +199,45 @@ function App() {
   }, [setExtractedViewOpen]);
 
   // Handle fetching data when polygon is completed
+  // areaId parameter: if provided, update that area; if null, create a new area
   const handlePolygonComplete = useCallback(
-    async (polygon: Polygon) => {
+    async (polygon: Polygon, existingAreaId?: string) => {
+      // Create abort controller for this fetch
+      fetchAbortControllerRef.current = new AbortController();
+      const signal = fetchAbortControllerRef.current.signal;
+
       setIsLoading(true);
       setLoadingMessage('Preparing to fetch data...');
-      clearManifestLayerData(); // Only clear manifest layers, preserve custom layers
+
+      // Create selection polygon object
+      const selectionPoly: SelectionPolygon = {
+        id: `selection-${Date.now()}`,
+        geometry: polygon,
+        area: calculatePolygonArea(polygon) * 1_000_000,
+      };
+
+      // Determine the area ID: either update existing or create new
+      let areaId: string | null = existingAreaId || null;
+
+      if (!existingAreaId) {
+        // Create a new area
+        areaId = addArea(selectionPoly);
+
+        if (!areaId) {
+          setIsLoading(false);
+          setLoadingMessage(`Maximum ${MAX_COMPARISON_AREAS} areas allowed`);
+          fetchAbortControllerRef.current = null;
+          return;
+        }
+      } else {
+        // Update existing area polygon and clear its cached layer data
+        // The polygon needs to be synced from selectionPolygon to the area's storage
+        updateAreaPolygon(existingAreaId, selectionPoly);
+        areaId = existingAreaId;
+      }
+
+      // DON'T clear global layer data - we want to keep data for all areas
+      // clearManifestLayerData();
 
       try {
         // Get bbox from polygon
@@ -98,7 +254,8 @@ function App() {
           bbox,
           (layerId, progress, total) => {
             setLoadingMessage(`Fetching ${layerId}... (${progress}/${total})`);
-          }
+          },
+          signal
         );
 
         // Calculate polygon area for stats
@@ -121,12 +278,19 @@ function App() {
           // Calculate stats
           const stats = calculateLayerStats(clippedFeatures, layer, polygonAreaKm2);
 
-          setLayerData(layerId, {
+          const layerDataEntry = {
             layerId,
             features,
             clippedFeatures,
             stats,
-          });
+          };
+
+          // Store in both global layerData (for backward compat) and per-area
+          setLayerData(layerId, layerDataEntry);
+
+          if (areaId) {
+            updateAreaLayerData(areaId, layerId, layerDataEntry);
+          }
         }
 
         setLoadingMessage('Complete!');
@@ -134,37 +298,64 @@ function App() {
         // Track that we've fetched data for this polygon
         lastFetchedPolygonRef.current = JSON.stringify(polygon.coordinates);
       } catch (error) {
+        if (error instanceof Error && error.message === 'Cancelled') {
+          console.log('Fetch cancelled by user');
+          return;
+        }
         console.error('Error fetching data:', error);
         setLoadingMessage('Error fetching data. Please try again.');
       } finally {
+        fetchAbortControllerRef.current = null;
         setIsLoading(false);
       }
     },
-    [activeLayers, clearManifestLayerData, setIsLoading, setLayerData, setLoadingMessage]
+    [activeLayers, clearManifestLayerData, setIsLoading, setLayerData, setLoadingMessage, addArea, updateAreaPolygon, updateAreaLayerData]
   );
 
-  // Re-fetch data when polygon is edited (dragged)
+  // Track the last active area to detect area switches vs polygon edits
+  const lastActiveAreaIdRef = useRef<string | null>(null);
+  const isFetchingRef = useRef(false);
+
+  // Re-fetch data when polygon is edited (dragged) - NOT when switching areas
   useEffect(() => {
-    // Only re-fetch if:
-    // 1. We have a selection polygon
-    // 2. We're not currently drawing
-    // 3. We've finished dragging (draggingVertexIndex is null)
-    // 4. The polygon has changed from what we last fetched
-    // 5. We have already loaded data (layerData is not empty)
+    // Don't re-fetch if already fetching
+    if (isFetchingRef.current) return;
+
+    const isSwitchingAreas = lastActiveAreaIdRef.current !== activeAreaId;
+    lastActiveAreaIdRef.current = activeAreaId;
+
+    // Don't re-fetch when switching areas - data already exists
+    if (isSwitchingAreas) {
+      // Update the ref to track this area's polygon
+      if (selectionPolygon) {
+        lastFetchedPolygonRef.current = JSON.stringify(selectionPolygon.geometry.coordinates);
+      }
+      return;
+    }
+
     if (
       selectionPolygon &&
       !isDrawing &&
+      !isLoading &&
       draggingVertexIndex === null &&
-      layerData.size > 0
+      activeAreaId
     ) {
       const currentPolygonStr = JSON.stringify(selectionPolygon.geometry.coordinates);
 
+      // Only re-fetch if polygon coordinates actually changed (edit via dragging)
       if (lastFetchedPolygonRef.current && lastFetchedPolygonRef.current !== currentPolygonStr) {
-        // Polygon was edited, re-fetch data
-        handlePolygonComplete(selectionPolygon.geometry as Polygon);
+        // Update ref IMMEDIATELY to prevent re-entry
+        lastFetchedPolygonRef.current = currentPolygonStr;
+        isFetchingRef.current = true;
+
+        // Polygon was edited, re-fetch data for the active area
+        handlePolygonComplete(selectionPolygon.geometry as Polygon, activeAreaId)
+          .finally(() => {
+            isFetchingRef.current = false;
+          });
       }
     }
-  }, [selectionPolygon, isDrawing, draggingVertexIndex, layerData.size, handlePolygonComplete]);
+  }, [selectionPolygon, isDrawing, isLoading, draggingVertexIndex, handlePolygonComplete, activeAreaId]);
 
   // Track last processed polygon for custom layers
   const lastProcessedPolygonRef = useRef<string | null>(null);
@@ -210,6 +401,116 @@ function App() {
       lastProcessedPolygonRef.current = currentPolygonStr;
     }
   }, [selectionPolygon, customLayers, layerData, isDrawing, draggingVertexIndex, setLayerData]);
+
+  // Track previous active layers for auto-fetching
+  const prevActiveLayersRef = useRef<string[]>([]);
+  const isAutoFetchingRef = useRef(false);
+
+  // Auto-fetch data when new layers are activated while an area is selected
+  useEffect(() => {
+    // Skip if already fetching or no selection
+    if (isAutoFetchingRef.current || isLoading || !selectionPolygon || isDrawing) {
+      prevActiveLayersRef.current = activeLayers;
+      return;
+    }
+
+    // Find newly activated layers
+    const newlyActivatedLayers = activeLayers.filter(
+      (layerId: string) => !prevActiveLayersRef.current.includes(layerId)
+    );
+
+    // Find layers that need fetching (newly activated and no data yet)
+    const layersToFetch = newlyActivatedLayers.filter((layerId: string) => {
+      const existingData = layerData.get(layerId);
+      // Fetch if no data or no clipped features
+      return !existingData || !existingData.clippedFeatures;
+    });
+
+    // Update ref before async operation
+    prevActiveLayersRef.current = activeLayers;
+
+    if (layersToFetch.length === 0) return;
+
+    // Get layer configs for fetching
+    const layerConfigs = layersToFetch
+      .map((layerId: string) => layerManifest.layers.find((l: LayerConfig) => l.id === layerId))
+      .filter((l: LayerConfig | undefined): l is LayerConfig => l !== undefined);
+
+    if (layerConfigs.length === 0) return;
+
+    // Fetch the missing layers
+    const fetchMissingLayers = async () => {
+      // Create abort controller for this fetch
+      fetchAbortControllerRef.current = new AbortController();
+      const signal = fetchAbortControllerRef.current.signal;
+
+      isAutoFetchingRef.current = true;
+      setIsLoading(true);
+      setLoadingMessage(`Fetching ${layerConfigs.length} new layer(s)...`);
+
+      try {
+        const bbox = getBboxFromPolygon(selectionPolygon.geometry as Polygon, 0.001);
+        const polygonAreaKm2 = calculatePolygonArea(selectionPolygon.geometry as Polygon);
+
+        const results = await fetchMultipleLayers(
+          layerConfigs,
+          bbox,
+          (layerId, progress, total) => {
+            setLoadingMessage(`Fetching ${layerId}... (${progress}/${total})`);
+          },
+          signal
+        );
+
+        // Process and clip each layer
+        setLoadingMessage('Processing features...');
+
+        for (const [layerId, features] of results.entries()) {
+          const layer = layerManifest.layers.find((l) => l.id === layerId);
+          if (!layer) continue;
+
+          // Clip features to selection polygon
+          const clippedFeatures = clipFeaturesToPolygon(
+            features,
+            selectionPolygon.geometry as Polygon,
+            layer.geometryType
+          );
+
+          // Calculate stats
+          const stats = calculateLayerStats(clippedFeatures, layer, polygonAreaKm2);
+
+          const layerDataEntry = {
+            layerId,
+            features,
+            clippedFeatures,
+            stats,
+          };
+
+          // Store in global layerData
+          setLayerData(layerId, layerDataEntry);
+
+          // Also store in active area if exists
+          if (activeAreaId) {
+            updateAreaLayerData(activeAreaId, layerId, layerDataEntry);
+          }
+        }
+
+        setLoadingMessage('Complete!');
+      } catch (error) {
+        if (error instanceof Error && error.message === 'Cancelled') {
+          console.log('Fetch cancelled by user');
+          return;
+        }
+        console.error('Error auto-fetching layers:', error);
+        setLoadingMessage('Error fetching data');
+      } finally {
+        fetchAbortControllerRef.current = null;
+        setIsLoading(false);
+        isAutoFetchingRef.current = false;
+      }
+    };
+
+    fetchMissingLayers();
+  }, [activeLayers, selectionPolygon, layerData, isLoading, isDrawing, activeAreaId, setIsLoading, setLoadingMessage, setLayerData, updateAreaLayerData]);
 
   // Track pointer down position to distinguish clicks/taps from drags
   const handlePointerDown = useCallback(
@@ -267,44 +568,34 @@ function App() {
     [isDrawing]
   );
 
-  // Handle keyboard shortcuts
+  // Handle keyboard shortcuts for resetting state on Escape
+  // Note: DrawingTool component handles Enter, Escape, and Ctrl+Z for drawing operations
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && isDrawing) {
-        cancelDrawing();
-      }
-      if (e.key === 'Enter' && isDrawing && pointCount >= 3) {
-        const polygon = completeDrawing();
-        if (polygon) {
-          handlePolygonComplete(polygon);
-        }
-      }
-      if ((e.key === 'z' || e.key === 'Z') && (e.ctrlKey || e.metaKey) && isDrawing) {
-        undoLastPoint();
+        // Reset isAddingNewArea when drawing is cancelled
+        // DrawingTool handles the actual cancellation
+        setIsAddingNewArea(false);
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isDrawing, pointCount, cancelDrawing, completeDrawing, undoLastPoint, handlePolygonComplete]);
+  }, [isDrawing]);
 
   const handleStartDrawing = () => {
-    clearManifestLayerData(); // Preserve custom layers
-    setSelectionPolygon(null);
+    // When starting a new drawing for a new area, don't clear existing areas
+    setIsAddingNewArea(true);
+    setSelectionPolygon(null); // Clear preview polygon
     startDrawing();
   };
 
-  const handleCompleteDrawing = () => {
-    const polygon = completeDrawing();
-    if (polygon) {
-      handlePolygonComplete(polygon);
-    }
-  };
-
   const handleClearSelection = () => {
-    setSelectionPolygon(null);
+    // Clear all areas and reset
+    clearAreas();
     setSelectionLocationName(null);
-    clearManifestLayerData(); // Preserve custom layers
+    clearManifestLayerData();
+    lastFetchedPolygonRef.current = null;
   };
 
   return (
@@ -354,138 +645,109 @@ function App() {
 
             {!isDrawing ? (
               <>
-                <button
-                  onClick={handleStartDrawing}
-                  disabled={isLoading}
-                  style={{
-                    padding: '12px 24px',
-                    backgroundColor: isLoading ? '#666' : '#4A90D9',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '8px',
-                    cursor: isLoading ? 'not-allowed' : 'pointer',
-                    fontSize: '14px',
-                    fontWeight: '600',
-                    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.3)',
-                    opacity: isLoading ? 0.7 : 1,
-                  }}
-                >
-                  {isLoading ? 'Processing...' : 'Draw Selection Area'}
-                </button>
+                {/* Area selector - show when we have areas */}
+                {areas.length > 0 && (
+                  <div
+                    style={{
+                      backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                      padding: '10px 12px',
+                      borderRadius: '8px',
+                      marginBottom: '4px',
+                      marginTop: '8px',
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: '10px',
+                        color: 'rgba(255, 255, 255, 0.6)',
+                        marginBottom: '6px',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.5px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                      }}
+                    >
+                      Comparison Areas
+                      {!isLoading && <EditSelectionInfo variant="inline" />}
+                    </div>
+                    <AreaSelector
+                      onAddArea={handleStartDrawing}
+                      disabled={isLoading || areas.length >= MAX_COMPARISON_AREAS}
+                      isLoading={isLoading}
+                    />
+                  </div>
+                )}
 
-                {selectionPolygon && (
+                {/* Getting started panel - show when no areas */}
+                {areas.length === 0 && !isLoading && (
+                  <div
+                    style={{
+                      marginTop: '12px',
+                    }}
+                  >
+                    <DrawingTool
+                      onComplete={(polygon) => {
+                        handlePolygonComplete(polygon, isAddingNewArea ? undefined : activeAreaId || undefined);
+                        setIsAddingNewArea(false);
+                      }}
+                    />
+                  </div>
+                )}
+
+                {/* Cancel button during loading */}
+                {isLoading && (
+                  <button
+                    onClick={cancelFetch}
+                    style={{
+                      padding: '10px 20px',
+                      backgroundColor: '#D94A4A',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '6px',
+                      cursor: 'pointer',
+                      fontSize: '13px',
+                      fontWeight: '500',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      marginTop: '8px',
+                    }}
+                  >
+                    <span>✕</span>
+                    <span>Cancel</span>
+                  </button>
+                )}
+
+                {(selectionPolygon || areas.length > 0) && !isLoading && (
                   <>
                     <button
                       onClick={handleClearSelection}
-                      disabled={isLoading}
                       style={{
                         padding: '8px 16px',
-                        backgroundColor: isLoading ? '#666' : '#D94A4A',
+                        backgroundColor: '#D94A4A',
                         color: 'white',
                         border: 'none',
                         borderRadius: '6px',
-                        cursor: isLoading ? 'not-allowed' : 'pointer',
+                        cursor: 'pointer',
                         fontSize: '12px',
-                        opacity: isLoading ? 0.7 : 1,
                       }}
                     >
-                      Clear Selection
+                      {areas.length > 1 ? 'Clear All Areas' : 'Clear Selection'}
                     </button>
-                    {!isLoading && (
-                      <div
-                        style={{
-                          backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                          padding: '8px 12px',
-                          borderRadius: '6px',
-                          fontSize: '10px',
-                          color: 'rgba(255, 255, 255, 0.7)',
-                          lineHeight: '1.4',
-                        }}
-                      >
-                        <div style={{ marginBottom: '4px', fontWeight: '500', color: 'rgba(255, 200, 50, 0.9)' }}>
-                          Edit Selection:
-                        </div>
-                        <div>Drag corners to move</div>
-                        <div>Click <span style={{ color: '#64C8FF' }}>blue dots</span> to add point</div>
-                        <div>Double-click corner to remove</div>
-                      </div>
+                    {areas.length > 0 && (
+                      <EditSelectionInfo variant="block" />
                     )}
                   </>
                 )}
               </>
             ) : (
-              <div
-                style={{
-                  backgroundColor: 'rgba(0, 0, 0, 0.9)',
-                  padding: '16px',
-                  borderRadius: '8px',
-                  color: 'white',
-                  minWidth: '220px',
+              <DrawingTool
+                onComplete={(polygon) => {
+                  handlePolygonComplete(polygon, isAddingNewArea ? undefined : activeAreaId || undefined);
+                  setIsAddingNewArea(false);
                 }}
-              >
-                <div style={{ marginBottom: '12px', fontWeight: '600' }}>
-                  Drawing Mode
-                </div>
-                <div style={{ fontSize: '12px', opacity: 0.8, marginBottom: '12px' }}>
-                  Click on the map to add points
-                  <br />
-                  Points added: <strong>{pointCount}</strong>
-                  <br />
-                  <br />
-                  <kbd style={kbdStyle}>Enter</kbd> Complete
-                  <br />
-                  <kbd style={kbdStyle}>Escape</kbd> Cancel
-                  <br />
-                  <kbd style={kbdStyle}>Ctrl+Z</kbd> Undo
-                </div>
-
-                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                  <button
-                    onClick={undoLastPoint}
-                    disabled={pointCount === 0}
-                    style={{
-                      padding: '8px 12px',
-                      backgroundColor: pointCount === 0 ? '#444' : '#666',
-                      color: 'white',
-                      border: 'none',
-                      borderRadius: '4px',
-                      cursor: pointCount === 0 ? 'not-allowed' : 'pointer',
-                      fontSize: '12px',
-                    }}
-                  >
-                    Undo
-                  </button>
-                  <button
-                    onClick={handleCompleteDrawing}
-                    disabled={pointCount < 3}
-                    style={{
-                      padding: '8px 12px',
-                      backgroundColor: pointCount < 3 ? '#444' : '#4A90D9',
-                      color: 'white',
-                      border: 'none',
-                      borderRadius: '4px',
-                      cursor: pointCount < 3 ? 'not-allowed' : 'pointer',
-                      fontSize: '12px',
-                    }}
-                  >
-                    Complete ({pointCount}/3+)
-                  </button>
-                  <button
-                    onClick={cancelDrawing}
-                    style={{
-                      padding: '8px 12px',
-                      backgroundColor: '#D94A4A',
-                      color: 'white',
-                      border: 'none',
-                      borderRadius: '4px',
-                      cursor: 'pointer',
-                      fontSize: '12px',
-                    }}
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
+              />
             )}
           </div>
 
@@ -505,12 +767,12 @@ function App() {
           <ControlPanel />
           <StatsPanel />
 
-          {/* Map Controls - Desktop (next to Stats panel) */}
+          {/* Map Controls - Desktop (bottom left, below stats panel) */}
           <div
             style={{
               position: 'absolute',
-              bottom: '45px',
-              left: '300px',
+              bottom: '10px',
+              left: '10px',
               zIndex: 1000,
               display: 'flex',
               gap: '8px',
@@ -518,6 +780,7 @@ function App() {
           >
             <MapStyleSwitcher />
             <MapLanguageSwitcher />
+            <ShareButton disabled={areas.length === 0} />
           </div>
 
           {/* Footer credit - bottom center */}
@@ -627,117 +890,111 @@ function App() {
               <div
                 style={{
                   display: 'flex',
+                  flexDirection: 'column',
                   gap: '8px',
                   padding: '12px 16px',
                   pointerEvents: 'auto',
+                  alignItems: 'center',
                 }}
               >
-                <button
-                  onClick={handleStartDrawing}
-                  disabled={isLoading}
-                  style={{
-                    padding: '14px 24px',
-                    backgroundColor: isLoading ? '#666' : '#4A90D9',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '12px',
-                    cursor: isLoading ? 'not-allowed' : 'pointer',
-                    fontSize: '15px',
-                    fontWeight: '600',
-                    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.4)',
-                    opacity: isLoading ? 0.7 : 1,
-                    minHeight: '48px',
-                  }}
-                >
-                  {isLoading ? 'Processing...' : 'Draw Area'}
-                </button>
-
-                {selectionPolygon && (
-                  <button
-                    onClick={handleClearSelection}
-                    disabled={isLoading}
+                {/* Mobile Area Selector */}
+                {areas.length > 0 && (
+                  <div
                     style={{
-                      padding: '14px 20px',
-                      backgroundColor: isLoading ? '#666' : '#D94A4A',
-                      color: 'white',
-                      border: 'none',
+                      backgroundColor: 'rgba(0, 0, 0, 0.85)',
+                      padding: '10px 14px',
                       borderRadius: '12px',
-                      cursor: isLoading ? 'not-allowed' : 'pointer',
-                      fontSize: '15px',
-                      fontWeight: '600',
-                      boxShadow: '0 4px 12px rgba(0, 0, 0, 0.4)',
-                      opacity: isLoading ? 0.7 : 1,
-                      minHeight: '48px',
+                      marginBottom: '4px',
                     }}
                   >
-                    Clear
-                  </button>
+                    <AreaSelector
+                      onAddArea={handleStartDrawing}
+                      disabled={isLoading || areas.length >= MAX_COMPARISON_AREAS}
+                      isLoading={isLoading}
+                    />
+                  </div>
                 )}
+
+                {/* Getting started - mobile */}
+                {areas.length === 0 && !isLoading && (
+                  <div
+                    style={{
+                      marginBottom: '8px',
+                    }}
+                  >
+                    <DrawingTool
+                      onComplete={(polygon) => {
+                        handlePolygonComplete(polygon, isAddingNewArea ? undefined : activeAreaId || undefined);
+                        setIsAddingNewArea(false);
+                      }}
+                    />
+                  </div>
+                )}
+
+                {/* Clear/Share buttons row */}
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'center' }}>
+                  {/* Cancel button during loading */}
+                  {isLoading && (
+                    <button
+                      onClick={cancelFetch}
+                      style={{
+                        padding: '14px 24px',
+                        backgroundColor: '#D94A4A',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '12px',
+                        cursor: 'pointer',
+                        fontSize: '15px',
+                        fontWeight: '600',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.4)',
+                        minHeight: '48px',
+                      }}
+                    >
+                      <span>✕</span>
+                      <span>Cancel</span>
+                    </button>
+                  )}
+
+                  {(selectionPolygon || areas.length > 0) && !isLoading && (
+                    <>
+                      <button
+                        onClick={handleClearSelection}
+                        style={{
+                          padding: '14px 20px',
+                          backgroundColor: '#D94A4A',
+                          color: 'white',
+                          border: 'none',
+                          borderRadius: '12px',
+                          cursor: 'pointer',
+                          fontSize: '15px',
+                          fontWeight: '600',
+                          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.4)',
+                          minHeight: '48px',
+                        }}
+                      >
+                        {areas.length > 1 ? 'Clear All' : 'Clear'}
+                      </button>
+                      <ShareButton disabled={areas.length === 0} isMobile />
+                    </>
+                  )}
+                </div>
               </div>
             ) : (
               <div
                 style={{
-                  display: 'flex',
-                  gap: '12px',
                   padding: '12px 16px',
-                  backgroundColor: 'rgba(0, 0, 0, 0.9)',
-                  borderRadius: '12px',
-                  marginBottom: '8px',
                   pointerEvents: 'auto',
                 }}
               >
-                <button
-                  onClick={undoLastPoint}
-                  disabled={pointCount === 0}
-                  style={{
-                    padding: '12px 16px',
-                    backgroundColor: pointCount === 0 ? '#444' : '#666',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '8px',
-                    cursor: pointCount === 0 ? 'not-allowed' : 'pointer',
-                    fontSize: '14px',
-                    fontWeight: '500',
-                    opacity: pointCount === 0 ? 0.5 : 1,
-                    minHeight: '44px',
+                <DrawingTool
+                  onComplete={(polygon) => {
+                    handlePolygonComplete(polygon, isAddingNewArea ? undefined : activeAreaId || undefined);
+                    setIsAddingNewArea(false);
                   }}
-                >
-                  Undo
-                </button>
-                <button
-                  onClick={handleCompleteDrawing}
-                  disabled={pointCount < 3}
-                  style={{
-                    padding: '12px 16px',
-                    backgroundColor: pointCount < 3 ? '#444' : '#4A90D9',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '8px',
-                    cursor: pointCount < 3 ? 'not-allowed' : 'pointer',
-                    fontSize: '14px',
-                    fontWeight: '500',
-                    opacity: pointCount < 3 ? 0.5 : 1,
-                    minHeight: '44px',
-                  }}
-                >
-                  Done ({pointCount}/3+)
-                </button>
-                <button
-                  onClick={cancelDrawing}
-                  style={{
-                    padding: '12px 16px',
-                    backgroundColor: '#D94A4A',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '8px',
-                    cursor: 'pointer',
-                    fontSize: '14px',
-                    fontWeight: '500',
-                    minHeight: '44px',
-                  }}
-                >
-                  Cancel
-                </button>
+                />
               </div>
             )}
 
@@ -808,13 +1065,5 @@ function App() {
     </div>
   );
 }
-
-const kbdStyle: React.CSSProperties = {
-  backgroundColor: 'rgba(255,255,255,0.1)',
-  padding: '2px 6px',
-  borderRadius: '3px',
-  fontSize: '11px',
-  fontFamily: 'monospace',
-};
 
 export default App;

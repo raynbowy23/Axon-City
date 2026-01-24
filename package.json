@@ -22,6 +22,7 @@
     "@turf/turf": "^7.3.2",
     "@types/mapbox__point-geometry": "^0.1.4",
     "deck.gl": "^9.2.5",
+    "jspdf": "^4.0.0",
     "maplibre-gl": "^5.16.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
