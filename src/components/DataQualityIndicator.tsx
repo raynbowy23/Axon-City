@@ -6,29 +6,40 @@
 import { useMemo } from 'react';
 import { useStore } from '../store/useStore';
 import { dataSourceInfo } from '../data/metricDefinitions';
-import type { ComparisonArea, DataQuality, QualityWarning } from '../types';
+import type { ComparisonArea, DataQuality, QualityWarning, LayerData } from '../types';
 
-// Expected minimum counts per category for a reasonable coverage
-const EXPECTED_MINIMUMS: Record<string, number> = {
-  'poi-food-drink': 5,
-  'poi-shopping': 3,
-  'poi-grocery': 2,
-  'poi-health': 1,
-  'poi-education': 1,
-  buildings: 10,
-  parks: 1,
+// Expected minimum counts per category for reasonable coverage
+// Uses the same categories as metricsCalculator for consistency
+const EXPECTED_MINIMUMS: Record<string, { layerIds: string[]; min: number; name: string }> = {
+  food: { layerIds: ['poi-food-drink'], min: 3, name: 'Food & Drink' },
+  shopping: { layerIds: ['poi-shopping'], min: 2, name: 'Shopping' },
+  grocery: { layerIds: ['poi-grocery'], min: 1, name: 'Grocery' },
+  health: { layerIds: ['poi-health'], min: 1, name: 'Healthcare' },
+  education: { layerIds: ['poi-education'], min: 1, name: 'Education' },
+  buildings: {
+    layerIds: ['buildings-residential', 'buildings-commercial', 'buildings-industrial', 'buildings-other'],
+    min: 5,
+    name: 'Buildings',
+  },
+  parks: { layerIds: ['parks'], min: 1, name: 'Parks & Green' },
+  transit: { layerIds: ['transit-stops'], min: 1, name: 'Transit' },
 };
 
-// Category display names
-const CATEGORY_NAMES: Record<string, string> = {
-  'poi-food-drink': 'Food & Drink',
-  'poi-shopping': 'Shopping',
-  'poi-grocery': 'Grocery',
-  'poi-health': 'Healthcare',
-  'poi-education': 'Education',
-  buildings: 'Buildings',
-  parks: 'Parks',
-};
+/**
+ * Get feature count from layer data, preferring clipped features for areas
+ */
+function getFeatureCount(layerData: Map<string, LayerData>, layerIds: string[]): number {
+  let total = 0;
+  for (const layerId of layerIds) {
+    const data = layerData.get(layerId);
+    if (data?.clippedFeatures) {
+      total += data.clippedFeatures.features.length;
+    } else if (data?.features) {
+      total += data.features.features.length;
+    }
+  }
+  return total;
+}
 
 interface DataQualityIndicatorProps {
   areaId?: string;
@@ -36,7 +47,7 @@ interface DataQualityIndicatorProps {
 }
 
 export function DataQualityIndicator({ areaId, compact = false }: DataQualityIndicatorProps) {
-  const { areas } = useStore();
+  const { areas, activeLayers } = useStore();
 
   // Calculate data quality for specified area or all areas
   const quality = useMemo((): DataQuality | null => {
@@ -50,46 +61,51 @@ export function DataQualityIndicator({ areaId, compact = false }: DataQualityInd
     const warnings: QualityWarning[] = [];
 
     // Calculate coverage for each category
-    Object.entries(EXPECTED_MINIMUMS).forEach(([layerId, expectedMin]) => {
+    Object.entries(EXPECTED_MINIMUMS).forEach(([categoryId, config]) => {
+      // Check if any of the category's layers are active
+      const hasActiveLayer = config.layerIds.some((lid) => activeLayers.includes(lid));
+
       let totalCount = 0;
 
       targetAreas.forEach((area: ComparisonArea) => {
-        const layerData = area.layerData.get(layerId);
-        if (layerData) {
-          totalCount += layerData.features.features.length;
-        }
+        totalCount += getFeatureCount(area.layerData, config.layerIds);
       });
 
       const avgCount = totalCount / targetAreas.length;
-      const score = Math.min(100, (avgCount / expectedMin) * 100);
+      const score = Math.min(100, (avgCount / config.min) * 100);
 
       categoryScores.push({
-        category: layerId,
+        category: categoryId,
         score,
         count: Math.round(avgCount),
-        expectedMin,
+        expectedMin: config.min,
       });
 
-      // Generate warnings
-      if (avgCount === 0) {
+      // Generate warnings - only for active layers with missing data
+      if (hasActiveLayer && avgCount === 0) {
         warnings.push({
           type: 'missing_category',
-          message: `${CATEGORY_NAMES[layerId] || layerId} data not found - may be a data gap`,
+          message: `${config.name} data not found in selected area`,
           severity: 'warning',
         });
-      } else if (avgCount < expectedMin * 0.5) {
+      } else if (hasActiveLayer && avgCount < config.min * 0.5) {
         warnings.push({
           type: 'low_count',
-          message: `${CATEGORY_NAMES[layerId] || layerId} count is lower than typical`,
+          message: `${config.name} count is lower than typical`,
           severity: 'info',
         });
       }
     });
 
-    // Calculate overall score
+    // Calculate overall score based on categories that actually have data
+    // This gives a meaningful "data completeness" score for the selected area
+    const categoriesWithData = categoryScores.filter((c) => c.count > 0);
+
+    // Calculate score as: weighted average of present categories
+    // If no data at all, score is 0
     const overallScore =
-      categoryScores.length > 0
-        ? categoryScores.reduce((sum, c) => sum + c.score, 0) / categoryScores.length
+      categoriesWithData.length > 0
+        ? categoriesWithData.reduce((sum, c) => sum + c.score, 0) / categoriesWithData.length
         : 0;
 
     return {
@@ -98,7 +114,7 @@ export function DataQualityIndicator({ areaId, compact = false }: DataQualityInd
       warnings,
       lastUpdated: new Date(),
     };
-  }, [areas, areaId]);
+  }, [areas, areaId, activeLayers]);
 
   if (!quality) return null;
 
@@ -115,6 +131,9 @@ export function DataQualityIndicator({ areaId, compact = false }: DataQualityInd
     if (score >= 50) return 'Partial';
     return 'Limited';
   };
+
+  const categoriesWithData = quality.categoryScores.filter((c) => c.count > 0).length;
+  const totalCategories = Object.keys(EXPECTED_MINIMUMS).length;
 
   if (compact) {
     return (
@@ -138,14 +157,14 @@ export function DataQualityIndicator({ areaId, compact = false }: DataQualityInd
           }}
         />
         <span style={{ color: 'rgba(255,255,255,0.7)' }}>
-          Data: {getScoreLabel(quality.overallScore)}
+          {categoriesWithData}/{totalCategories} data types
         </span>
         {quality.warnings.length > 0 && (
           <span
             style={{ color: '#eab308', cursor: 'help' }}
             title={quality.warnings.map((w) => w.message).join('\n')}
           >
-            ({quality.warnings.length} note{quality.warnings.length > 1 ? 's' : ''})
+            ⚠
           </span>
         )}
       </div>
@@ -208,16 +227,35 @@ export function DataQualityIndicator({ areaId, compact = false }: DataQualityInd
       <div style={{ marginBottom: '10px' }}>
         <div
           style={{
-            color: 'rgba(255,255,255,0.5)',
-            fontSize: '10px',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
             marginBottom: '6px',
-            textTransform: 'uppercase',
           }}
         >
-          Coverage by Category
+          <span
+            style={{
+              color: 'rgba(255,255,255,0.5)',
+              fontSize: '10px',
+              textTransform: 'uppercase',
+            }}
+          >
+            Data by Category
+          </span>
+          <span
+            style={{
+              color: 'rgba(255,255,255,0.4)',
+              fontSize: '10px',
+            }}
+          >
+            {categoriesWithData} of {totalCategories} types
+          </span>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-          {quality.categoryScores.slice(0, 5).map((cat) => (
+          {quality.categoryScores
+            .filter((cat) => cat.count > 0)
+            .slice(0, 6)
+            .map((cat) => (
             <div
               key={cat.category}
               style={{
@@ -227,7 +265,7 @@ export function DataQualityIndicator({ areaId, compact = false }: DataQualityInd
               }}
             >
               <div style={{ flex: 1, color: 'rgba(255,255,255,0.7)', fontSize: '11px' }}>
-                {CATEGORY_NAMES[cat.category] || cat.category}
+                {EXPECTED_MINIMUMS[cat.category]?.name || cat.category}
               </div>
               <div
                 style={{

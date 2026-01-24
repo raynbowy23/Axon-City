@@ -98,14 +98,6 @@ export function ComparisonTable({ onExport }: ComparisonTableProps) {
         delta: null,
         tooltip: 'Shannon Diversity Index: measures evenness of POI distribution across categories',
       },
-      {
-        id: 'coverage',
-        name: 'Data Coverage',
-        values: metricsData.map((d: AreaMetrics) => d.metrics.coverageScore),
-        unit: '%',
-        delta: null,
-        tooltip: 'Percentage of expected POI categories present in the data',
-      },
     ];
 
     // Add category-specific rows

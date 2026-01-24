@@ -3,7 +3,6 @@ import { useStore } from '../store/useStore';
 import { getLayerById, getGroupById } from '../data/layerManifest';
 import { MetricsPanel } from './MetricsPanel';
 import { ComparisonTable } from './ComparisonTable';
-import { DataQualityIndicator } from './DataQualityIndicator';
 import { ComparisonGuidance } from './ComparisonGuidance';
 import { exportMetrics } from '../utils/exportMetrics';
 import { calculatePOIMetrics } from '../utils/metricsCalculator';
@@ -70,12 +69,12 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
   const [isResizing, setIsResizing] = useState(false);
   const [resizeDirection, setResizeDirection] = useState<'right' | 'top' | 'corner' | null>(null);
 
-  // Comparison mode - show all areas side by side
-  const [isComparisonMode, setIsComparisonMode] = useState(false);
-  const canCompare = areas.length >= 2;
+  // View mode - layer stats or analysis (metrics/comparison)
+  const [viewMode, setViewMode] = useState<'layers' | 'analysis'>('layers');
 
-  // View mode - layer stats, POI metrics, or comparison table
-  const [viewMode, setViewMode] = useState<'layers' | 'metrics' | 'compare'>('layers');
+  // Comparison mode for layers view - show all areas side by side
+  const [isLayerComparisonMode, setIsLayerComparisonMode] = useState(false);
+  const canCompare = areas.length >= 2;
   const panelRef = useRef<HTMLDivElement>(null);
   const startPosRef = useRef<{ x: number; y: number; width: number; height: number }>({ x: 0, y: 0, width: 0, height: 0 });
 
@@ -247,9 +246,9 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
     return result;
   }, [areas, activeLayers, getLayerConfig, canCompare]);
 
-  // Toggle comparison mode and adjust panel width
-  const toggleComparisonMode = useCallback(() => {
-    setIsComparisonMode((prev) => {
+  // Toggle layer comparison mode and adjust panel width
+  const toggleLayerComparisonMode = useCallback(() => {
+    setIsLayerComparisonMode((prev) => {
       const newMode = !prev;
       if (newMode && size.width < COMPARISON_WIDTH) {
         setSize((s) => ({ ...s, width: COMPARISON_WIDTH }));
@@ -488,9 +487,9 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
         <div>
           <h3 style={{ margin: 0, fontSize: '14px' }}>
-            {viewMode === 'metrics' ? 'POI Analysis' : isComparisonMode ? 'Area Comparison' : 'Selection Statistics'}
+            {viewMode === 'analysis' ? 'Analysis' : isLayerComparisonMode ? 'Area Comparison' : 'Selection Statistics'}
           </h3>
-          {!isComparisonMode && activeArea && viewMode === 'layers' && (
+          {!isLayerComparisonMode && activeArea && viewMode === 'layers' && (
             <div
               style={{
                 fontSize: '11px',
@@ -529,44 +528,27 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
               Layers
             </button>
             <button
-              onClick={() => setViewMode('metrics')}
+              onClick={() => setViewMode('analysis')}
               style={{
                 padding: '4px 8px',
-                backgroundColor: viewMode === 'metrics' ? '#4A90D9' : 'transparent',
+                backgroundColor: viewMode === 'analysis' ? '#4A90D9' : 'transparent',
                 color: 'white',
                 border: 'none',
                 cursor: 'pointer',
                 fontSize: '10px',
                 fontWeight: '500',
               }}
-              title="POI metrics analysis"
+              title="POI metrics and comparison"
             >
-              Metrics
+              Analysis
             </button>
-            {canCompare && (
-              <button
-                onClick={() => setViewMode('compare')}
-                style={{
-                  padding: '4px 8px',
-                  backgroundColor: viewMode === 'compare' ? '#22C55E' : 'transparent',
-                  color: 'white',
-                  border: 'none',
-                  cursor: 'pointer',
-                  fontSize: '10px',
-                  fontWeight: '500',
-                }}
-                title="Side-by-side comparison"
-              >
-                Compare
-              </button>
-            )}
           </div>
           {canCompare && viewMode === 'layers' && (
             <button
-              onClick={toggleComparisonMode}
+              onClick={toggleLayerComparisonMode}
               style={{
                 padding: '4px 8px',
-                backgroundColor: isComparisonMode ? '#22C55E' : 'rgba(34, 197, 94, 0.3)',
+                backgroundColor: isLayerComparisonMode ? '#22C55E' : 'rgba(34, 197, 94, 0.3)',
                 color: 'white',
                 border: 'none',
                 borderRadius: '4px',
@@ -574,9 +556,9 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
                 fontSize: '10px',
                 fontWeight: '500',
               }}
-              title={isComparisonMode ? 'Show single area' : 'Compare all areas'}
+              title={isLayerComparisonMode ? 'Show single area' : 'Compare all areas'}
             >
-              {isComparisonMode ? 'Single' : 'Compare'}
+              {isLayerComparisonMode ? 'Single' : 'Compare'}
             </button>
           )}
           <button
@@ -599,7 +581,7 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
       </div>
 
       {/* Area size - single mode shows active area, comparison mode shows all */}
-      {!isComparisonMode && selectionPolygon && (
+      {!isLayerComparisonMode && selectionPolygon && (
         <div
           style={{
             padding: '8px',
@@ -645,85 +627,80 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
         </div>
       )}
 
-      {/* Metrics View */}
-      {viewMode === 'metrics' && (
-        <div>
-          <MetricsPanel />
-          {/* Export Button */}
-          <button
-            onClick={() => {
-              const exportAreas = areas.length > 0
-                ? areas.map((area) => ({
+      {/* Analysis View - Metrics for single area, Comparison for multiple */}
+      {viewMode === 'analysis' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          {/* Show ComparisonTable for multiple areas, MetricsPanel for single */}
+          {canCompare ? (
+            <>
+              <ComparisonTable
+                onExport={() => {
+                  const exportAreas = areas.map((area) => ({
                     name: area.name,
                     metrics: calculatePOIMetrics(
                       area.layerData.size > 0 ? area.layerData : layerData,
                       area.polygon.area / 1_000_000
                     ),
-                  }))
-                : selectionPolygon
-                ? [{
-                    name: 'Selected Area',
-                    metrics: calculatePOIMetrics(
-                      layerData,
-                      calculatePolygonArea(selectionPolygon.geometry as Polygon)
-                    ),
-                  }]
-                : [];
-              if (exportAreas.length > 0) {
-                exportMetrics(exportAreas);
-              }
-            }}
-            style={{
-              width: '100%',
-              marginTop: '12px',
-              padding: '10px',
-              backgroundColor: 'rgba(75, 192, 192, 0.3)',
-              border: '1px solid rgba(75, 192, 192, 0.5)',
-              borderRadius: '6px',
-              color: 'white',
-              cursor: 'pointer',
-              fontSize: '12px',
-              fontWeight: '500',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '6px',
-            }}
-          >
-            <span>Export CSV</span>
-          </button>
-        </div>
-      )}
-
-      {/* Compare View - Side-by-side table with insights */}
-      {viewMode === 'compare' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          {/* Comparison Table */}
-          <ComparisonTable
-            onExport={() => {
-              const exportAreas = areas.map((area) => ({
-                name: area.name,
-                metrics: calculatePOIMetrics(
-                  area.layerData.size > 0 ? area.layerData : layerData,
-                  area.polygon.area / 1_000_000
-                ),
-              }));
-              if (exportAreas.length > 0) {
-                exportMetrics(exportAreas);
-              }
-            }}
-          />
-
-          {/* Data Quality Indicator */}
-          <DataQualityIndicator compact />
-
-          {/* Insights Panel */}
-          <ComparisonGuidance collapsed />
+                  }));
+                  if (exportAreas.length > 0) {
+                    exportMetrics(exportAreas);
+                  }
+                }}
+              />
+              <ComparisonGuidance collapsed />
+            </>
+          ) : (
+            <>
+              <MetricsPanel />
+              {/* Export Button */}
+              <button
+                onClick={() => {
+                  const exportAreas = areas.length > 0
+                    ? areas.map((area) => ({
+                        name: area.name,
+                        metrics: calculatePOIMetrics(
+                          area.layerData.size > 0 ? area.layerData : layerData,
+                          area.polygon.area / 1_000_000
+                        ),
+                      }))
+                    : selectionPolygon
+                    ? [{
+                        name: 'Selected Area',
+                        metrics: calculatePOIMetrics(
+                          layerData,
+                          calculatePolygonArea(selectionPolygon.geometry as Polygon)
+                        ),
+                      }]
+                    : [];
+                  if (exportAreas.length > 0) {
+                    exportMetrics(exportAreas);
+                  }
+                }}
+                style={{
+                  width: '100%',
+                  padding: '10px',
+                  backgroundColor: 'rgba(75, 192, 192, 0.3)',
+                  border: '1px solid rgba(75, 192, 192, 0.5)',
+                  borderRadius: '6px',
+                  color: 'white',
+                  cursor: 'pointer',
+                  fontSize: '12px',
+                  fontWeight: '500',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px',
+                }}
+              >
+                <span>Export CSV</span>
+              </button>
+            </>
+          )}
         </div>
       )}
 
       {/* Comparison Mode View */}
-      {viewMode === 'layers' && isComparisonMode && comparisonData && (
+      {viewMode === 'layers' && isLayerComparisonMode && comparisonData && (
         <div>
           {/* Area size comparison header */}
           <div
@@ -797,7 +774,7 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
       )}
 
       {/* Single Area View */}
-      {viewMode === 'layers' && !isComparisonMode && hasStats && (
+      {viewMode === 'layers' && !isLayerComparisonMode && hasStats && (
         <div>
           {Array.from(groupedStats.entries()).map(([groupId, layers]) => {
             const group = getGroupById(groupId);

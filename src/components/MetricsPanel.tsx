@@ -131,8 +131,6 @@ export function MetricsPanel({ isMobile = false }: MetricsPanelProps) {
       {/* Data Attribution */}
       <DataAttribution
         timestamp={firstMetrics.timestamp}
-        coverageScore={firstMetrics.coverageScore}
-        coverageLabel={firstMetrics.coverageLabel}
       />
 
       {/* Tooltip Overlay */}
