@@ -18,12 +18,15 @@ export function usePolygonDrawing() {
   } = useStore();
   const [drawingPoints, setDrawingPoints] = useState<[number, number][]>([]);
 
-  // Sync local state from store when store is cleared externally (e.g., by DrawingTool cancel)
+  // Sync local state from store whenever store changes (e.g., by DrawingTool undo/cancel)
   useEffect(() => {
-    if (storeDrawingPoints.length === 0 && drawingPoints.length > 0) {
-      setDrawingPoints([]);
+    // Only sync if store has different data than local state
+    const storeStr = JSON.stringify(storeDrawingPoints);
+    const localStr = JSON.stringify(drawingPoints);
+    if (storeStr !== localStr) {
+      setDrawingPoints(storeDrawingPoints);
     }
-  }, [storeDrawingPoints.length, drawingPoints.length]);
+  }, [storeDrawingPoints]);
 
   // Track pointer start position for drag detection
   const pointerStartRef = useRef<{ x: number; y: number; isTouch: boolean } | null>(null);

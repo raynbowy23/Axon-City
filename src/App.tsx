@@ -983,12 +983,19 @@ function App() {
                 </div>
               </div>
             ) : (
-              <DrawingTool
-                onComplete={(polygon) => {
-                  handlePolygonComplete(polygon, isAddingNewArea ? undefined : activeAreaId || undefined);
-                  setIsAddingNewArea(false);
+              <div
+                style={{
+                  padding: '12px 16px',
+                  pointerEvents: 'auto',
                 }}
-              />
+              >
+                <DrawingTool
+                  onComplete={(polygon) => {
+                    handlePolygonComplete(polygon, isAddingNewArea ? undefined : activeAreaId || undefined);
+                    setIsAddingNewArea(false);
+                  }}
+                />
+              </div>
             )}
 
             {/* Mobile Navigation */}

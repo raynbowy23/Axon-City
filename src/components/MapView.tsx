@@ -1016,7 +1016,7 @@ export function MapView() {
 
         layers.push(
           new PathLayer({
-            id: 'drawing-lines',
+            id: `drawing-lines-${drawingPoints.length}`,
             data: pathData,
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             getPath: (d: any) => d.path,
@@ -1024,6 +1024,9 @@ export function MapView() {
             getWidth: 3,
             widthUnits: 'pixels' as const,
             pickable: false,
+            updateTriggers: {
+              getPath: [drawingPoints.length, JSON.stringify(drawingPoints)],
+            },
           })
         );
       }
@@ -1031,7 +1034,7 @@ export function MapView() {
       // Draw corner nodes - first point is green (close polygon), others are blue
       layers.push(
         new ScatterplotLayer({
-          id: 'drawing-corners',
+          id: `drawing-corners-${drawingPoints.length}`,
           data: cornerData,
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           getPosition: (d: any) => d.position,
@@ -1047,6 +1050,7 @@ export function MapView() {
           lineWidthMinPixels: 3,
           pickable: false,
           updateTriggers: {
+            getPosition: [drawingPoints.length, JSON.stringify(drawingPoints)],
             getFillColor: [drawingPoints.length],
             getRadius: [drawingPoints.length],
           },

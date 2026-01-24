@@ -176,6 +176,7 @@ export function DrawingTool({ onComplete }: DrawingToolProps) {
       }
     } else {
       setPreviewPolygon(null);
+      setSelectionPolygon(null);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [drawingPoints.length, drawingMode]);
