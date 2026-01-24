@@ -136,12 +136,12 @@ function decodeAreas(encoded: string): EncodedArea[] {
 export function encodeState(state: ShareableState): URLSearchParams {
   const params = new URLSearchParams();
 
-  // Center and zoom: c=lng,lat,zoom (reduced precision)
-  params.set('c', `${state.center[0].toFixed(3)},${state.center[1].toFixed(3)},${Math.round(state.zoom)}`);
+  // Center and zoom: c=lng,lat,zoom (higher precision for exact view restoration)
+  params.set('c', `${state.center[0].toFixed(5)},${state.center[1].toFixed(5)},${state.zoom.toFixed(2)}`);
 
   // Pitch and bearing: p=pitch,bearing (only if non-default)
   if (state.pitch !== 45 || state.bearing !== 0) {
-    params.set('p', `${Math.round(state.pitch)},${Math.round(state.bearing)}`);
+    params.set('p', `${state.pitch.toFixed(1)},${state.bearing.toFixed(1)}`);
   }
 
   // Areas (compact polyline encoding)

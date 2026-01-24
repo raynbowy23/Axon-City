@@ -6,9 +6,10 @@ interface AreaSelectorProps {
   onAddArea?: () => void;
   disabled?: boolean;
   isLoading?: boolean;
+  isMobile?: boolean;
 }
 
-export function AreaSelector({ onAddArea, disabled, isLoading }: AreaSelectorProps) {
+export function AreaSelector({ onAddArea, disabled, isLoading, isMobile = false }: AreaSelectorProps) {
   const { areas, activeAreaId, setActiveAreaId, removeArea, renameArea } = useStore();
 
   // Track which area is being edited
@@ -132,24 +133,49 @@ export function AreaSelector({ onAddArea, disabled, isLoading }: AreaSelectorPro
                     border: 'none',
                     borderRadius: '3px',
                     color: 'white',
-                    fontSize: '12px',
+                    fontSize: isMobile ? '14px' : '12px',
                     fontWeight: '600',
                     padding: '2px 6px',
-                    width: '80px',
+                    width: isMobile ? '100px' : '80px',
                     outline: 'none',
                   }}
                 />
               ) : (
-                <span
-                  onDoubleClick={(e) => {
-                    e.stopPropagation();
-                    startEditing(area.id, area.name);
-                  }}
-                  title="Double-click to rename"
-                  style={{ cursor: 'text' }}
-                >
-                  {area.name}
-                </span>
+                <>
+                  <span
+                    onDoubleClick={(e) => {
+                      if (!isMobile) {
+                        e.stopPropagation();
+                        startEditing(area.id, area.name);
+                      }
+                    }}
+                    onClick={(e) => {
+                      if (isMobile && isActive) {
+                        e.stopPropagation();
+                        startEditing(area.id, area.name);
+                      }
+                    }}
+                    title={isMobile ? 'Tap to rename' : 'Double-click to rename'}
+                    style={{ cursor: 'text' }}
+                  >
+                    {area.name}
+                  </span>
+                  {isMobile && isActive && (
+                    <span
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        startEditing(area.id, area.name);
+                      }}
+                      style={{
+                        marginLeft: '4px',
+                        opacity: 0.6,
+                        fontSize: '10px',
+                      }}
+                    >
+                      ✎
+                    </span>
+                  )}
+                </>
               )}
             </button>
 

@@ -369,10 +369,10 @@ function drawLegend(
   presetName?: string,
   scaleFactor: number = 1
 ): number {
-  const padding = Math.round(8 * scaleFactor);
-  const itemHeight = Math.round(16 * scaleFactor);
-  const colorBoxSize = Math.round(10 * scaleFactor);
-  const borderRadius = Math.round(6 * scaleFactor);
+  const padding = Math.round(12 * scaleFactor);
+  const itemHeight = Math.round(18 * scaleFactor);
+  const colorBoxSize = Math.round(12 * scaleFactor);
+  const borderRadius = Math.round(8 * scaleFactor);
 
   // Get active layer configs
   const layers = activeLayers
@@ -444,11 +444,11 @@ function drawAreaLabels(
 ): number {
   if (areas.length === 0) return 0;
 
-  const padding = Math.round(8 * scaleFactor);
-  const itemHeight = Math.round(14 * scaleFactor);
+  const padding = Math.round(12 * scaleFactor);
+  const itemHeight = Math.round(18 * scaleFactor);
   const height = padding * 2 + areas.length * itemHeight;
-  const borderRadius = Math.round(6 * scaleFactor);
-  const dotRadius = Math.round(4 * scaleFactor);
+  const borderRadius = Math.round(8 * scaleFactor);
+  const dotRadius = Math.round(5 * scaleFactor);
 
   // Draw background
   ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
@@ -607,8 +607,8 @@ export async function captureSnapshot(
 
   // Calculate scale factor based on output size (base 540px)
   const scaleFactor = Math.min(options.width, options.height) / 540;
-  const margin = Math.round(8 * scaleFactor);
-  const legendWidth = Math.round(100 * scaleFactor);
+  const margin = Math.round(10 * scaleFactor);
+  const legendWidth = Math.round(140 * scaleFactor);
 
   if (options.includeLegend && overlay.activeLayers.length > 0) {
     let legendY = margin;

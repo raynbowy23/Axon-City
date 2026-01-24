@@ -20,7 +20,7 @@ const DEFAULT_HEIGHT = 280; // Reduced default height
 const COMPARISON_WIDTH = 500; // Default width when in comparison mode
 
 // Top controls area height (logo + area selector + buttons + margin)
-const TOP_CONTROLS_HEIGHT = 280;
+const TOP_CONTROLS_HEIGHT = 200;
 
 // LocalStorage key
 const STORAGE_KEY = 'axoncity-stats-panel-size';
@@ -353,6 +353,24 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
           >
             <div style={{ marginBottom: '8px' }}>Loading data...</div>
             <div style={{ fontSize: '12px', opacity: 0.7 }}>{loadingMessage}</div>
+            <div
+              style={{
+                marginTop: '12px',
+                height: '4px',
+                backgroundColor: 'rgba(255,255,255,0.2)',
+                borderRadius: '2px',
+                overflow: 'hidden',
+              }}
+            >
+              <div
+                style={{
+                  height: '100%',
+                  backgroundColor: '#4A90D9',
+                  animation: 'loading 1.5s ease-in-out infinite',
+                  width: '30%',
+                }}
+              />
+            </div>
           </div>
         )}
 
@@ -453,7 +471,8 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
         padding: '16px',
         borderRadius: '8px',
         width: size.width,
-        height: size.height,
+        height: Math.min(size.height, window.innerHeight - BOTTOM_OFFSET - TOP_CONTROLS_HEIGHT),
+        minHeight: MIN_HEIGHT,
         maxHeight: `calc(100vh - ${BOTTOM_OFFSET + TOP_CONTROLS_HEIGHT}px)`, // Leave room for top drawing controls and bottom buttons
         overflowY: 'auto',
         fontSize: '13px',

@@ -17,7 +17,7 @@ import { EditSelectionInfo } from './components/EditSelectionInfo';
 import { ShareButton } from './components/ShareButton';
 import { DrawingTool } from './components/DrawingTool';
 import { usePolygonDrawing } from './hooks/usePolygonDrawing';
-import { useIsMobile } from './hooks/useMediaQuery';
+import { useIsMobile, useIsTablet } from './hooks/useMediaQuery';
 import { useUrlState } from './hooks/useUrlState';
 import { useStore } from './store/useStore';
 import { layerManifest } from './data/layerManifest';
@@ -39,6 +39,7 @@ function App() {
   const {
     isDrawing,
     isLoading,
+    loadingMessage,
     setIsLoading,
     setLoadingMessage,
     setLayerData,
@@ -176,8 +177,10 @@ function App() {
   // URL state sync for shareable links
   useUrlState(stableHandleAreasRestored);
 
-  // Mobile UI state
-  const isMobile = useIsMobile();
+  // Mobile/Tablet UI state - treat tablets like iPad Pro as mobile experience
+  const isMobileDevice = useIsMobile();
+  const isTablet = useIsTablet();
+  const isMobile = isMobileDevice || isTablet;
   const [mobileTab, setMobileTab] = useState<MobileTab>('map');
   const [bottomSheetState, setBottomSheetState] = useState<BottomSheetState>('collapsed');
   const { isExtractedViewOpen, setExtractedViewOpen } = useStore();
@@ -897,6 +900,35 @@ function App() {
                   alignItems: 'center',
                 }}
               >
+                {/* Mobile Processing Indicator */}
+                {isLoading && (
+                  <div
+                    style={{
+                      backgroundColor: 'rgba(0, 0, 0, 0.85)',
+                      padding: '10px 16px',
+                      borderRadius: '20px',
+                      marginBottom: '8px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '10px',
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: '16px',
+                        height: '16px',
+                        border: '2px solid rgba(255,255,255,0.3)',
+                        borderTopColor: '#4A90D9',
+                        borderRadius: '50%',
+                        animation: 'spin 0.8s linear infinite',
+                      }}
+                    />
+                    <span style={{ color: 'white', fontSize: '13px' }}>
+                      {loadingMessage || 'Loading...'}
+                    </span>
+                  </div>
+                )}
+
                 {/* Mobile Area Selector */}
                 {areas.length > 0 && (
                   <div
@@ -911,6 +943,7 @@ function App() {
                       onAddArea={handleStartDrawing}
                       disabled={isLoading || areas.length >= MAX_COMPARISON_AREAS}
                       isLoading={isLoading}
+                      isMobile
                     />
                   </div>
                 )}
