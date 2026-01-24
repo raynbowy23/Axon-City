@@ -17,7 +17,7 @@ import { EditSelectionInfo } from './components/EditSelectionInfo';
 import { ShareButton } from './components/ShareButton';
 import { DrawingTool } from './components/DrawingTool';
 import { usePolygonDrawing } from './hooks/usePolygonDrawing';
-import { useIsMobile } from './hooks/useMediaQuery';
+import { useIsMobile, useIsTablet } from './hooks/useMediaQuery';
 import { useUrlState } from './hooks/useUrlState';
 import { useStore } from './store/useStore';
 import { layerManifest } from './data/layerManifest';
@@ -177,8 +177,10 @@ function App() {
   // URL state sync for shareable links
   useUrlState(stableHandleAreasRestored);
 
-  // Mobile UI state
-  const isMobile = useIsMobile();
+  // Mobile/Tablet UI state - treat tablets like iPad Pro as mobile experience
+  const isMobileDevice = useIsMobile();
+  const isTablet = useIsTablet();
+  const isMobile = isMobileDevice || isTablet;
   const [mobileTab, setMobileTab] = useState<MobileTab>('map');
   const [bottomSheetState, setBottomSheetState] = useState<BottomSheetState>('collapsed');
   const { isExtractedViewOpen, setExtractedViewOpen } = useStore();

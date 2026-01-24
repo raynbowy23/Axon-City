@@ -20,7 +20,7 @@ const DEFAULT_HEIGHT = 280; // Reduced default height
 const COMPARISON_WIDTH = 500; // Default width when in comparison mode
 
 // Top controls area height (logo + area selector + buttons + margin)
-const TOP_CONTROLS_HEIGHT = 280;
+const TOP_CONTROLS_HEIGHT = 200;
 
 // LocalStorage key
 const STORAGE_KEY = 'axoncity-stats-panel-size';
@@ -471,7 +471,8 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
         padding: '16px',
         borderRadius: '8px',
         width: size.width,
-        height: size.height,
+        height: Math.min(size.height, window.innerHeight - BOTTOM_OFFSET - TOP_CONTROLS_HEIGHT),
+        minHeight: MIN_HEIGHT,
         maxHeight: `calc(100vh - ${BOTTOM_OFFSET + TOP_CONTROLS_HEIGHT}px)`, // Leave room for top drawing controls and bottom buttons
         overflowY: 'auto',
         fontSize: '13px',

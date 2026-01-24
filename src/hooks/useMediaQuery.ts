@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 
 // Breakpoints
 const MOBILE_MAX = 480;
-const TABLET_MAX = 768;
+const TABLET_MAX = 1024; // Include iPad Pro (1024px) as tablet/mobile experience
 
 /**
  * Custom hook to detect if viewport matches a media query
