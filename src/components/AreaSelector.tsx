@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { useStore } from '../store/useStore';
-import { MAX_COMPARISON_AREAS } from '../types';
+import { MAX_COMPARISON_AREAS, type ComparisonArea } from '../types';
 
 interface AreaSelectorProps {
   onAddArea?: () => void;
@@ -58,7 +58,7 @@ export function AreaSelector({ onAddArea, disabled, isLoading }: AreaSelectorPro
         alignItems: 'center',
       }}
     >
-      {areas.map((area) => {
+      {areas.map((area: ComparisonArea) => {
         const isActive = area.id === activeAreaId;
         const [r, g, b] = area.color;
         const canSwitch = !isLoading && !isActive;

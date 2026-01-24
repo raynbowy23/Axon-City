@@ -4,7 +4,6 @@
  */
 
 import type { LayerData, ComparisonArea } from '../types';
-import { layerManifest } from '../data/layerManifest';
 
 // POI category definitions for metrics
 export const POI_CATEGORIES = {
@@ -140,7 +139,7 @@ export function interpretCoverageScore(score: number): string {
  */
 function getCountFromLayers(
   layerData: Map<string, LayerData>,
-  layerIds: string[]
+  layerIds: readonly string[]
 ): number {
   let total = 0;
   for (const layerId of layerIds) {

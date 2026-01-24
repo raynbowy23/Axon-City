@@ -3,7 +3,7 @@
  * Export POI metrics to CSV format
  */
 
-import type { POIMetrics, CategoryMetric } from './metricsCalculator';
+import type { POIMetrics } from './metricsCalculator';
 import { dataSourceInfo } from '../data/metricDefinitions';
 
 interface ExportArea {

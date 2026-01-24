@@ -440,7 +440,7 @@ export function ControlPanel({ isMobile = false }: ControlPanelProps) {
             Custom Layers
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-            {customLayers.map((layer) => (
+            {customLayers.map((layer: CustomLayerConfig) => (
               <CustomLayerItem
                 key={layer.id}
                 layer={layer}

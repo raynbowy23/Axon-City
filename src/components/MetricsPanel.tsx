@@ -7,18 +7,17 @@ import { useState, useMemo } from 'react';
 import { useStore } from '../store/useStore';
 import {
   calculatePOIMetrics,
-  formatMetricValue,
   formatDensity,
   formatPercentage,
   calculateDelta,
   getDeltaIndicator,
   type POIMetrics,
-  type CategoryMetric,
 } from '../utils/metricsCalculator';
 import { metricDefinitions, getInterpretation, getCitationText } from '../data/metricDefinitions';
 import { DataAttribution } from './DataAttribution';
 import { calculatePolygonArea } from '../utils/geometryUtils';
 import type { Polygon } from 'geojson';
+import type { ComparisonArea } from '../types';
 
 interface MetricsPanelProps {
   isMobile?: boolean;
@@ -41,7 +40,7 @@ export function MetricsPanel({ isMobile = false }: MetricsPanelProps) {
       }];
     }
 
-    return areas.map((area) => {
+    return areas.map((area: ComparisonArea) => {
       const areaKm2 = area.polygon.area / 1_000_000;
       return {
         areaId: area.id,

@@ -27,7 +27,7 @@ import {
   calculateLayerStats,
   calculatePolygonArea,
 } from './utils/geometryUtils';
-import type { CustomLayerConfig, SelectionPolygon } from './types';
+import type { CustomLayerConfig, SelectionPolygon, LayerConfig } from './types';
 import { MAX_COMPARISON_AREAS } from './types';
 import './App.css';
 
@@ -416,11 +416,11 @@ function App() {
 
     // Find newly activated layers
     const newlyActivatedLayers = activeLayers.filter(
-      (layerId) => !prevActiveLayersRef.current.includes(layerId)
+      (layerId: string) => !prevActiveLayersRef.current.includes(layerId)
     );
 
     // Find layers that need fetching (newly activated and no data yet)
-    const layersToFetch = newlyActivatedLayers.filter((layerId) => {
+    const layersToFetch = newlyActivatedLayers.filter((layerId: string) => {
       const existingData = layerData.get(layerId);
       // Fetch if no data or no clipped features
       return !existingData || !existingData.clippedFeatures;
@@ -433,8 +433,8 @@ function App() {
 
     // Get layer configs for fetching
     const layerConfigs = layersToFetch
-      .map((layerId) => layerManifest.layers.find((l) => l.id === layerId))
-      .filter((l): l is typeof layerManifest.layers[number] => l !== undefined);
+      .map((layerId: string) => layerManifest.layers.find((l: LayerConfig) => l.id === layerId))
+      .filter((l: LayerConfig | undefined): l is LayerConfig => l !== undefined);
 
     if (layerConfigs.length === 0) return;
 

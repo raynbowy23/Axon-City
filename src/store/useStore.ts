@@ -358,9 +358,9 @@ export const useStore = create<AppState>((set) => ({
       drawingPoints: [],
     }),
 
-  getActiveArea: () => {
+  getActiveArea: (): ComparisonArea | null => {
     const state = useStore.getState();
-    return state.areas.find((a) => a.id === state.activeAreaId) || null;
+    return state.areas.find((a: ComparisonArea) => a.id === state.activeAreaId) || null;
   },
 
   // Selection (legacy - bridges to active area for backward compatibility)

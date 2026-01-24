@@ -8,7 +8,7 @@ import { ExportDialog } from './ExportDialog';
 import { exportMetrics } from '../utils/exportMetrics';
 import { calculatePOIMetrics } from '../utils/metricsCalculator';
 import { calculatePolygonArea } from '../utils/geometryUtils';
-import type { LayerStats, LayerGroup, AnyLayerConfig, Polygon } from '../types';
+import type { LayerStats, LayerGroup, AnyLayerConfig, Polygon, ComparisonArea } from '../types';
 
 // Size constraints
 const MIN_WIDTH = 280;
@@ -62,7 +62,7 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
   const { layerData, activeLayers, selectionPolygon, isLoading, loadingMessage, setExtractedViewOpen, isExtractedViewOpen, customLayers, areas, activeAreaId } = useStore();
 
   // Get the active area's layer data, falling back to global layerData
-  const activeArea = areas.find((a) => a.id === activeAreaId);
+  const activeArea = areas.find((a: ComparisonArea) => a.id === activeAreaId);
   const activeLayerData = activeArea?.layerData || layerData;
 
   // Panel size state
@@ -147,7 +147,7 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
   const getLayerConfig = useCallback((layerId: string): AnyLayerConfig | undefined => {
     const manifestLayer = getLayerById(layerId);
     if (manifestLayer) return manifestLayer;
-    return customLayers.find((l) => l.id === layerId);
+    return customLayers.find((l: AnyLayerConfig) => l.id === layerId);
   }, [customLayers]);
 
   // Group stats by layer group
@@ -219,11 +219,11 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
       if (!group) continue;
 
       const layersInGroup = activeLayers
-        .map((layerId) => getLayerConfig(layerId))
-        .filter((layer): layer is AnyLayerConfig => layer !== undefined && layer.group === groupId);
+        .map((layerId: string) => getLayerConfig(layerId))
+        .filter((layer: AnyLayerConfig | undefined): layer is AnyLayerConfig => layer !== undefined && layer.group === groupId);
 
-      const layersWithAnyStats = layersInGroup.filter((layer) =>
-        areas.some((area) => area.layerData.get(layer.id)?.stats)
+      const layersWithAnyStats = layersInGroup.filter((layer: AnyLayerConfig) =>
+        areas.some((area: ComparisonArea) => area.layerData.get(layer.id)?.stats)
       );
 
       if (layersWithAnyStats.length === 0) continue;
@@ -232,11 +232,11 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
         groupId,
         groupName: group.name,
         groupColor: group.color,
-        layers: layersWithAnyStats.map((layer) => ({
+        layers: layersWithAnyStats.map((layer: AnyLayerConfig) => ({
           layerId: layer.id,
           layerName: layer.name,
           fillColor: layer.style.fillColor,
-          areaStats: areas.map((area) => ({
+          areaStats: areas.map((area: ComparisonArea) => ({
             areaId: area.id,
             areaName: area.name,
             areaColor: area.color,
@@ -657,7 +657,7 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
             <>
               <ComparisonTable
                 onExport={() => {
-                  const exportAreas = areas.map((area) => ({
+                  const exportAreas = areas.map((area: ComparisonArea) => ({
                     name: area.name,
                     metrics: calculatePOIMetrics(
                       area.layerData.size > 0 ? area.layerData : layerData,
@@ -678,7 +678,7 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
               <button
                 onClick={() => {
                   const exportAreas = areas.length > 0
-                    ? areas.map((area) => ({
+                    ? areas.map((area: ComparisonArea) => ({
                         name: area.name,
                         metrics: calculatePOIMetrics(
                           area.layerData.size > 0 ? area.layerData : layerData,
@@ -737,7 +737,7 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
             }}
           >
             <div style={{ fontSize: '11px', fontWeight: '600' }}>Area Size</div>
-            {areas.map((area) => (
+            {areas.map((area: ComparisonArea) => (
               <div
                 key={area.id}
                 style={{

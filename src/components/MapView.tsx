@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, useEffect, useRef, useReducer } from 'react';
+import { useCallback, useMemo, useState, useEffect, useRef } from 'react';
 import MapGL, { type MapRef } from 'react-map-gl/maplibre';
 import DeckGL from '@deck.gl/react';
 import { GeoJsonLayer, ScatterplotLayer, PathLayer, PolygonLayer } from '@deck.gl/layers';
@@ -11,7 +11,7 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import { useStore } from '../store/useStore';
 import { layerManifest, getLayersByCustomOrder } from '../data/layerManifest';
 import { setMapInstance, setDeckCanvas } from '../utils/mapRef';
-import type { LayerData, LayerGroup, AnyLayerConfig, MapStyleType } from '../types';
+import type { LayerData, LayerGroup, AnyLayerConfig, MapStyleType, ComparisonArea, SelectedFeature } from '../types';
 
 // Map style URLs - all free and publicly available
 const MAP_STYLES: Record<MapStyleType, string> = {
@@ -95,7 +95,7 @@ export function MapView() {
     if (areas.length === 0) return null;
 
 
-    const areaFeatures = areas.map((area) => ({
+    const areaFeatures = areas.map((area: ComparisonArea) => ({
       type: 'Feature' as const,
       properties: {
         id: area.id,
@@ -140,9 +140,9 @@ export function MapView() {
         }
       },
       updateTriggers: {
-        data: [areas.length, areas.map(a => a.id).join(',')],
+        data: [areas.length, areas.map((a: ComparisonArea) => a.id).join(',')],
         getFillColor: [activeAreaId],
-        getLineColor: [areas.map(a => a.id).join(',')],
+        getLineColor: [areas.map((a: ComparisonArea) => a.id).join(',')],
         getLineWidth: [activeAreaId],
       },
     });
@@ -153,7 +153,7 @@ export function MapView() {
     if (mapStyle === 'satellite') {
       return SATELLITE_STYLE;
     }
-    return MAP_STYLES[mapStyle];
+    return MAP_STYLES[mapStyle as MapStyleType];
   }, [mapStyle]);
 
   const [hoveredFeature, setHoveredFeature] = useState<Feature | null>(null);
@@ -223,11 +223,11 @@ export function MapView() {
   // Helper to get layer config by ID (from manifest or custom layers)
   const getLayerConfigById = useCallback((layerId: string): AnyLayerConfig | undefined => {
     // Check manifest layers first
-    const manifestLayer = layerManifest.layers.find(l => l.id === layerId);
+    const manifestLayer = layerManifest.layers.find((l: AnyLayerConfig) => l.id === layerId);
     if (manifestLayer) return manifestLayer;
 
     // Check custom layers
-    return customLayers.find(l => l.id === layerId);
+    return customLayers.find((l: AnyLayerConfig) => l.id === layerId);
   }, [customLayers]);
 
   // Calculate z-offset for a given layer based on current exploded view settings
@@ -246,7 +246,7 @@ export function MapView() {
 
     // Get active manifest layer configs WITH DATA (same as layerRenderInfo)
     const sortedLayers = getLayersByCustomOrder(layerOrder);
-    const activeManifestLayers = sortedLayers.filter((layer) => {
+    const activeManifestLayers = sortedLayers.filter((layer: AnyLayerConfig) => {
       if (!activeLayers.includes(layer.id)) return false;
       const data = layerData.get(layer.id);
       const hasFeatures = data?.features?.features?.length || data?.clippedFeatures?.features?.length;
@@ -254,7 +254,7 @@ export function MapView() {
     });
 
     // Get active custom layers WITH DATA
-    const activeCustomLayers = customLayers.filter((layer) => {
+    const activeCustomLayers = customLayers.filter((layer: AnyLayerConfig) => {
       if (!activeLayers.includes(layer.id)) return false;
       const data = layerData.get(layer.id);
       const hasFeatures = data?.features?.features?.length || data?.clippedFeatures?.features?.length;
@@ -287,12 +287,12 @@ export function MapView() {
       // Custom layers go at the top, above all manifest groups
       // cumulativeHeight already includes spacing after the last group, so just use it directly
       const customLayerBaseHeight = cumulativeHeight;
-      const customLayerIndex = activeCustomLayers.findIndex(l => l.id === layerId);
+      const customLayerIndex = activeCustomLayers.findIndex((l: AnyLayerConfig) => l.id === layerId);
       zOffset = explodedView.baseElevation + customLayerBaseHeight + Math.max(0, customLayerIndex) * intraGroupSpacing;
     } else {
       // Get layer index within group (only counting layers with data)
-      const activeLayersInGroup = activeManifestLayers.filter(l => l.group === layerConfig.group);
-      const layerIndexInGroup = activeLayersInGroup.findIndex(l => l.id === layerId);
+      const activeLayersInGroup = activeManifestLayers.filter((l: AnyLayerConfig) => l.group === layerConfig.group);
+      const layerIndexInGroup = activeLayersInGroup.findIndex((l: AnyLayerConfig) => l.id === layerId);
       zOffset = explodedView.baseElevation + groupBaseHeight + Math.max(0, layerIndexInGroup) * intraGroupSpacing;
 
       // Special handling for floating layers - match actual layer elevations
@@ -447,7 +447,7 @@ export function MapView() {
 
         if (allFeatures.length > 0) {
           // Get base data structure from first area that has this layer
-          const firstAreaWithData = areas.find(a => a.layerData.has(layerId));
+          const firstAreaWithData = areas.find((a: ComparisonArea) => a.layerData.has(layerId));
           const baseData = firstAreaWithData?.layerData.get(layerId);
 
           combined.set(layerId, {
@@ -482,14 +482,14 @@ export function MapView() {
 
     // Separate manifest and custom layers - only include those with actual data
     // Use combinedLayerData to include features from all areas
-    const activeManifestLayers = sortedLayers.filter((layer) => {
+    const activeManifestLayers = sortedLayers.filter((layer: AnyLayerConfig) => {
       if (!activeLayers.includes(layer.id)) return false;
       const data = combinedLayerData.get(layer.id);
       // Check if layer has any features to render
       const hasFeatures = data?.features?.features?.length || data?.clippedFeatures?.features?.length;
       return hasFeatures;
     });
-    const activeCustomLayers = customLayers.filter((layer) => {
+    const activeCustomLayers = customLayers.filter((layer: AnyLayerConfig) => {
       if (!activeLayers.includes(layer.id)) return false;
       const data = combinedLayerData.get(layer.id);
       // Custom layers can show all features or clipped features
@@ -511,7 +511,7 @@ export function MapView() {
     // Each group starts after the previous group's layers end
     const groupBaseHeights: Record<LayerGroup, number> = {} as Record<LayerGroup, number>;
     let cumulativeHeight = 0;
-    for (const groupId of layerOrder.groupOrder) {
+    for (const groupId of layerOrder.groupOrder as LayerGroup[]) {
       groupBaseHeights[groupId] = cumulativeHeight;
       const layerCount = activeLayersPerGroup[groupId] || 0;
       // Only add space if the group has layers with data
@@ -555,7 +555,7 @@ export function MapView() {
     });
 
     // Process custom layers - they go at the top
-    const customLayerInfos = activeCustomLayers.map((config, index) => {
+    const customLayerInfos = activeCustomLayers.map((config: AnyLayerConfig, index: number) => {
       const data = combinedLayerData.get(config.id);
 
       // Custom layers stack above all manifest layers
@@ -807,7 +807,7 @@ export function MapView() {
     if (editableVertices.length <= 3) return; // Can't remove if only 3 vertices
     removeVertex(index);
     // Update polygon with remaining vertices
-    const newVertices = editableVertices.filter((_, i) => i !== index);
+    const newVertices = editableVertices.filter((_: [number, number], i: number) => i !== index);
     updatePolygonFromVertices(newVertices);
   }, [removeVertex, editableVertices, updatePolygonFromVertices]);
 
@@ -822,7 +822,7 @@ export function MapView() {
     if (selectionPolygon) {
       // Check if this polygon is already in the areas array (to avoid duplicate rendering)
       const isAlreadyAnArea = areas.some(
-        (area) => area.polygon.id === selectionPolygon.id
+        (area: ComparisonArea) => area.polygon.id === selectionPolygon.id
       );
 
       if (!isAlreadyAnArea) {
@@ -999,7 +999,7 @@ export function MapView() {
     // Drawing corner markers - rendered LAST to appear on top of all layers
     if (isDrawing && drawingPoints.length > 0) {
       // Corner data with metadata for styling
-      const cornerData = drawingPoints.map((point, index) => ({
+      const cornerData = drawingPoints.map((point: [number, number], index: number) => ({
         position: point,
         index: index + 1,
         isFirst: index === 0,
@@ -1008,11 +1008,11 @@ export function MapView() {
 
       // Draw connecting lines between corner points
       if (drawingPoints.length > 1) {
-        const pathData = drawingPoints.map((point, index) => ({
+        const pathData = drawingPoints.map((point: [number, number], index: number) => ({
           path: index < drawingPoints.length - 1
             ? [point, drawingPoints[index + 1]]
             : null,
-        })).filter(d => d.path !== null);
+        })).filter((d: { path: [number, number][] | null }) => d.path !== null);
 
         layers.push(
           new PathLayer({
@@ -1057,14 +1057,14 @@ export function MapView() {
 
     // Editable vertex handles - shown when selection exists and not drawing
     if (!isDrawing && editableVertices.length > 0) {
-      const vertexData = editableVertices.map((vertex, index) => ({
+      const vertexData = editableVertices.map((vertex: [number, number], index: number) => ({
         position: vertex,
         index,
         canRemove: editableVertices.length > 3 && !isLoading,
       }));
 
       // Calculate midpoints for adding new vertices
-      const midpointData = editableVertices.map((vertex, index) => {
+      const midpointData = editableVertices.map((vertex: [number, number], index: number) => {
         const nextVertex = editableVertices[(index + 1) % editableVertices.length];
         return {
           position: [(vertex[0] + nextVertex[0]) / 2, (vertex[1] + nextVertex[1]) / 2] as [number, number],
@@ -1074,7 +1074,7 @@ export function MapView() {
 
       // Draw polygon edges with editable style
       if (editableVertices.length > 1) {
-        const edgeData = editableVertices.map((vertex, index) => ({
+        const edgeData = editableVertices.map((vertex: [number, number], index: number) => ({
           path: [vertex, editableVertices[(index + 1) % editableVertices.length]],
         }));
 
@@ -1186,7 +1186,7 @@ export function MapView() {
     // Render selected features with distinct colors (on top of everything)
     if (selectedFeatures.length > 0) {
       // Render each selected feature with its unique color and stacked elevation
-      selectedFeatures.forEach((selection, selectionIndex) => {
+      selectedFeatures.forEach((selection: SelectedFeature, selectionIndex: number) => {
         const layerConfig = layerRenderInfo.find((l) => l.config.id === selection.layerId);
         const baseZOffset = layerConfig?.zOffset || 0;
         // Add incremental elevation offset for each selection to prevent z-fighting
