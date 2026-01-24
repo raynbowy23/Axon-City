@@ -943,6 +943,7 @@ function App() {
                       onAddArea={handleStartDrawing}
                       disabled={isLoading || areas.length >= MAX_COMPARISON_AREAS}
                       isLoading={isLoading}
+                      isMobile
                     />
                   </div>
                 )}
