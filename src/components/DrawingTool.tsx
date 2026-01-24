@@ -261,45 +261,44 @@ export function DrawingTool({ onComplete }: DrawingToolProps) {
         <div
           style={{
             display: 'flex',
-            gap: '8px',
+            gap: '6px',
           }}
         >
           {(['polygon', 'rectangle', 'circle'] as DrawingMode[]).map((mode) => {
-            const colors: Record<DrawingMode, { bg: string; shadow: string }> = {
-              polygon: { bg: 'linear-gradient(135deg, #10B981 0%, #059669 100%)', shadow: 'rgba(16, 185, 129, 0.4)' },
-              rectangle: { bg: 'linear-gradient(135deg, #F59E0B 0%, #D97706 100%)', shadow: 'rgba(245, 158, 11, 0.4)' },
-              circle: { bg: 'linear-gradient(135deg, #8B5CF6 0%, #7C3AED 100%)', shadow: 'rgba(139, 92, 246, 0.4)' },
+            const iconColors: Record<DrawingMode, string> = {
+              polygon: 'inherit',
+              rectangle: '#F59E0B',
+              circle: '#A78BFA',
             };
             return (
               <button
                 key={mode}
                 onClick={() => startDrawing(mode)}
                 style={{
-                  padding: '12px 18px',
-                  background: colors[mode].bg,
-                  color: 'white',
-                  border: '1px solid rgba(255, 255, 255, 0.15)',
-                  borderRadius: '10px',
+                  padding: '10px 14px',
+                  backgroundColor: 'rgba(255, 255, 255, 0.08)',
+                  color: 'rgba(255, 255, 255, 0.9)',
+                  border: '1px solid rgba(255, 255, 255, 0.12)',
+                  borderRadius: '6px',
                   cursor: 'pointer',
-                  fontSize: '13px',
-                  fontWeight: '600',
+                  fontSize: '12px',
+                  fontWeight: '500',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '8px',
-                  transition: 'all 0.2s ease',
-                  boxShadow: `0 4px 12px ${colors[mode].shadow}, inset 0 1px 0 rgba(255, 255, 255, 0.15)`,
+                  gap: '6px',
+                  transition: 'all 0.15s ease',
                 }}
                 title={`Draw ${MODE_LABELS[mode]}`}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.transform = 'translateY(-2px)';
-                  e.currentTarget.style.boxShadow = `0 6px 16px ${colors[mode].shadow}, inset 0 1px 0 rgba(255, 255, 255, 0.15)`;
+                  e.currentTarget.style.backgroundColor = 'rgba(74, 144, 217, 0.25)';
+                  e.currentTarget.style.borderColor = 'rgba(74, 144, 217, 0.4)';
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.transform = 'translateY(0)';
-                  e.currentTarget.style.boxShadow = `0 4px 12px ${colors[mode].shadow}, inset 0 1px 0 rgba(255, 255, 255, 0.15)`;
+                  e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.08)';
+                  e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.12)';
                 }}
               >
-                <span style={{ fontSize: '16px' }}>{MODE_ICONS[mode]}</span>
+                <span style={{ fontSize: '14px', color: iconColors[mode] }}>{MODE_ICONS[mode]}</span>
                 <span>{MODE_LABELS[mode]}</span>
               </button>
             );
@@ -324,30 +323,38 @@ export function DrawingTool({ onComplete }: DrawingToolProps) {
               marginBottom: '12px',
             }}
           >
-            {(['polygon', 'rectangle', 'circle'] as DrawingMode[]).map((mode) => (
-              <button
-                key={mode}
-                onClick={() => handleModeChange(mode)}
-                style={{
-                  flex: 1,
-                  padding: '6px 8px',
-                  backgroundColor: drawingMode === mode ? '#4A90D9' : 'rgba(255, 255, 255, 0.1)',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '4px',
-                  cursor: 'pointer',
-                  fontSize: '11px',
-                  fontWeight: '500',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '4px',
-                }}
-              >
-                <span>{MODE_ICONS[mode]}</span>
-                <span>{MODE_LABELS[mode]}</span>
-              </button>
-            ))}
+            {(['polygon', 'rectangle', 'circle'] as DrawingMode[]).map((mode) => {
+              const iconColors: Record<DrawingMode, string> = {
+                polygon: 'inherit',
+                rectangle: '#F59E0B',
+                circle: '#A78BFA',
+              };
+              const isActive = drawingMode === mode;
+              return (
+                <button
+                  key={mode}
+                  onClick={() => handleModeChange(mode)}
+                  style={{
+                    flex: 1,
+                    padding: '6px 8px',
+                    backgroundColor: isActive ? '#4A90D9' : 'rgba(255, 255, 255, 0.1)',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                    fontSize: '11px',
+                    fontWeight: '500',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '4px',
+                  }}
+                >
+                  <span style={{ color: isActive ? 'white' : iconColors[mode] }}>{MODE_ICONS[mode]}</span>
+                  <span>{MODE_LABELS[mode]}</span>
+                </button>
+              );
+            })}
           </div>
 
           <div style={{ fontSize: '12px', opacity: 0.8, marginBottom: '8px' }}>
