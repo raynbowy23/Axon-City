@@ -965,55 +965,65 @@ function App() {
                 )}
 
                 {/* Clear/Share buttons row */}
-                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'center' }}>
-                  {/* Cancel button during loading */}
-                  {isLoading && (
-                    <button
-                      onClick={cancelFetch}
-                      style={{
-                        padding: '14px 24px',
-                        backgroundColor: '#D94A4A',
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: '12px',
-                        cursor: 'pointer',
-                        fontSize: '15px',
-                        fontWeight: '600',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '8px',
-                        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.4)',
-                        minHeight: '48px',
-                      }}
-                    >
-                      <span>✕</span>
-                      <span>Cancel</span>
-                    </button>
-                  )}
-
-                  {(selectionPolygon || areas.length > 0) && !isLoading && (
-                    <>
+                {(isLoading || selectionPolygon || areas.length > 0) && (
+                  <div
+                    style={{
+                      backgroundColor: 'rgba(0, 0, 0, 0.85)',
+                      padding: '12px 16px',
+                      borderRadius: '12px',
+                      display: 'flex',
+                      gap: '10px',
+                      flexWrap: 'wrap',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    {/* Cancel button during loading */}
+                    {isLoading && (
                       <button
-                        onClick={handleClearSelection}
+                        onClick={cancelFetch}
                         style={{
-                          padding: '14px 20px',
+                          padding: '12px 20px',
                           backgroundColor: '#D94A4A',
                           color: 'white',
                           border: 'none',
-                          borderRadius: '12px',
+                          borderRadius: '8px',
                           cursor: 'pointer',
-                          fontSize: '15px',
+                          fontSize: '14px',
                           fontWeight: '600',
-                          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.4)',
-                          minHeight: '48px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px',
+                          minHeight: '44px',
                         }}
                       >
-                        {areas.length > 1 ? 'Clear All' : 'Clear'}
+                        <span>✕</span>
+                        <span>Cancel</span>
                       </button>
-                      <ShareButton disabled={areas.length === 0} isMobile />
-                    </>
-                  )}
-                </div>
+                    )}
+
+                    {(selectionPolygon || areas.length > 0) && !isLoading && (
+                      <>
+                        <button
+                          onClick={handleClearSelection}
+                          style={{
+                            padding: '12px 20px',
+                            backgroundColor: '#D94A4A',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '8px',
+                            cursor: 'pointer',
+                            fontSize: '14px',
+                            fontWeight: '600',
+                            minHeight: '44px',
+                          }}
+                        >
+                          {areas.length > 1 ? 'Clear All' : 'Clear'}
+                        </button>
+                        <ShareButton disabled={areas.length === 0} isMobile />
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
             ) : (
               <div
