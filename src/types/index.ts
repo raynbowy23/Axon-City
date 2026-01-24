@@ -315,6 +315,72 @@ export interface SnapshotOptions {
   quality: number; // 0-1 for jpeg
 }
 
+// Phase 4: Comparison Clarity Types
+
+// Normalization modes for fair comparisons
+export type NormalizationMode = 'raw' | 'per_km2';
+
+// Delta indicators for comparison table
+export type DeltaIndicator = '▲▲' | '▲' | '' | '▼' | '▼▼';
+
+// Comparison row for side-by-side metrics
+export interface ComparisonRow {
+  metric: string;
+  metricId: string;
+  values: (number | null)[];  // One per area, null if no data
+  unit: string;
+  delta: number | null;       // Percentage difference (null if only one area)
+  deltaIndicator: DeltaIndicator;
+  tooltip?: string;
+}
+
+// Data quality assessment
+export interface DataQuality {
+  overallScore: number;       // 0-100
+  categoryScores: CategoryScore[];
+  warnings: QualityWarning[];
+  lastUpdated: Date;
+}
+
+export interface CategoryScore {
+  category: string;
+  score: number;
+  count: number;
+  expectedMin: number;
+}
+
+export interface QualityWarning {
+  type: 'missing_category' | 'low_count' | 'region_coverage';
+  message: string;
+  severity: 'info' | 'warning' | 'caution';
+}
+
+// Metric interpretation
+export interface InterpretationRange {
+  min: number;
+  max: number;
+  label: string;
+  description: string;
+}
+
+export interface MetricDefinition {
+  id: string;
+  name: string;
+  formula?: string;
+  description: string;
+  unit: string;
+  interpretation: InterpretationRange[];
+}
+
+// Auto-generated insights
+export interface Insight {
+  title: string;
+  description: string;
+  confidence: 'high' | 'medium' | 'low';
+  relatedMetrics: string[];
+  type: 'positive' | 'neutral' | 'caution';
+}
+
 // Re-export GeoJSON types for convenience
 export type {
   Feature,

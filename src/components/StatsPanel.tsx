@@ -2,6 +2,9 @@ import { useMemo, useState, useCallback, useEffect, useRef } from 'react';
 import { useStore } from '../store/useStore';
 import { getLayerById, getGroupById } from '../data/layerManifest';
 import { MetricsPanel } from './MetricsPanel';
+import { ComparisonTable } from './ComparisonTable';
+import { DataQualityIndicator } from './DataQualityIndicator';
+import { ComparisonGuidance } from './ComparisonGuidance';
 import { exportMetrics } from '../utils/exportMetrics';
 import { calculatePOIMetrics } from '../utils/metricsCalculator';
 import { calculatePolygonArea } from '../utils/geometryUtils';
@@ -71,8 +74,8 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
   const [isComparisonMode, setIsComparisonMode] = useState(false);
   const canCompare = areas.length >= 2;
 
-  // View mode - layer stats or POI metrics
-  const [viewMode, setViewMode] = useState<'layers' | 'metrics'>('layers');
+  // View mode - layer stats, POI metrics, or comparison table
+  const [viewMode, setViewMode] = useState<'layers' | 'metrics' | 'compare'>('layers');
   const panelRef = useRef<HTMLDivElement>(null);
   const startPosRef = useRef<{ x: number; y: number; width: number; height: number }>({ x: 0, y: 0, width: 0, height: 0 });
 
@@ -540,6 +543,23 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
             >
               Metrics
             </button>
+            {canCompare && (
+              <button
+                onClick={() => setViewMode('compare')}
+                style={{
+                  padding: '4px 8px',
+                  backgroundColor: viewMode === 'compare' ? '#22C55E' : 'transparent',
+                  color: 'white',
+                  border: 'none',
+                  cursor: 'pointer',
+                  fontSize: '10px',
+                  fontWeight: '500',
+                }}
+                title="Side-by-side comparison"
+              >
+                Compare
+              </button>
+            )}
           </div>
           {canCompare && viewMode === 'layers' && (
             <button
@@ -672,6 +692,33 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
           >
             <span>Export CSV</span>
           </button>
+        </div>
+      )}
+
+      {/* Compare View - Side-by-side table with insights */}
+      {viewMode === 'compare' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          {/* Comparison Table */}
+          <ComparisonTable
+            onExport={() => {
+              const exportAreas = areas.map((area) => ({
+                name: area.name,
+                metrics: calculatePOIMetrics(
+                  area.layerData.size > 0 ? area.layerData : layerData,
+                  area.polygon.area / 1_000_000
+                ),
+              }));
+              if (exportAreas.length > 0) {
+                exportMetrics(exportAreas);
+              }
+            }}
+          />
+
+          {/* Data Quality Indicator */}
+          <DataQualityIndicator compact />
+
+          {/* Insights Panel */}
+          <ComparisonGuidance collapsed />
         </div>
       )}
 

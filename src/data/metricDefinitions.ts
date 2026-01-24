@@ -205,3 +205,63 @@ export const dataSourceInfo = {
     'Data reflects mapping activity, not necessarily ground truth',
   ],
 };
+
+/**
+ * Calculate delta indicator based on percentage difference
+ */
+export function getDeltaIndicator(delta: number): '▲▲' | '▲' | '' | '▼' | '▼▼' {
+  if (delta > 50) return '▲▲';
+  if (delta > 10) return '▲';
+  if (delta < -50) return '▼▼';
+  if (delta < -10) return '▼';
+  return '';
+}
+
+/**
+ * Get delta color class
+ */
+export function getDeltaColor(delta: number): string {
+  if (delta > 50) return '#22c55e';  // Green
+  if (delta > 10) return '#4ade80';  // Light green
+  if (delta < -50) return '#ef4444'; // Red
+  if (delta < -10) return '#f87171'; // Light red
+  return 'rgba(255,255,255,0.5)';    // Neutral
+}
+
+/**
+ * Format metric value with appropriate precision
+ */
+export function formatMetricValue(value: number | null, unit: string): string {
+  if (value === null) return '-';
+  if (value === 0) return '0';
+
+  if (unit === 'km²') {
+    return value < 0.01 ? value.toFixed(3) : value.toFixed(2);
+  }
+
+  if (unit === '%') {
+    return value.toFixed(1) + '%';
+  }
+
+  if (unit === 'per km²' || unit === '/km²') {
+    return Math.round(value).toLocaleString();
+  }
+
+  if (unit === 'index') {
+    return value.toFixed(2);
+  }
+
+  if (Number.isInteger(value)) {
+    return value.toLocaleString();
+  }
+
+  return value < 10 ? value.toFixed(2) : Math.round(value).toLocaleString();
+}
+
+/**
+ * Calculate percentage delta between two values
+ */
+export function calculateDelta(valueA: number | null, valueB: number | null): number | null {
+  if (valueA === null || valueB === null || valueB === 0) return null;
+  return ((valueA - valueB) / valueB) * 100;
+}

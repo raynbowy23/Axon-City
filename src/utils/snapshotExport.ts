@@ -707,8 +707,8 @@ export async function exportSnapshot(
  */
 export async function generatePreview(overlay: OverlayConfig): Promise<string | null> {
   const options: SnapshotOptions = {
-    width: 270,   // Small preview
-    height: 270,
+    width: 540,
+    height: 540,
     includeLegend: true,
     includeMetrics: false,
     includeAttribution: true,
