@@ -4,6 +4,7 @@ import { getLayerById, getGroupById } from '../data/layerManifest';
 import { MetricsPanel } from './MetricsPanel';
 import { ComparisonTable } from './ComparisonTable';
 import { ComparisonGuidance } from './ComparisonGuidance';
+import { ExportDialog } from './ExportDialog';
 import { exportMetrics } from '../utils/exportMetrics';
 import { calculatePOIMetrics } from '../utils/metricsCalculator';
 import { calculatePolygonArea } from '../utils/geometryUtils';
@@ -71,6 +72,9 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
 
   // View mode - layer stats or analysis (metrics/comparison)
   const [viewMode, setViewMode] = useState<'layers' | 'analysis'>('layers');
+
+  // Export dialog state
+  const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
 
   // Comparison mode for layers view - show all areas side by side
   const [isLayerComparisonMode, setIsLayerComparisonMode] = useState(false);
@@ -577,6 +581,24 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
           >
             {isExtractedViewOpen ? 'Hide 3D' : '3D'}
           </button>
+          {areas.length > 0 && (
+            <button
+              onClick={() => setIsExportDialogOpen(true)}
+              style={{
+                padding: '4px 8px',
+                backgroundColor: 'rgba(75, 192, 192, 0.3)',
+                color: 'white',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                fontSize: '10px',
+                fontWeight: '500',
+              }}
+              title="Export report"
+            >
+              Export
+            </button>
+          )}
         </div>
       </div>
 
@@ -823,6 +845,14 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
           })}
         </div>
       )}
+
+      {/* Export Dialog */}
+      <ExportDialog
+        isOpen={isExportDialogOpen}
+        onClose={() => setIsExportDialogOpen(false)}
+        areas={areas}
+        activeLayers={activeLayers}
+      />
     </div>
   );
 }
