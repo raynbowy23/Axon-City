@@ -34,6 +34,7 @@ import './App.css';
 function App() {
   const containerRef = useRef<HTMLDivElement>(null);
   const lastFetchedPolygonRef = useRef<string | null>(null);
+  const fetchAbortControllerRef = useRef<AbortController | null>(null);
 
   const {
     isDrawing,
@@ -66,6 +67,16 @@ function App() {
     clearPointerStart,
   } = usePolygonDrawing();
 
+  // Cancel fetch operation (keeps the selected area)
+  const cancelFetch = useCallback(() => {
+    if (fetchAbortControllerRef.current) {
+      fetchAbortControllerRef.current.abort();
+      fetchAbortControllerRef.current = null;
+    }
+    setIsLoading(false);
+    setLoadingMessage('');
+  }, [setIsLoading, setLoadingMessage]);
+
   // Callback to fetch data when areas are restored from URL
   const handleAreasRestored = useCallback(
     async (restoredPolygons: { name: string; polygon: Polygon }[]) => {
@@ -74,6 +85,10 @@ function App() {
       // Get current state from store (they were just added)
       const { areas: currentAreas, activeLayers: currentActiveLayers } = useStore.getState();
       if (currentAreas.length === 0) return;
+
+      // Create abort controller for this fetch
+      fetchAbortControllerRef.current = new AbortController();
+      const signal = fetchAbortControllerRef.current.signal;
 
       setIsLoading(true);
       setLoadingMessage('Loading shared areas...');
@@ -96,7 +111,8 @@ function App() {
             bbox,
             (layerId, progress, total) => {
               setLoadingMessage(`${area.name}: ${layerId} (${progress}/${total})`);
-            }
+            },
+            signal
           );
 
           const polygonAreaKm2 = calculatePolygonArea(polygon);
@@ -130,9 +146,14 @@ function App() {
 
         setLoadingMessage('Complete!');
       } catch (error) {
+        if (error instanceof Error && error.message === 'Cancelled') {
+          console.log('Fetch cancelled by user');
+          return;
+        }
         console.error('Error fetching data for shared areas:', error);
         setLoadingMessage('Error loading shared data');
       } finally {
+        fetchAbortControllerRef.current = null;
         setIsLoading(false);
       }
     },
@@ -181,6 +202,10 @@ function App() {
   // areaId parameter: if provided, update that area; if null, create a new area
   const handlePolygonComplete = useCallback(
     async (polygon: Polygon, existingAreaId?: string) => {
+      // Create abort controller for this fetch
+      fetchAbortControllerRef.current = new AbortController();
+      const signal = fetchAbortControllerRef.current.signal;
+
       setIsLoading(true);
       setLoadingMessage('Preparing to fetch data...');
 
@@ -201,6 +226,7 @@ function App() {
         if (!areaId) {
           setIsLoading(false);
           setLoadingMessage(`Maximum ${MAX_COMPARISON_AREAS} areas allowed`);
+          fetchAbortControllerRef.current = null;
           return;
         }
       } else {
@@ -228,7 +254,8 @@ function App() {
           bbox,
           (layerId, progress, total) => {
             setLoadingMessage(`Fetching ${layerId}... (${progress}/${total})`);
-          }
+          },
+          signal
         );
 
         // Calculate polygon area for stats
@@ -271,9 +298,14 @@ function App() {
         // Track that we've fetched data for this polygon
         lastFetchedPolygonRef.current = JSON.stringify(polygon.coordinates);
       } catch (error) {
+        if (error instanceof Error && error.message === 'Cancelled') {
+          console.log('Fetch cancelled by user');
+          return;
+        }
         console.error('Error fetching data:', error);
         setLoadingMessage('Error fetching data. Please try again.');
       } finally {
+        fetchAbortControllerRef.current = null;
         setIsLoading(false);
       }
     },
@@ -408,6 +440,10 @@ function App() {
 
     // Fetch the missing layers
     const fetchMissingLayers = async () => {
+      // Create abort controller for this fetch
+      fetchAbortControllerRef.current = new AbortController();
+      const signal = fetchAbortControllerRef.current.signal;
+
       isAutoFetchingRef.current = true;
       setIsLoading(true);
       setLoadingMessage(`Fetching ${layerConfigs.length} new layer(s)...`);
@@ -421,7 +457,8 @@ function App() {
           bbox,
           (layerId, progress, total) => {
             setLoadingMessage(`Fetching ${layerId}... (${progress}/${total})`);
-          }
+          },
+          signal
         );
 
         // Process and clip each layer
@@ -459,9 +496,14 @@ function App() {
 
         setLoadingMessage('Complete!');
       } catch (error) {
+        if (error instanceof Error && error.message === 'Cancelled') {
+          console.log('Fetch cancelled by user');
+          return;
+        }
         console.error('Error auto-fetching layers:', error);
         setLoadingMessage('Error fetching data');
       } finally {
+        fetchAbortControllerRef.current = null;
         setIsLoading(false);
         isAutoFetchingRef.current = false;
       }
@@ -669,25 +711,47 @@ function App() {
                   </div>
                 )}
 
-                {(selectionPolygon || areas.length > 0) && (
+                {/* Cancel button during loading */}
+                {isLoading && (
+                  <button
+                    onClick={cancelFetch}
+                    style={{
+                      padding: '10px 20px',
+                      backgroundColor: '#D94A4A',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '6px',
+                      cursor: 'pointer',
+                      fontSize: '13px',
+                      fontWeight: '500',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      marginTop: '8px',
+                    }}
+                  >
+                    <span>✕</span>
+                    <span>Cancel</span>
+                  </button>
+                )}
+
+                {(selectionPolygon || areas.length > 0) && !isLoading && (
                   <>
                     <button
                       onClick={handleClearSelection}
-                      disabled={isLoading}
                       style={{
                         padding: '8px 16px',
-                        backgroundColor: isLoading ? '#666' : '#D94A4A',
+                        backgroundColor: '#D94A4A',
                         color: 'white',
                         border: 'none',
                         borderRadius: '6px',
-                        cursor: isLoading ? 'not-allowed' : 'pointer',
+                        cursor: 'pointer',
                         fontSize: '12px',
-                        opacity: isLoading ? 0.7 : 1,
                       }}
                     >
                       {areas.length > 1 ? 'Clear All Areas' : 'Clear Selection'}
                     </button>
-                    {!isLoading && areas.length > 0 && (
+                    {areas.length > 0 && (
                       <EditSelectionInfo variant="block" />
                     )}
                   </>
@@ -902,23 +966,45 @@ function App() {
 
                 {/* Clear/Share buttons row */}
                 <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'center' }}>
+                  {/* Cancel button during loading */}
+                  {isLoading && (
+                    <button
+                      onClick={cancelFetch}
+                      style={{
+                        padding: '14px 24px',
+                        backgroundColor: '#D94A4A',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '12px',
+                        cursor: 'pointer',
+                        fontSize: '15px',
+                        fontWeight: '600',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.4)',
+                        minHeight: '48px',
+                      }}
+                    >
+                      <span>✕</span>
+                      <span>Cancel</span>
+                    </button>
+                  )}
 
-                  {(selectionPolygon || areas.length > 0) && (
+                  {(selectionPolygon || areas.length > 0) && !isLoading && (
                     <>
                       <button
                         onClick={handleClearSelection}
-                        disabled={isLoading}
                         style={{
                           padding: '14px 20px',
-                          backgroundColor: isLoading ? '#666' : '#D94A4A',
+                          backgroundColor: '#D94A4A',
                           color: 'white',
                           border: 'none',
                           borderRadius: '12px',
-                          cursor: isLoading ? 'not-allowed' : 'pointer',
+                          cursor: 'pointer',
                           fontSize: '15px',
                           fontWeight: '600',
                           boxShadow: '0 4px 12px rgba(0, 0, 0, 0.4)',
-                          opacity: isLoading ? 0.7 : 1,
                           minHeight: '48px',
                         }}
                       >
