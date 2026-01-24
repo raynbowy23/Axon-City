@@ -122,6 +122,10 @@ export function DrawingTool({ onComplete }: DrawingToolProps) {
 
     if (drawingPoints.length === 0) {
       setPreviewPolygon(null);
+      setSelectionPolygon(null);
+      // Clear editable vertices too
+      const { setEditableVertices } = useStore.getState();
+      setEditableVertices([]);
       return;
     }
 
@@ -190,6 +194,9 @@ export function DrawingTool({ onComplete }: DrawingToolProps) {
     setDrawingPoints([]);
     setPreviewPolygon(null);
     setSelectionPolygon(null);
+    // Also clear editable vertices to ensure no leftover visual state
+    const { setEditableVertices } = useStore.getState();
+    setEditableVertices([]);
   }, [setIsDrawing, setDrawingPoints, setSelectionPolygon]);
 
   const completeDrawing = useCallback(() => {

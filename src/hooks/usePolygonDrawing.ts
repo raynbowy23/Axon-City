@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { WebMercatorViewport } from '@deck.gl/core';
 import type { Polygon } from 'geojson';
 import { useStore } from '../store/useStore';
@@ -14,8 +14,16 @@ export function usePolygonDrawing() {
     setIsDrawing,
     viewState,
     setDrawingPoints: setStoreDrawingPoints,
+    drawingPoints: storeDrawingPoints,
   } = useStore();
   const [drawingPoints, setDrawingPoints] = useState<[number, number][]>([]);
+
+  // Sync local state from store when store is cleared externally (e.g., by DrawingTool cancel)
+  useEffect(() => {
+    if (storeDrawingPoints.length === 0 && drawingPoints.length > 0) {
+      setDrawingPoints([]);
+    }
+  }, [storeDrawingPoints.length, drawingPoints.length]);
 
   // Track pointer start position for drag detection
   const pointerStartRef = useRef<{ x: number; y: number; isTouch: boolean } | null>(null);
