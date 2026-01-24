@@ -348,6 +348,51 @@ export function ExternalIndicesPanel({ isMobile = false }: ExternalIndicesPanelP
               </div>
             )}
 
+            {/* Walk Score Disclaimer */}
+            <div
+              style={{
+                marginTop: '16px',
+                padding: '12px',
+                backgroundColor: 'rgba(74, 144, 217, 0.1)',
+                borderRadius: '8px',
+                borderLeft: '3px solid #4A90D9',
+              }}
+            >
+              <div
+                style={{
+                  fontSize: '11px',
+                  color: 'rgba(255, 255, 255, 0.7)',
+                  lineHeight: '1.5',
+                }}
+              >
+                <strong style={{ color: 'white' }}>Disclaimer:</strong> Walk Score, Transit Score, and Bike Score
+                metrics shown here are <em>proxy calculations</em> based on publicly available methodology
+                descriptions. They are not official Walk Score&reg; values. For official scores and API access,
+                visit{' '}
+                <a
+                  href="https://www.walkscore.com/professional/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    color: '#4A90D9',
+                    textDecoration: 'underline',
+                  }}
+                >
+                  walkscore.com/professional
+                </a>
+                .
+              </div>
+              <div
+                style={{
+                  fontSize: '10px',
+                  color: 'rgba(255, 255, 255, 0.5)',
+                  marginTop: '8px',
+                }}
+              >
+                Walk Score&reg;, Transit Score&reg;, and Bike Score&reg; are registered trademarks of Walk Score.
+              </div>
+            </div>
+
             {/* Metric Definitions */}
             <details
               style={{

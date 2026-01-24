@@ -455,6 +455,7 @@ export type DerivedMetricType =
   | 'transit_coverage'     // % area within 400m of transit
   | 'mixed_use_score'      // Residential + Commercial proximity
   | 'walkability_proxy'    // Composite of amenities + street connectivity
+  | 'bike_score'           // Bike infrastructure + road connectivity
   | 'fifteen_min_score';   // Essential amenities within 15min walk
 
 export interface DerivedMetricDefinition {

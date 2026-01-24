@@ -148,6 +148,26 @@ export const DERIVED_METRIC_DEFINITIONS: DerivedMetricDefinition[] = [
       high: '> 80%: Complete 15-minute neighborhood',
     },
   },
+  {
+    id: 'bike_score',
+    name: 'Bike Score (Proxy)',
+    description: 'Estimates bikeability based on Bike Score methodology: bike infrastructure density, bike facilities, and road connectivity for cycling.',
+    formula: 'Infrastructure Score (50%) + Amenities Score (30%) + Connectivity Bonus (20%)',
+    unit: '',
+    requiredLayers: [
+      'bike-lanes',
+      'poi-bike-parking',
+      'poi-bike-shops',
+      'roads-primary',
+      'roads-secondary',
+      'roads-residential',
+    ],
+    interpretation: {
+      low: '< 50: Minimal Bike Infrastructure (biking is inconvenient)',
+      medium: '50-70: Bikeable (biking is convenient for most trips)',
+      high: '> 70: Very Bikeable to Biker\'s Paradise',
+    },
+  },
 ];
 
 /**
@@ -682,6 +702,142 @@ function calculateFifteenMinScore(
 }
 
 /**
+ * Bike Score methodology:
+ * - Bike infrastructure: presence and density of bike lanes, paths, trails (50% weight)
+ * - Bike amenities: bike parking, bike shops, rental stations (30% weight)
+ * - Road connectivity: intersection density for cycling routes (20% weight)
+ *
+ * Note: Real Bike Score also considers hills (topography), which we cannot measure
+ * from OSM data alone. Our proxy focuses on infrastructure quality.
+ *
+ * Scoring:
+ * - 90-100: Biker's Paradise (daily errands do not require a car)
+ * - 70-89: Very Bikeable (biking is convenient for most trips)
+ * - 50-69: Bikeable (some bike infrastructure)
+ * - 0-49: Minimal Bike Infrastructure
+ */
+
+// Bike Score component weights
+const BIKE_SCORE_WEIGHTS = {
+  infrastructure: 0.50,  // Bike lanes and paths
+  amenities: 0.30,       // Bike parking, shops, rentals
+  connectivity: 0.20,    // Road network connectivity
+};
+
+// Benchmark densities for bike infrastructure (per km²)
+const BIKE_BENCHMARKS = {
+  // km of bike lanes per km² for top bike cities (Copenhagen, Amsterdam)
+  excellentLaneDensity: 5.0,   // 5 km of lanes per km²
+  // Bike parking spots per km² in bike-friendly cities
+  excellentParkingDensity: 50,
+  // Bike shops/rentals per km²
+  excellentShopDensity: 2,
+};
+
+/**
+ * Calculate Bike Score using infrastructure, amenities, and connectivity
+ */
+function calculateBikeScore(
+  layerData: Map<string, LayerData>,
+  areaKm2: number
+): { value: number; confidence: 'high' | 'medium' | 'low'; breakdown: Record<string, number> } {
+  const breakdown: Record<string, number> = {};
+
+  if (areaKm2 === 0) {
+    return { value: 0, confidence: 'low', breakdown };
+  }
+
+  let hasInfrastructure = false;
+  let hasAmenities = false;
+
+  // 1. Bike Infrastructure Score (50% of total)
+  // Based on bike lane/path density
+  const bikeLanesData = layerData.get('bike-lanes');
+  const bikeLaneLength = bikeLanesData?.stats?.totalLength || 0; // in meters
+  const bikeLaneDensity = (bikeLaneLength / 1000) / areaKm2; // km per km²
+
+  breakdown['bike_lane_length_m'] = bikeLaneLength;
+  breakdown['bike_lane_density'] = bikeLaneDensity;
+
+  // Logarithmic scoring for infrastructure (similar to Walk Score decay)
+  // Max score at excellentLaneDensity, diminishing returns above
+  const infrastructureScore = Math.min(
+    100,
+    (Math.log1p(bikeLaneDensity) / Math.log1p(BIKE_BENCHMARKS.excellentLaneDensity)) * 100
+  );
+  breakdown['infrastructure_score'] = infrastructureScore;
+
+  if (bikeLaneLength > 0) hasInfrastructure = true;
+
+  // 2. Bike Amenities Score (30% of total)
+  // Combine bike parking and bike shops/rentals
+  const bikeParkingData = layerData.get('poi-bike-parking');
+  const bikeShopsData = layerData.get('poi-bike-shops');
+
+  const parkingCount = bikeParkingData?.clippedFeatures?.features.length || 0;
+  const shopsCount = bikeShopsData?.clippedFeatures?.features.length || 0;
+
+  const parkingDensity = parkingCount / areaKm2;
+  const shopsDensity = shopsCount / areaKm2;
+
+  breakdown['bike_parking_count'] = parkingCount;
+  breakdown['bike_shops_count'] = shopsCount;
+  breakdown['parking_density'] = parkingDensity;
+  breakdown['shops_density'] = shopsDensity;
+
+  // Score parking (70% of amenities) and shops (30% of amenities)
+  const parkingScore = Math.min(
+    100,
+    (Math.log1p(parkingDensity) / Math.log1p(BIKE_BENCHMARKS.excellentParkingDensity)) * 100
+  );
+  const shopsScore = Math.min(
+    100,
+    (Math.log1p(shopsDensity) / Math.log1p(BIKE_BENCHMARKS.excellentShopDensity)) * 100
+  );
+
+  const amenitiesScore = parkingScore * 0.7 + shopsScore * 0.3;
+  breakdown['parking_score'] = parkingScore;
+  breakdown['shops_score'] = shopsScore;
+  breakdown['amenities_score'] = amenitiesScore;
+
+  if (parkingCount > 0 || shopsCount > 0) hasAmenities = true;
+
+  // 3. Road Connectivity Score (20% of total)
+  // Higher intersection density = more route options for cyclists
+  const intersectionDensity = calculateIntersectionDensity(layerData, areaKm2);
+  breakdown['intersection_density'] = intersectionDensity;
+
+  // Connected street grids (>100 intersections/km²) are better for cycling
+  // Cul-de-sac suburbs (<50/km²) force longer, less direct routes
+  const connectivityScore = Math.min(100, (intersectionDensity / 100) * 100);
+  breakdown['connectivity_score'] = connectivityScore;
+
+  // Calculate weighted final score
+  const finalScore =
+    infrastructureScore * BIKE_SCORE_WEIGHTS.infrastructure +
+    amenitiesScore * BIKE_SCORE_WEIGHTS.amenities +
+    connectivityScore * BIKE_SCORE_WEIGHTS.connectivity;
+
+  breakdown['weighted_infrastructure'] = infrastructureScore * BIKE_SCORE_WEIGHTS.infrastructure;
+  breakdown['weighted_amenities'] = amenitiesScore * BIKE_SCORE_WEIGHTS.amenities;
+  breakdown['weighted_connectivity'] = connectivityScore * BIKE_SCORE_WEIGHTS.connectivity;
+
+  // Determine confidence
+  // High if we have infrastructure data and amenity data
+  // Medium if we have only one type
+  // Low if we have neither
+  const confidence: 'high' | 'medium' | 'low' =
+    hasInfrastructure && hasAmenities ? 'high' :
+    hasInfrastructure || hasAmenities ? 'medium' : 'low';
+
+  return {
+    value: Math.min(100, finalScore),
+    confidence,
+    breakdown,
+  };
+}
+
+/**
  * Calculate all derived metrics for a given area
  */
 export function calculateDerivedMetrics(
@@ -755,6 +911,15 @@ export function calculateDerivedMetrics(
     breakdown: fifteenMin.breakdown,
   });
 
+  // Bike Score
+  const bikeScore = calculateBikeScore(layerData, areaKm2);
+  metrics.push({
+    metricId: 'bike_score',
+    value: bikeScore.value,
+    confidence: bikeScore.confidence,
+    breakdown: bikeScore.breakdown,
+  });
+
   return metrics;
 }
 
@@ -797,6 +962,7 @@ export function getMetricInterpretation(
     transit_coverage: { low: 30, high: 70 },
     mixed_use_score: { low: 30, high: 60 },
     walkability_proxy: { low: 40, high: 70 },
+    bike_score: { low: 50, high: 70 },
     fifteen_min_score: { low: 50, high: 80 },
   };
 
