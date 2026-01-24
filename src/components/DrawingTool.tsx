@@ -8,23 +8,53 @@ interface DrawingToolProps {
   onComplete: (polygon: Polygon) => void;
 }
 
-// Generate a rectangle polygon from two corner points
+// Generate a rectangle polygon from three points (origin, edge point, width point)
+// This allows creating rotated rectangles, not just axis-aligned ones
 function createRectanglePolygon(
-  corner1: [number, number],
-  corner2: [number, number]
+  origin: [number, number],
+  edgePoint: [number, number],
+  widthPoint: [number, number]
 ): Polygon {
-  const [lng1, lat1] = corner1;
-  const [lng2, lat2] = corner2;
+  const [x1, y1] = origin;
+  const [x2, y2] = edgePoint;
+  const [x3, y3] = widthPoint;
+
+  // Vector from origin to edge point (defines one edge)
+  const vx = x2 - x1;
+  const vy = y2 - y1;
+
+  // Vector from origin to width point
+  const wx = x3 - x1;
+  const wy = y3 - y1;
+
+  // Calculate perpendicular component of w relative to v
+  // This gives us the width direction and magnitude
+  const vLengthSq = vx * vx + vy * vy;
+  if (vLengthSq === 0) {
+    // Degenerate case: origin and edge point are the same
+    return {
+      type: 'Polygon',
+      coordinates: [[[x1, y1], [x1, y1], [x1, y1], [x1, y1], [x1, y1]]],
+    };
+  }
+
+  // Project w onto v: proj_v(w) = (w·v / v·v) * v
+  const dotProduct = wx * vx + wy * vy;
+  const projScale = dotProduct / vLengthSq;
+
+  // Perpendicular component: w_perp = w - proj_v(w)
+  const perpX = wx - projScale * vx;
+  const perpY = wy - projScale * vy;
+
+  // Four corners of the rectangle
+  const c1: [number, number] = [x1, y1];                           // Origin
+  const c2: [number, number] = [x2, y2];                           // Edge point
+  const c3: [number, number] = [x2 + perpX, y2 + perpY];           // Edge point + perpendicular
+  const c4: [number, number] = [x1 + perpX, y1 + perpY];           // Origin + perpendicular
 
   return {
     type: 'Polygon',
-    coordinates: [[
-      [lng1, lat1],
-      [lng2, lat1],
-      [lng2, lat2],
-      [lng1, lat2],
-      [lng1, lat1], // Close the polygon
-    ]],
+    coordinates: [[c1, c2, c3, c4, c1]], // Close the polygon
   };
 }
 
@@ -76,7 +106,7 @@ const MODE_LABELS: Record<DrawingMode, string> = {
 
 const MODE_INSTRUCTIONS: Record<DrawingMode, string> = {
   polygon: 'Click to add points, Enter to complete',
-  rectangle: 'Click two corners to create rectangle',
+  rectangle: 'Click origin, edge point, then set width',
   circle: 'Click center, then edge to set radius',
 };
 
@@ -141,9 +171,13 @@ export function DrawingTool({ onComplete }: DrawingToolProps) {
         };
       }
     } else if (drawingMode === 'rectangle') {
-      if (drawingPoints.length === 2) {
-        polygon = createRectanglePolygon(drawingPoints[0], drawingPoints[1]);
-        shouldAutoComplete = true;
+      if (drawingPoints.length >= 2) {
+        // For 2 points, show a temporary line preview
+        // For 3 points, show the complete rectangle and auto-complete
+        if (drawingPoints.length === 3) {
+          polygon = createRectanglePolygon(drawingPoints[0], drawingPoints[1], drawingPoints[2]);
+          shouldAutoComplete = true;
+        }
       }
     } else if (drawingMode === 'circle') {
       if (drawingPoints.length === 2) {
@@ -211,8 +245,8 @@ export function DrawingTool({ onComplete }: DrawingToolProps) {
         type: 'Polygon',
         coordinates: [[...drawingPoints, drawingPoints[0]]],
       };
-    } else if (drawingMode === 'rectangle' && drawingPoints.length === 2) {
-      polygon = createRectanglePolygon(drawingPoints[0], drawingPoints[1]);
+    } else if (drawingMode === 'rectangle' && drawingPoints.length === 3) {
+      polygon = createRectanglePolygon(drawingPoints[0], drawingPoints[1], drawingPoints[2]);
     } else if (drawingMode === 'circle' && drawingPoints.length === 2) {
       polygon = createCirclePolygon(drawingPoints[0], drawingPoints[1]);
     } else {
@@ -240,8 +274,9 @@ export function DrawingTool({ onComplete }: DrawingToolProps) {
     if (drawingMode === 'polygon') {
       return `${drawingPoints.length} point${drawingPoints.length !== 1 ? 's' : ''} added`;
     } else if (drawingMode === 'rectangle') {
-      if (drawingPoints.length === 0) return 'Click first corner';
-      if (drawingPoints.length === 1) return 'Click second corner';
+      if (drawingPoints.length === 0) return 'Click origin point';
+      if (drawingPoints.length === 1) return 'Click to define edge';
+      if (drawingPoints.length === 2) return 'Click to set width';
       return 'Rectangle complete';
     } else if (drawingMode === 'circle') {
       if (drawingPoints.length === 0) return 'Click center point';

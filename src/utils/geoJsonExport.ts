@@ -4,7 +4,7 @@
  */
 
 import type { FeatureCollection, Feature, Polygon } from 'geojson';
-import type { ComparisonArea, LayerData } from '../types';
+import type { ComparisonArea } from '../types';
 import { layerManifest } from '../data/layerManifest';
 
 interface ExportOptions {
