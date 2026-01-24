@@ -13,6 +13,9 @@ export interface MapStyleOption {
 // Map language options
 export type MapLanguage = 'local' | 'en';
 
+// Drawing tool modes
+export type DrawingMode = 'polygon' | 'rectangle' | 'circle';
+
 // Favorite location
 export interface FavoriteLocation {
   id: string;
@@ -208,6 +211,8 @@ export interface AppState {
   setSelectionPolygon: (polygon: SelectionPolygon | null) => void;
   isDrawing: boolean;
   setIsDrawing: (isDrawing: boolean) => void;
+  drawingMode: DrawingMode;
+  setDrawingMode: (mode: DrawingMode) => void;
   drawingPoints: [number, number][];
   setDrawingPoints: (points: [number, number][]) => void;
   addDrawingPoint: (point: [number, number]) => void;

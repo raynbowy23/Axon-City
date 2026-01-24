@@ -363,6 +363,8 @@ export const useStore = create<AppState>((set) => ({
   setSelectionPolygon: (polygon) => set({ selectionPolygon: polygon }),
   isDrawing: false,
   setIsDrawing: (isDrawing) => set({ isDrawing }),
+  drawingMode: 'polygon' as 'polygon' | 'rectangle' | 'circle',
+  setDrawingMode: (mode: 'polygon' | 'rectangle' | 'circle') => set({ drawingMode: mode }),
   drawingPoints: [],
   setDrawingPoints: (points) => set({ drawingPoints: points }),
   addDrawingPoint: (point) => set((state) => ({ drawingPoints: [...state.drawingPoints, point] })),

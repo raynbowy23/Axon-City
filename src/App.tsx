@@ -15,12 +15,13 @@ import { MapSettingsPanel } from './components/MapSettingsPanel';
 import { AreaSelector } from './components/AreaSelector';
 import { EditSelectionInfo } from './components/EditSelectionInfo';
 import { ShareButton } from './components/ShareButton';
+import { DrawingTool } from './components/DrawingTool';
 import { usePolygonDrawing } from './hooks/usePolygonDrawing';
 import { useIsMobile } from './hooks/useMediaQuery';
 import { useUrlState } from './hooks/useUrlState';
 import { useStore } from './store/useStore';
 import { layerManifest } from './data/layerManifest';
-import { fetchMultipleLayers, fetchLayerData, getBboxFromPolygon } from './utils/osmFetcher';
+import { fetchMultipleLayers, getBboxFromPolygon } from './utils/osmFetcher';
 import {
   clipFeaturesToPolygon,
   calculateLayerStats,
@@ -54,17 +55,12 @@ function App() {
     addArea,
     updateAreaPolygon,
     updateAreaLayerData,
-    setActiveAreaId,
     clearAreas,
   } = useStore();
 
   const {
     startDrawing,
     addPoint,
-    undoLastPoint,
-    completeDrawing,
-    cancelDrawing,
-    pointCount,
     handlePointerStart,
     isDrag,
     clearPointerStart,
@@ -530,28 +526,20 @@ function App() {
     [isDrawing]
   );
 
-  // Handle keyboard shortcuts
+  // Handle keyboard shortcuts for resetting state on Escape
+  // Note: DrawingTool component handles Enter, Escape, and Ctrl+Z for drawing operations
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && isDrawing) {
-        cancelDrawing();
+        // Reset isAddingNewArea when drawing is cancelled
+        // DrawingTool handles the actual cancellation
         setIsAddingNewArea(false);
-      }
-      if (e.key === 'Enter' && isDrawing && pointCount >= 3) {
-        const polygon = completeDrawing();
-        if (polygon) {
-          handlePolygonComplete(polygon, isAddingNewArea ? undefined : activeAreaId || undefined);
-        }
-        setIsAddingNewArea(false);
-      }
-      if ((e.key === 'z' || e.key === 'Z') && (e.ctrlKey || e.metaKey) && isDrawing) {
-        undoLastPoint();
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isDrawing, pointCount, cancelDrawing, completeDrawing, undoLastPoint, handlePolygonComplete, isAddingNewArea, activeAreaId]);
+  }, [isDrawing]);
 
   const handleStartDrawing = () => {
     // When starting a new drawing for a new area, don't clear existing areas
@@ -560,29 +548,12 @@ function App() {
     startDrawing();
   };
 
-  const handleCompleteDrawing = () => {
-    const polygon = completeDrawing();
-    if (polygon) {
-      // If adding new area, don't pass existing areaId
-      handlePolygonComplete(polygon, isAddingNewArea ? undefined : activeAreaId || undefined);
-    }
-    setIsAddingNewArea(false);
-  };
-
   const handleClearSelection = () => {
     // Clear all areas and reset
     clearAreas();
     setSelectionLocationName(null);
     clearManifestLayerData();
     lastFetchedPolygonRef.current = null;
-  };
-
-  const handleClearActiveArea = () => {
-    // Only remove the active area, keep others
-    if (activeAreaId) {
-      const { removeArea } = useStore.getState();
-      removeArea(activeAreaId);
-    }
   };
 
   return (
@@ -640,6 +611,7 @@ function App() {
                       padding: '10px 12px',
                       borderRadius: '8px',
                       marginBottom: '4px',
+                      marginTop: '8px',
                     }}
                   >
                     <div
@@ -665,26 +637,36 @@ function App() {
                   </div>
                 )}
 
-                {/* Draw button - show when no areas or can add more */}
-                {areas.length === 0 && (
-                  <button
-                    onClick={handleStartDrawing}
-                    disabled={isLoading}
+                {/* Getting started panel - show when no areas */}
+                {areas.length === 0 && !isLoading && (
+                  <div
                     style={{
-                      padding: '12px 24px',
-                      backgroundColor: isLoading ? '#666' : '#4A90D9',
-                      color: 'white',
-                      border: 'none',
-                      borderRadius: '8px',
-                      cursor: isLoading ? 'not-allowed' : 'pointer',
-                      fontSize: '14px',
-                      fontWeight: '600',
-                      boxShadow: '0 2px 8px rgba(0, 0, 0, 0.3)',
-                      opacity: isLoading ? 0.7 : 1,
+                      backgroundColor: 'rgba(0, 0, 0, 0.85)',
+                      padding: '14px 16px',
+                      borderRadius: '10px',
+                      marginTop: '12px',
                     }}
                   >
-                    {isLoading ? 'Processing...' : 'Draw Selection Area'}
-                  </button>
+                    <div
+                      style={{
+                        fontSize: '14px',
+                        fontWeight: '600',
+                        color: 'white',
+                        marginBottom: '12px',
+                        letterSpacing: '0.5px',
+                        textTransform: 'uppercase',
+                        opacity: 0.9,
+                      }}
+                    >
+                      Select an Area
+                    </div>
+                    <DrawingTool
+                      onComplete={(polygon) => {
+                        handlePolygonComplete(polygon, isAddingNewArea ? undefined : activeAreaId || undefined);
+                        setIsAddingNewArea(false);
+                      }}
+                    />
+                  </div>
                 )}
 
                 {(selectionPolygon || areas.length > 0) && (
@@ -712,78 +694,12 @@ function App() {
                 )}
               </>
             ) : (
-              <div
-                style={{
-                  backgroundColor: 'rgba(0, 0, 0, 0.9)',
-                  padding: '16px',
-                  borderRadius: '8px',
-                  color: 'white',
-                  minWidth: '220px',
+              <DrawingTool
+                onComplete={(polygon) => {
+                  handlePolygonComplete(polygon, isAddingNewArea ? undefined : activeAreaId || undefined);
+                  setIsAddingNewArea(false);
                 }}
-              >
-                <div style={{ marginBottom: '12px', fontWeight: '600' }}>
-                  Drawing Mode
-                </div>
-                <div style={{ fontSize: '12px', opacity: 0.8, marginBottom: '12px' }}>
-                  Click on the map to add points
-                  <br />
-                  Points added: <strong>{pointCount}</strong>
-                  <br />
-                  <br />
-                  <kbd style={kbdStyle}>Enter</kbd> Complete
-                  <br />
-                  <kbd style={kbdStyle}>Escape</kbd> Cancel
-                  <br />
-                  <kbd style={kbdStyle}>Ctrl+Z</kbd> Undo
-                </div>
-
-                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                  <button
-                    onClick={undoLastPoint}
-                    disabled={pointCount === 0}
-                    style={{
-                      padding: '8px 12px',
-                      backgroundColor: pointCount === 0 ? '#444' : '#666',
-                      color: 'white',
-                      border: 'none',
-                      borderRadius: '4px',
-                      cursor: pointCount === 0 ? 'not-allowed' : 'pointer',
-                      fontSize: '12px',
-                    }}
-                  >
-                    Undo
-                  </button>
-                  <button
-                    onClick={handleCompleteDrawing}
-                    disabled={pointCount < 3}
-                    style={{
-                      padding: '8px 12px',
-                      backgroundColor: pointCount < 3 ? '#444' : '#4A90D9',
-                      color: 'white',
-                      border: 'none',
-                      borderRadius: '4px',
-                      cursor: pointCount < 3 ? 'not-allowed' : 'pointer',
-                      fontSize: '12px',
-                    }}
-                  >
-                    Complete ({pointCount}/3+)
-                  </button>
-                  <button
-                    onClick={cancelDrawing}
-                    style={{
-                      padding: '8px 12px',
-                      backgroundColor: '#D94A4A',
-                      color: 'white',
-                      border: 'none',
-                      borderRadius: '4px',
-                      cursor: 'pointer',
-                      fontSize: '12px',
-                    }}
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
+              />
             )}
           </div>
 
@@ -951,29 +867,41 @@ function App() {
                   </div>
                 )}
 
-                {/* Draw/Clear/Share buttons row */}
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  {areas.length === 0 && (
-                    <button
-                      onClick={handleStartDrawing}
-                      disabled={isLoading}
+                {/* Getting started - mobile */}
+                {areas.length === 0 && !isLoading && (
+                  <div
+                    style={{
+                      backgroundColor: 'rgba(0, 0, 0, 0.9)',
+                      padding: '12px 16px',
+                      borderRadius: '12px',
+                      marginBottom: '8px',
+                      textAlign: 'center',
+                    }}
+                  >
+                    <div
                       style={{
-                        padding: '14px 24px',
-                        backgroundColor: isLoading ? '#666' : '#4A90D9',
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: '12px',
-                        cursor: isLoading ? 'not-allowed' : 'pointer',
-                        fontSize: '15px',
+                        fontSize: '13px',
                         fontWeight: '600',
-                        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.4)',
-                        opacity: isLoading ? 0.7 : 1,
-                        minHeight: '48px',
+                        color: 'white',
+                        marginBottom: '12px',
+                        letterSpacing: '0.5px',
+                        textTransform: 'uppercase',
+                        opacity: 0.9,
                       }}
                     >
-                      {isLoading ? 'Processing...' : 'Draw Area'}
-                    </button>
-                  )}
+                      Select an Area
+                    </div>
+                    <DrawingTool
+                      onComplete={(polygon) => {
+                        handlePolygonComplete(polygon, isAddingNewArea ? undefined : activeAreaId || undefined);
+                        setIsAddingNewArea(false);
+                      }}
+                    />
+                  </div>
+                )}
+
+                {/* Clear/Share buttons row */}
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'center' }}>
 
                   {(selectionPolygon || areas.length > 0) && (
                     <>
@@ -1002,70 +930,12 @@ function App() {
                 </div>
               </div>
             ) : (
-              <div
-                style={{
-                  display: 'flex',
-                  gap: '12px',
-                  padding: '12px 16px',
-                  backgroundColor: 'rgba(0, 0, 0, 0.9)',
-                  borderRadius: '12px',
-                  marginBottom: '8px',
-                  pointerEvents: 'auto',
+              <DrawingTool
+                onComplete={(polygon) => {
+                  handlePolygonComplete(polygon, isAddingNewArea ? undefined : activeAreaId || undefined);
+                  setIsAddingNewArea(false);
                 }}
-              >
-                <button
-                  onClick={undoLastPoint}
-                  disabled={pointCount === 0}
-                  style={{
-                    padding: '12px 16px',
-                    backgroundColor: pointCount === 0 ? '#444' : '#666',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '8px',
-                    cursor: pointCount === 0 ? 'not-allowed' : 'pointer',
-                    fontSize: '14px',
-                    fontWeight: '500',
-                    opacity: pointCount === 0 ? 0.5 : 1,
-                    minHeight: '44px',
-                  }}
-                >
-                  Undo
-                </button>
-                <button
-                  onClick={handleCompleteDrawing}
-                  disabled={pointCount < 3}
-                  style={{
-                    padding: '12px 16px',
-                    backgroundColor: pointCount < 3 ? '#444' : '#4A90D9',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '8px',
-                    cursor: pointCount < 3 ? 'not-allowed' : 'pointer',
-                    fontSize: '14px',
-                    fontWeight: '500',
-                    opacity: pointCount < 3 ? 0.5 : 1,
-                    minHeight: '44px',
-                  }}
-                >
-                  Done ({pointCount}/3+)
-                </button>
-                <button
-                  onClick={cancelDrawing}
-                  style={{
-                    padding: '12px 16px',
-                    backgroundColor: '#D94A4A',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '8px',
-                    cursor: 'pointer',
-                    fontSize: '14px',
-                    fontWeight: '500',
-                    minHeight: '44px',
-                  }}
-                >
-                  Cancel
-                </button>
-              </div>
+              />
             )}
 
             {/* Mobile Navigation */}
@@ -1135,13 +1005,5 @@ function App() {
     </div>
   );
 }
-
-const kbdStyle: React.CSSProperties = {
-  backgroundColor: 'rgba(255,255,255,0.1)',
-  padding: '2px 6px',
-  borderRadius: '3px',
-  fontSize: '11px',
-  fontFamily: 'monospace',
-};
 
 export default App;

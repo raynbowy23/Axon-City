@@ -2,6 +2,7 @@ import { useStore } from '../store/useStore';
 import { layerManifest } from '../data/layerManifest';
 import { DraggableLayerList } from './DraggableLayerList';
 import { StorySelector } from './StorySelector';
+import { VisualControls } from './VisualControls';
 import type { CustomLayerConfig, FeatureCollection } from '../types';
 
 interface ControlPanelProps {
@@ -168,6 +169,14 @@ export function ControlPanel({ isMobile = false }: ControlPanelProps) {
               </button>
             ))}
           </div>
+        </div>
+
+        {/* Visual Controls */}
+        <div style={{ marginBottom: '20px' }}>
+          <div style={{ marginBottom: '12px', fontWeight: '600', fontSize: '15px' }}>
+            Visual Settings
+          </div>
+          <VisualControls />
         </div>
 
         {/* Import Data Button */}
@@ -417,6 +426,11 @@ export function ControlPanel({ isMobile = false }: ControlPanelProps) {
         >
           Reset Camera
         </button>
+      </div>
+
+      {/* Visual Controls */}
+      <div style={{ marginBottom: '20px' }}>
+        <VisualControls />
       </div>
 
       {/* Custom Layers Section */}
