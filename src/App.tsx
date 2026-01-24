@@ -1189,6 +1189,7 @@ function App() {
       <SelectionPanel />
       <ExtractedView isMobile={isMobile} />
       <DataInputPanel />
+      <ExternalIndicesPanel isMobile={isMobile} />
 
       {/* Loading animation keyframes */}
       <style>
