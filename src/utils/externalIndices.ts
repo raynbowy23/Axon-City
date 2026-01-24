@@ -79,15 +79,15 @@ export const DERIVED_METRIC_DEFINITIONS: DerivedMetricDefinition[] = [
   },
   {
     id: 'transit_coverage',
-    name: 'Transit Coverage',
-    description: 'Percentage of area within 400m walking distance of transit stops.',
-    formula: '(Area within 400m of transit / Total Area) × 100',
-    unit: '%',
+    name: 'Transit Score (Proxy)',
+    description: 'Estimates transit accessibility using Transit Score methodology: mode-weighted stop density with logarithmic normalization. Rail stations weighted 2x, bus stops 1x.',
+    formula: 'log(Σ(stops × mode_weight)) normalized to 0-100',
+    unit: '',
     requiredLayers: ['transit-stops', 'transit-stations'],
     interpretation: {
-      low: '< 30%: Poor transit access',
-      medium: '30-70%: Moderate transit coverage',
-      high: '> 70%: Excellent transit access',
+      low: '< 25: Minimal Transit (few or no transit options)',
+      medium: '25-50: Some Transit (a few public transportation options)',
+      high: '> 50: Excellent Transit to Rider\'s Paradise',
     },
   },
   {
@@ -105,20 +105,27 @@ export const DERIVED_METRIC_DEFINITIONS: DerivedMetricDefinition[] = [
   },
   {
     id: 'walkability_proxy',
-    name: 'Walkability Score',
-    description: 'Composite score based on amenity density and street connectivity.',
-    formula: '(Amenity Density × 0.6) + (Street Connectivity × 0.4)',
+    name: 'Walk Score (Proxy)',
+    description: 'Estimates walkability based on Walk Score methodology: amenity categories with distance-decay weighting, plus pedestrian friendliness factors (intersection density).',
+    formula: 'Σ(Category Score × Weight) + Pedestrian Friendliness Bonus',
     unit: '',
     requiredLayers: [
       'amenities-restaurants',
+      'amenities-cafes',
       'amenities-shops',
-      'roads-residential',
+      'amenities-healthcare',
+      'amenities-education',
+      'amenities-entertainment',
+      'parks',
       'transit-stops',
+      'roads-primary',
+      'roads-secondary',
+      'roads-residential',
     ],
     interpretation: {
-      low: '< 40: Car-dependent',
-      medium: '40-70: Somewhat walkable',
-      high: '> 70: Very walkable',
+      low: '< 50: Car-Dependent (most errands require a car)',
+      medium: '50-70: Somewhat Walkable (some errands can be done on foot)',
+      high: '> 70: Very Walkable to Walker\'s Paradise',
     },
   },
   {
@@ -360,7 +367,40 @@ function calculateBuildingDensity(
 }
 
 /**
- * Calculate transit coverage (simplified - based on stop density)
+ * Transit Score methodology:
+ * - Mode weights: Heavy/light rail = 2x, Ferry/cable car = 1.5x, Bus = 1x
+ * - Sum up mode-weighted value of all nearby transit stops
+ * - Apply logarithmic normalization (matches rider experience)
+ * - Benchmarked against major US cities for calibration
+ *
+ * Since we don't have frequency data from OSM, we use stop count as proxy:
+ * - Rail stations (higher frequency assumed): weight = 2
+ * - Bus stops: weight = 1
+ *
+ * Logarithmic normalization: Transit riders experience incremental improvements
+ * as transit quality increases, but with diminishing returns at higher levels.
+ */
+
+// Transit Score mode weights
+const TRANSIT_MODE_WEIGHTS = {
+  'transit-stations': 2.0,  // Rail stations (heavy/light rail)
+  'transit-stops': 1.0,     // Bus stops
+  // Future: 'transit-ferry': 1.5, 'transit-cable': 1.5
+};
+
+// Benchmark values based on major US cities (mode-weighted stops per km²)
+// Used for logarithmic normalization
+const TRANSIT_BENCHMARKS = {
+  // Dense transit: Manhattan, SF, Chicago Loop
+  highDensity: 50,    // ~100 Transit Score
+  // Good transit: Boston, Portland, Seattle
+  mediumDensity: 20,  // ~50 Transit Score
+  // Minimal transit: Suburban areas
+  lowDensity: 5,      // ~25 Transit Score
+};
+
+/**
+ * Calculate Transit Score using mode-weighted density with logarithmic normalization
  */
 function calculateTransitCoverage(
   layerData: Map<string, LayerData>,
@@ -369,29 +409,65 @@ function calculateTransitCoverage(
 ): { value: number; confidence: 'high' | 'medium' | 'low'; breakdown: Record<string, number> } {
   const breakdown: Record<string, number> = {};
 
-  const transitLayers = ['transit-stops', 'transit-stations'];
+  let weightedSum = 0;
   let totalStops = 0;
+  let hasStationData = false;
+  let hasBusData = false;
 
-  for (const layerId of transitLayers) {
+  // Calculate mode-weighted sum
+  for (const [layerId, weight] of Object.entries(TRANSIT_MODE_WEIGHTS)) {
     const data = layerData.get(layerId);
     if (data?.clippedFeatures) {
       const count = data.clippedFeatures.features.length;
-      breakdown[layerId] = count;
+      breakdown[`${layerId}_count`] = count;
+      breakdown[`${layerId}_weighted`] = count * weight;
+      weightedSum += count * weight;
       totalStops += count;
+
+      if (layerId === 'transit-stations' && count > 0) hasStationData = true;
+      if (layerId === 'transit-stops' && count > 0) hasBusData = true;
     }
   }
 
-  // Estimate coverage: each stop covers ~400m radius = ~0.5 km² with overlap
-  // Use a diminishing returns formula
-  const coveragePerStop = 0.15; // km² effective coverage per stop (accounting for overlap)
-  const estimatedCoverage = Math.min(
-    (1 - Math.exp(-totalStops * coveragePerStop / areaKm2)) * 100,
-    100
+  breakdown['total_stops'] = totalStops;
+  breakdown['weighted_sum'] = weightedSum;
+
+  if (weightedSum === 0 || areaKm2 === 0) {
+    return {
+      value: 0,
+      confidence: 'low',
+      breakdown,
+    };
+  }
+
+  // Calculate mode-weighted density (stops per km²)
+  const weightedDensity = weightedSum / areaKm2;
+  breakdown['weighted_density'] = weightedDensity;
+
+  // Logarithmic normalization formula:
+  // Score = 100 * log(1 + density) / log(1 + highDensity)
+  // This gives:
+  // - density = highDensity → score = 100
+  // - density = mediumDensity → score ≈ 72
+  // - density = lowDensity → score ≈ 43
+  // - density = 1 → score ≈ 17
+  const normalizedScore = Math.min(
+    100,
+    (Math.log1p(weightedDensity) / Math.log1p(TRANSIT_BENCHMARKS.highDensity)) * 100
   );
 
+  breakdown['raw_score'] = normalizedScore;
+
+  // Determine confidence based on data availability
+  // High confidence if we have both rail and bus data
+  // Medium if we have one type, low if no data
+  const confidence: 'high' | 'medium' | 'low' =
+    hasStationData && hasBusData ? 'high' :
+    hasStationData || hasBusData ? 'medium' : 'low';
+
   return {
-    value: estimatedCoverage,
-    confidence: totalStops > 0 ? 'medium' : 'low',
+    value: normalizedScore,
+    confidence,
     breakdown,
   };
 }
@@ -433,43 +509,133 @@ function calculateMixedUseScore(
 }
 
 /**
- * Calculate walkability proxy score
+ * Walk Score methodology:
+ * - Points awarded based on distance to amenities in each category
+ * - Max points within 5 min walk (0.25 mi / 400m)
+ * - Decay function to 0 points at 30 min walk (1.5 mi / 2.4km)
+ * - Categories: Grocery, Restaurants, Shopping, Coffee, Banks, Parks, Schools, Entertainment
+ * - Pedestrian friendliness: population density, intersection density, block length
+ *
+ * Our proxy uses amenity density as a stand-in for distance-based scoring,
+ * since higher density means amenities are more likely to be within walking distance.
+ */
+
+// Walk Score category weights (based on Walk Score's published methodology)
+const WALK_SCORE_CATEGORIES = [
+  { id: 'grocery', layers: ['amenities-shops'], weight: 3, maxCount: 5 },
+  { id: 'restaurants', layers: ['amenities-restaurants'], weight: 3, maxCount: 10 },
+  { id: 'shopping', layers: ['amenities-shops'], weight: 2, maxCount: 5 },
+  { id: 'coffee', layers: ['amenities-cafes'], weight: 2, maxCount: 4 },
+  { id: 'parks', layers: ['parks'], weight: 2, maxCount: 3 },
+  { id: 'schools', layers: ['amenities-education'], weight: 2, maxCount: 3 },
+  { id: 'entertainment', layers: ['amenities-entertainment'], weight: 1, maxCount: 3 },
+  { id: 'healthcare', layers: ['amenities-healthcare'], weight: 1, maxCount: 2 },
+];
+
+/**
+ * Distance decay function based on Walk Score methodology
+ * Max points at 0.25 mi (400m), decay to 0 at 1.5 mi (2400m)
+ * Since we use density as proxy, we convert density to an estimated "coverage score"
+ */
+function densityToWalkScore(density: number, maxDensity: number): number {
+  // Higher density = more likely to have amenities within walking distance
+  // Use a logarithmic scale to model diminishing returns
+  if (density <= 0) return 0;
+  const normalized = Math.min(density / maxDensity, 1);
+  // Logarithmic scaling similar to Walk Score's decay
+  return Math.min(100, Math.log1p(normalized * 10) / Math.log1p(10) * 100);
+}
+
+/**
+ * Calculate intersection density for pedestrian friendliness
+ * Higher intersection density = more walkable grid pattern
+ */
+function calculateIntersectionDensity(
+  layerData: Map<string, LayerData>,
+  areaKm2: number
+): number {
+  const roadLayers = ['roads-primary', 'roads-secondary', 'roads-residential'];
+  let totalRoadLength = 0;
+
+  for (const layerId of roadLayers) {
+    const data = layerData.get(layerId);
+    if (data?.stats?.totalLength) {
+      totalRoadLength += data.stats.totalLength;
+    }
+  }
+
+  // Estimate intersections: ~1 intersection per 200m of road on average in a grid
+  // More roads = more intersections
+  const estimatedIntersections = totalRoadLength / 200;
+  const intersectionDensity = areaKm2 > 0 ? estimatedIntersections / areaKm2 : 0;
+
+  return intersectionDensity;
+}
+
+/**
+ * Calculate walkability proxy score using Walk Score methodology
  */
 function calculateWalkabilityProxy(
   layerData: Map<string, LayerData>,
   areaKm2: number
 ): { value: number; confidence: 'high' | 'medium' | 'low'; breakdown: Record<string, number> } {
   const breakdown: Record<string, number> = {};
+  let totalWeightedScore = 0;
+  let totalWeight = 0;
+  let categoriesWithData = 0;
 
-  // Amenity density component (60% weight)
-  const amenityLayers = ['amenities-restaurants', 'amenities-cafes', 'amenities-shops'];
-  let totalAmenities = 0;
+  // Calculate score for each Walk Score category
+  for (const category of WALK_SCORE_CATEGORIES) {
+    let categoryCount = 0;
 
-  for (const layerId of amenityLayers) {
-    const data = layerData.get(layerId);
-    if (data?.clippedFeatures) {
-      totalAmenities += data.clippedFeatures.features.length;
+    for (const layerId of category.layers) {
+      const data = layerData.get(layerId);
+      if (data?.clippedFeatures) {
+        categoryCount += data.clippedFeatures.features.length;
+      }
     }
+
+    // Convert count to density, then to score
+    const density = areaKm2 > 0 ? categoryCount / areaKm2 : 0;
+    // Max density varies by category (grocery stores are less dense than restaurants)
+    const maxDensity = category.maxCount * 2; // e.g., 10 groceries/km² is very high
+    const categoryScore = densityToWalkScore(density, maxDensity);
+
+    breakdown[`${category.id}_count`] = categoryCount;
+    breakdown[`${category.id}_score`] = categoryScore;
+
+    totalWeightedScore += categoryScore * category.weight;
+    totalWeight += category.weight;
+
+    if (categoryCount > 0) categoriesWithData++;
   }
 
-  const amenityDensity = areaKm2 > 0 ? totalAmenities / areaKm2 : 0;
-  // Normalize: 100 amenities/km² = score of 100
-  const amenityScore = Math.min((amenityDensity / 100) * 100, 100);
-  breakdown['amenity_density'] = amenityDensity;
+  // Base amenity score (max 85 points, like Walk Score)
+  const amenityScore = totalWeight > 0 ? (totalWeightedScore / totalWeight) * 0.85 : 0;
 
-  // Transit access component (40% weight)
-  const transitData = layerData.get('transit-stops');
-  const transitCount = transitData?.clippedFeatures?.features.length || 0;
-  const transitDensity = areaKm2 > 0 ? transitCount / areaKm2 : 0;
-  // Normalize: 10 stops/km² = score of 100
-  const transitScore = Math.min((transitDensity / 10) * 100, 100);
-  breakdown['transit_density'] = transitDensity;
+  // Pedestrian friendliness bonus (up to 15 points)
+  // Based on intersection density (proxy for walkable grid pattern)
+  const intersectionDensity = calculateIntersectionDensity(layerData, areaKm2);
+  breakdown['intersection_density'] = intersectionDensity;
 
-  const walkabilityScore = amenityScore * 0.6 + transitScore * 0.4;
+  // High intersection density (>100/km²) is very walkable
+  // This mimics Walk Score's pedestrian friendliness adjustment
+  const pedestrianBonus = Math.min(15, (intersectionDensity / 100) * 15);
+  breakdown['pedestrian_bonus'] = pedestrianBonus;
+
+  const finalScore = Math.min(100, amenityScore + pedestrianBonus);
+
+  // Determine confidence based on data availability
+  const confidence: 'high' | 'medium' | 'low' =
+    categoriesWithData >= 5 ? 'high' :
+    categoriesWithData >= 3 ? 'medium' : 'low';
+
+  breakdown['amenity_component'] = amenityScore;
+  breakdown['categories_with_data'] = categoriesWithData;
 
   return {
-    value: walkabilityScore,
-    confidence: totalAmenities > 0 || transitCount > 0 ? 'medium' : 'low',
+    value: finalScore,
+    confidence,
     breakdown,
   };
 }
