@@ -85,6 +85,9 @@ export function MapView() {
     setActiveAreaId,
     // Loading state
     isLoading,
+    // Visual settings
+    globalOpacity,
+    layerStyleOverrides,
   } = useStore();
 
   // Create areas layer separately to avoid it being affected by drawing state
@@ -913,65 +916,80 @@ export function MapView() {
       if (!features || features.features.length === 0) continue;
 
       const isHovered = hoveredLayerId === config.id;
-      const opacity = isHovered ? 1.0 : 0.85;
+      // Apply global opacity and layer-specific overrides
+      const layerOverride = layerStyleOverrides.get(config.id);
+      const layerOpacity = layerOverride?.opacity ?? 100;
+      const baseOpacity = isHovered ? 1.0 : 0.85;
+      const opacity = baseOpacity * (globalOpacity / 100) * (layerOpacity / 100);
+
+      // Apply color override if exists
+      const effectiveConfig = layerOverride?.fillColor
+        ? {
+            ...config,
+            style: {
+              ...config.style,
+              fillColor: layerOverride.fillColor,
+            },
+          }
+        : config;
 
       // Ground shadow/reference layer (subtle reference at z=0 when exploded)
       if (explodedView.enabled && zOffset > 0) {
         layers.push(
-          createGroundShadowLayer(config, features, 0.15)
+          createGroundShadowLayer(effectiveConfig, features, 0.15)
         );
       }
 
       // Main elevated layer
-      switch (config.geometryType) {
+      switch (effectiveConfig.geometryType) {
         case 'polygon':
           // Use specialized layer functions for buildings and parking
-          if (config.id.startsWith('buildings-') || config.id === 'buildings') {
+          if (effectiveConfig.id.startsWith('buildings-') || effectiveConfig.id === 'buildings') {
             layers.push(
-              ...createBuildingLayer(config, features, zOffset, opacity, isHovered, explodedView.enabled)
+              ...createBuildingLayer(effectiveConfig, features, zOffset, opacity, isHovered, explodedView.enabled)
             );
             // No vertical connectors for floating buildings
-          } else if (config.id === 'parking') {
+          } else if (effectiveConfig.id === 'parking') {
             layers.push(
-              ...createParkingLayer(config, features, zOffset, opacity, isHovered, explodedView.enabled)
+              ...createParkingLayer(effectiveConfig, features, zOffset, opacity, isHovered, explodedView.enabled)
             );
             // No vertical connectors for floating parking
-          } else if (config.id === 'parks') {
+          } else if (effectiveConfig.id === 'parks') {
             layers.push(
-              ...createParkLayer(config, features, zOffset, opacity, isHovered, explodedView.enabled)
+              ...createParkLayer(effectiveConfig, features, zOffset, opacity, isHovered, explodedView.enabled)
             );
             // No vertical connectors for floating parks
           } else {
             layers.push(
-              createPolygonLayer(config, features, zOffset, opacity, isHovered, explodedView.enabled)
+              createPolygonLayer(effectiveConfig, features, zOffset, opacity, isHovered, explodedView.enabled)
             );
             // Vertical connectors for other polygons (parks, land use, etc.)
             if (explodedView.enabled && zOffset > 0) {
               layers.push(
-                createVerticalConnectors(config, features, zOffset, 'polygon')
+                createVerticalConnectors(effectiveConfig, features, zOffset, 'polygon')
               );
             }
           }
           break;
         case 'line':
           layers.push(
-            createLineLayer(config, features, zOffset, opacity, isHovered)
+            createLineLayer(effectiveConfig, features, zOffset, opacity, isHovered)
           );
           // Vertical connectors for lines (at endpoints)
           if (explodedView.enabled && zOffset > 0) {
             layers.push(
-              createVerticalConnectors(config, features, zOffset, 'line')
+              createVerticalConnectors(effectiveConfig, features, zOffset, 'line')
             );
           }
           break;
         case 'point':
           layers.push(
-            createPointLayer(config, features, zOffset, opacity, isHovered, explodedView.enabled)
+            createPointLayer(effectiveConfig, features, zOffset, opacity, isHovered, explodedView.enabled)
           );
           // Vertical connectors for points
           if (explodedView.enabled && zOffset > 0) {
             layers.push(
-              createVerticalConnectors(config, features, zOffset, 'point')
+              createVerticalConnectors(effectiveConfig, features, zOffset, 'point')
             );
           }
           break;
@@ -1420,7 +1438,7 @@ export function MapView() {
     }
 
     return layers;
-  }, [layerRenderInfo, selectionPolygon, hoveredLayerId, isolatedLayerId, explodedView, isDrawing, drawingPoints, editableVertices, draggingVertexIndex, hoveredVertexIndex, hoveredMidpointIndex, handleAddVertex, handleRemoveVertex, selectedFeatures, layerOrder, pinnedInfos, areasLayer, isLoading]);
+  }, [layerRenderInfo, selectionPolygon, hoveredLayerId, isolatedLayerId, explodedView, isDrawing, drawingPoints, editableVertices, draggingVertexIndex, hoveredVertexIndex, hoveredMidpointIndex, handleAddVertex, handleRemoveVertex, selectedFeatures, layerOrder, pinnedInfos, areasLayer, isLoading, globalOpacity, layerStyleOverrides]);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const onViewStateChange = useCallback(

@@ -289,6 +289,13 @@ export interface AppState {
   } | null;
   applyStory: (storyId: string) => void;
   clearStory: () => void;
+
+  // Visual settings
+  globalOpacity: number; // 0-100
+  setGlobalOpacity: (opacity: number) => void;
+  layerStyleOverrides: Map<string, LayerStyleOverride>;
+  setLayerStyleOverride: (layerId: string, override: LayerStyleOverride) => void;
+  clearLayerStyleOverrides: () => void;
 }
 
 // Shareable state for URL encoding
@@ -358,6 +365,13 @@ export interface QualityWarning {
   type: 'missing_category' | 'low_count' | 'region_coverage';
   message: string;
   severity: 'info' | 'warning' | 'caution';
+}
+
+// Layer style override for visual controls
+export interface LayerStyleOverride {
+  opacity: number; // 0-100
+  fillColor?: [number, number, number, number];
+  extrusionMultiplier?: number;
 }
 
 // Metric interpretation

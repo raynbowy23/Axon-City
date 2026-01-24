@@ -6,17 +6,10 @@
 import { useState, useCallback } from 'react';
 import { useStore } from '../store/useStore';
 import { layerManifest } from '../data/layerManifest';
-import type { LayerConfig } from '../types';
+import type { LayerConfig, LayerStyleOverride } from '../types';
 
 interface VisualControlsProps {
   compact?: boolean;
-}
-
-// Layer style overrides stored per layer
-interface LayerStyleOverride {
-  opacity: number;
-  fillColor?: [number, number, number, number];
-  extrusionMultiplier?: number;
 }
 
 // Color presets for quick selection
@@ -36,12 +29,14 @@ export function VisualControls({ compact = false }: VisualControlsProps) {
     activeLayers,
     explodedView,
     setExplodedView,
+    globalOpacity,
+    setGlobalOpacity,
+    layerStyleOverrides,
+    setLayerStyleOverride,
   } = useStore();
 
-  // Local state for style overrides (could be moved to store for persistence)
-  const [globalOpacity, setGlobalOpacity] = useState(100);
+  // Local state for UI selection only
   const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null);
-  const [layerOverrides, setLayerOverrides] = useState<Map<string, LayerStyleOverride>>(new Map());
 
   // Get active layer configs
   const activeLayerConfigs = activeLayers
@@ -50,27 +45,17 @@ export function VisualControls({ compact = false }: VisualControlsProps) {
 
   const handleGlobalOpacityChange = useCallback((value: number) => {
     setGlobalOpacity(value);
-    // Apply opacity to all layers via CSS variable (affects rendering)
-    document.documentElement.style.setProperty('--layer-opacity', String(value / 100));
-  }, []);
+  }, [setGlobalOpacity]);
 
   const handleLayerOpacityChange = useCallback((layerId: string, opacity: number) => {
-    setLayerOverrides((prev) => {
-      const newMap = new Map(prev);
-      const existing = newMap.get(layerId) || { opacity: 100 };
-      newMap.set(layerId, { ...existing, opacity });
-      return newMap;
-    });
-  }, []);
+    const existing = layerStyleOverrides.get(layerId) || { opacity: 100 };
+    setLayerStyleOverride(layerId, { ...existing, opacity });
+  }, [layerStyleOverrides, setLayerStyleOverride]);
 
   const handleLayerColorChange = useCallback((layerId: string, color: [number, number, number]) => {
-    setLayerOverrides((prev) => {
-      const newMap = new Map(prev);
-      const existing = newMap.get(layerId) || { opacity: 100 };
-      newMap.set(layerId, { ...existing, fillColor: [...color, 200] });
-      return newMap;
-    });
-  }, []);
+    const existing = layerStyleOverrides.get(layerId) || { opacity: 100 };
+    setLayerStyleOverride(layerId, { ...existing, fillColor: [...color, 200] });
+  }, [layerStyleOverrides, setLayerStyleOverride]);
 
   const handleExtrusionMultiplier = useCallback((multiplier: number) => {
     // Scale the existing spacing to act as a height multiplier
@@ -79,7 +64,7 @@ export function VisualControls({ compact = false }: VisualControlsProps) {
   }, [setExplodedView]);
 
   const getLayerOverride = (layerId: string): LayerStyleOverride => {
-    return layerOverrides.get(layerId) || { opacity: 100 };
+    return layerStyleOverrides.get(layerId) || { opacity: 100 };
   };
 
   if (compact) {

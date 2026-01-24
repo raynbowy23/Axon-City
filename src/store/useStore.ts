@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { AppState, ViewState, LayerData, ExplodedViewConfig, SelectedFeature, Feature, LayerGroup, LayerOrderConfig, CustomLayerConfig, FeatureCollection, MapStyleType, MapLanguage, FavoriteLocation, ComparisonArea, SelectionPolygon } from '../types';
+import type { AppState, ViewState, LayerData, ExplodedViewConfig, SelectedFeature, Feature, LayerGroup, LayerOrderConfig, CustomLayerConfig, FeatureCollection, MapStyleType, MapLanguage, FavoriteLocation, ComparisonArea, SelectionPolygon, LayerStyleOverride } from '../types';
 import { AREA_COLORS, AREA_NAMES, MAX_COMPARISON_AREAS } from '../types';
 import { layerManifest } from '../data/layerManifest';
 import { getStoryById } from '../data/storyPresets';
@@ -650,4 +650,16 @@ export const useStore = create<AppState>((set) => ({
         explodedView: state.previousStoryState.explodedView,
       };
     }),
+
+  // Visual settings
+  globalOpacity: 100,
+  setGlobalOpacity: (opacity: number) => set({ globalOpacity: opacity }),
+  layerStyleOverrides: new Map<string, LayerStyleOverride>(),
+  setLayerStyleOverride: (layerId: string, override: LayerStyleOverride) =>
+    set((state) => {
+      const newMap = new Map(state.layerStyleOverrides);
+      newMap.set(layerId, override);
+      return { layerStyleOverrides: newMap };
+    }),
+  clearLayerStyleOverrides: () => set({ layerStyleOverrides: new Map<string, LayerStyleOverride>() }),
 }));
