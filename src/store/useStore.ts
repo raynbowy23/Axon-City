@@ -312,12 +312,17 @@ export const useStore = create<AppState>((set) => ({
       // Update legacy selectionPolygon
       const activeArea = reassignedAreas.find((a) => a.id === newActiveAreaId);
 
+      // Clear layerData when no areas remain
+      const newLayerData = reassignedAreas.length === 0 ? new Map() : state.layerData;
+
       return {
         areas: reassignedAreas,
         activeAreaId: newActiveAreaId,
         selectionPolygon: activeArea?.polygon || null,
         // Clear editable vertices when removing areas
         editableVertices: activeArea ? state.editableVertices : [],
+        // Clear layer data when all areas are removed
+        layerData: newLayerData,
       };
     }),
 
