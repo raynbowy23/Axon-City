@@ -313,6 +313,21 @@ export interface AppState {
   layerStyleOverrides: Map<string, LayerStyleOverride>;
   setLayerStyleOverride: (layerId: string, override: LayerStyleOverride) => void;
   clearLayerStyleOverrides: () => void;
+
+  // External indices (Phase 6 Power User)
+  externalIndices: ExternalIndex[];
+  addExternalIndex: (index: ExternalIndex) => void;
+  removeExternalIndex: (indexId: string) => void;
+  clearExternalIndices: () => void;
+
+  // Derived metrics
+  derivedMetrics: Map<string, DerivedMetricValue[]>; // area_id -> metrics
+  setDerivedMetrics: (areaId: string, metrics: DerivedMetricValue[]) => void;
+  clearDerivedMetrics: () => void;
+
+  // Index panel
+  isIndexPanelOpen: boolean;
+  setIndexPanelOpen: (isOpen: boolean) => void;
 }
 
 // Shareable state for URL encoding
@@ -415,6 +430,64 @@ export interface Insight {
   confidence: 'high' | 'medium' | 'low';
   relatedMetrics: string[];
   type: 'positive' | 'neutral' | 'caution';
+}
+
+// External Index types (Phase 6 Power User)
+export interface ExternalIndex {
+  id: string;
+  name: string;
+  source: string; // e.g., "Walk Score API", "User Import"
+  description?: string;
+  values: Map<string, number>; // area_id or coordinate key -> value
+  min: number;
+  max: number;
+  unit?: string;
+  colorScale?: 'sequential' | 'diverging';
+  importedAt: Date;
+}
+
+// Derived metrics calculated from OSM data
+export type DerivedMetricType =
+  | 'diversity_index'      // Shannon entropy of POI types
+  | 'green_ratio'          // Park area / Total area
+  | 'street_connectivity'  // Intersections per km²
+  | 'building_density'     // Building footprint / Land area
+  | 'transit_coverage'     // % area within 400m of transit
+  | 'mixed_use_score'      // Residential + Commercial proximity
+  | 'walkability_proxy'    // Composite of amenities + street connectivity
+  | 'fifteen_min_score';   // Essential amenities within 15min walk
+
+export interface DerivedMetricDefinition {
+  id: DerivedMetricType;
+  name: string;
+  description: string;
+  formula: string;
+  unit: string;
+  requiredLayers: string[]; // Layer IDs needed to calculate
+  interpretation: {
+    low: string;
+    medium: string;
+    high: string;
+  };
+}
+
+export interface DerivedMetricValue {
+  metricId: DerivedMetricType;
+  value: number;
+  confidence: 'high' | 'medium' | 'low'; // Based on data completeness
+  breakdown?: Record<string, number>; // Component values
+}
+
+// Index import configuration
+export interface IndexImportConfig {
+  file: File;
+  name: string;
+  valueColumn: string;
+  areaColumn?: string; // If mapping to existing areas
+  latColumn?: string;  // If using coordinates
+  lonColumn?: string;
+  unit?: string;
+  description?: string;
 }
 
 // Re-export GeoJSON types for convenience

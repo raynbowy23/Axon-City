@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { AppState, ViewState, LayerData, ExplodedViewConfig, SelectedFeature, Feature, LayerGroup, LayerOrderConfig, CustomLayerConfig, FeatureCollection, MapStyleType, MapLanguage, FavoriteLocation, ComparisonArea, SelectionPolygon, LayerStyleOverride } from '../types';
+import type { AppState, ViewState, LayerData, ExplodedViewConfig, SelectedFeature, Feature, LayerGroup, LayerOrderConfig, CustomLayerConfig, FeatureCollection, MapStyleType, MapLanguage, FavoriteLocation, ComparisonArea, SelectionPolygon, LayerStyleOverride, ExternalIndex, DerivedMetricValue } from '../types';
 import { AREA_COLORS, AREA_NAMES, MAX_COMPARISON_AREAS } from '../types';
 import { layerManifest } from '../data/layerManifest';
 import { getStoryById } from '../data/storyPresets';
@@ -702,4 +702,30 @@ export const useStore = create<AppState>((set) => ({
       return { layerStyleOverrides: newMap };
     }),
   clearLayerStyleOverrides: () => set({ layerStyleOverrides: new Map<string, LayerStyleOverride>() }),
+
+  // External indices (Phase 6 Power User)
+  externalIndices: [],
+  addExternalIndex: (index: ExternalIndex) =>
+    set((state) => ({
+      externalIndices: [...state.externalIndices, index],
+    })),
+  removeExternalIndex: (indexId: string) =>
+    set((state) => ({
+      externalIndices: state.externalIndices.filter((i) => i.id !== indexId),
+    })),
+  clearExternalIndices: () => set({ externalIndices: [] }),
+
+  // Derived metrics
+  derivedMetrics: new Map<string, DerivedMetricValue[]>(),
+  setDerivedMetrics: (areaId: string, metrics: DerivedMetricValue[]) =>
+    set((state) => {
+      const newMetrics = new Map(state.derivedMetrics);
+      newMetrics.set(areaId, metrics);
+      return { derivedMetrics: newMetrics };
+    }),
+  clearDerivedMetrics: () => set({ derivedMetrics: new Map() }),
+
+  // Index panel
+  isIndexPanelOpen: false,
+  setIndexPanelOpen: (isOpen) => set({ isIndexPanelOpen: isOpen }),
 }));
