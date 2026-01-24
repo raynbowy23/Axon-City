@@ -20,17 +20,16 @@ export const DERIVED_METRIC_DEFINITIONS: DerivedMetricDefinition[] = [
     formula: 'H = -Σ(pᵢ × ln(pᵢ))',
     unit: '',
     requiredLayers: [
-      'amenities-restaurants',
-      'amenities-cafes',
-      'amenities-shops',
-      'amenities-entertainment',
-      'amenities-healthcare',
-      'amenities-education',
+      'poi-food-drink',
+      'poi-shopping',
+      'poi-grocery',
+      'poi-health',
+      'poi-education',
     ],
     interpretation: {
-      low: '< 1.0: Limited variety, dominated by one type',
-      medium: '1.0 - 2.0: Moderate mix of amenities',
-      high: '> 2.0: High diversity, vibrant mixed-use area',
+      low: '< 30: Limited variety, dominated by one type',
+      medium: '30-60: Moderate mix of amenities',
+      high: '> 60: High diversity, vibrant mixed-use area',
     },
   },
   {
@@ -39,7 +38,7 @@ export const DERIVED_METRIC_DEFINITIONS: DerivedMetricDefinition[] = [
     description: 'Percentage of area covered by parks and green spaces.',
     formula: '(Park Area / Total Area) × 100',
     unit: '%',
-    requiredLayers: ['parks', 'nature-water'],
+    requiredLayers: ['parks', 'water'],
     interpretation: {
       low: '< 10%: Limited green space',
       medium: '10-20%: Adequate green coverage',
@@ -52,7 +51,7 @@ export const DERIVED_METRIC_DEFINITIONS: DerivedMetricDefinition[] = [
     description: 'Intersection density indicating walkable grid vs cul-de-sac patterns.',
     formula: 'Intersections / km²',
     unit: 'per km²',
-    requiredLayers: ['roads-primary', 'roads-secondary', 'roads-residential'],
+    requiredLayers: ['roads-primary', 'roads-residential'],
     interpretation: {
       low: '< 50: Disconnected, car-dependent',
       medium: '50-100: Moderate connectivity',
@@ -83,7 +82,7 @@ export const DERIVED_METRIC_DEFINITIONS: DerivedMetricDefinition[] = [
     description: 'Estimates transit accessibility using Transit Score methodology: mode-weighted stop density with logarithmic normalization. Rail stations weighted 2x, bus stops 1x.',
     formula: 'log(Σ(stops × mode_weight)) normalized to 0-100',
     unit: '',
-    requiredLayers: ['transit-stops', 'transit-stations'],
+    requiredLayers: ['transit-stops', 'rail-lines'],
     interpretation: {
       low: '< 25: Minimal Transit (few or no transit options)',
       medium: '25-50: Some Transit (a few public transportation options)',
@@ -98,9 +97,9 @@ export const DERIVED_METRIC_DEFINITIONS: DerivedMetricDefinition[] = [
     unit: '',
     requiredLayers: ['buildings-residential', 'buildings-commercial'],
     interpretation: {
-      low: '< 0.3: Segregated single-use',
-      medium: '0.3-0.6: Partial mixed-use',
-      high: '> 0.6: Well-integrated mixed-use',
+      low: '< 30: Segregated single-use',
+      medium: '30-60: Partial mixed-use',
+      high: '> 60: Well-integrated mixed-use',
     },
   },
   {
@@ -110,16 +109,14 @@ export const DERIVED_METRIC_DEFINITIONS: DerivedMetricDefinition[] = [
     formula: 'Σ(Category Score × Weight) + Pedestrian Friendliness Bonus',
     unit: '',
     requiredLayers: [
-      'amenities-restaurants',
-      'amenities-cafes',
-      'amenities-shops',
-      'amenities-healthcare',
-      'amenities-education',
-      'amenities-entertainment',
+      'poi-food-drink',
+      'poi-shopping',
+      'poi-grocery',
+      'poi-health',
+      'poi-education',
       'parks',
       'transit-stops',
       'roads-primary',
-      'roads-secondary',
       'roads-residential',
     ],
     interpretation: {
@@ -135,10 +132,10 @@ export const DERIVED_METRIC_DEFINITIONS: DerivedMetricDefinition[] = [
     formula: 'Categories accessible / Total essential categories',
     unit: '%',
     requiredLayers: [
-      'amenities-restaurants',
-      'amenities-shops',
-      'amenities-healthcare',
-      'amenities-education',
+      'poi-food-drink',
+      'poi-grocery',
+      'poi-health',
+      'poi-education',
       'parks',
       'transit-stops',
     ],
@@ -159,7 +156,6 @@ export const DERIVED_METRIC_DEFINITIONS: DerivedMetricDefinition[] = [
       'poi-bike-parking',
       'poi-bike-shops',
       'roads-primary',
-      'roads-secondary',
       'roads-residential',
     ],
     interpretation: {
@@ -327,7 +323,7 @@ function calculateGreenRatio(
   const breakdown: Record<string, number> = {};
   let totalGreenArea = 0;
 
-  const greenLayers = ['parks', 'nature-water'];
+  const greenLayers = ['parks', 'water'];
   let availableLayers = 0;
 
   for (const layerId of greenLayers) {
@@ -403,7 +399,7 @@ function calculateBuildingDensity(
 
 // Transit Score mode weights
 const TRANSIT_MODE_WEIGHTS = {
-  'transit-stations': 2.0,  // Rail stations (heavy/light rail)
+  'rail-lines': 2.0,  // Rail stations (heavy/light rail)
   'transit-stops': 1.0,     // Bus stops
   // Future: 'transit-ferry': 1.5, 'transit-cable': 1.5
 };
@@ -444,7 +440,7 @@ function calculateTransitCoverage(
       weightedSum += count * weight;
       totalStops += count;
 
-      if (layerId === 'transit-stations' && count > 0) hasStationData = true;
+      if (layerId === 'rail-lines' && count > 0) hasStationData = true;
       if (layerId === 'transit-stops' && count > 0) hasBusData = true;
     }
   }
@@ -541,15 +537,15 @@ function calculateMixedUseScore(
  */
 
 // Walk Score category weights (based on Walk Score's published methodology)
+// Layer IDs must match layerManifest.ts
 const WALK_SCORE_CATEGORIES = [
-  { id: 'grocery', layers: ['amenities-shops'], weight: 3, maxCount: 5 },
-  { id: 'restaurants', layers: ['amenities-restaurants'], weight: 3, maxCount: 10 },
-  { id: 'shopping', layers: ['amenities-shops'], weight: 2, maxCount: 5 },
-  { id: 'coffee', layers: ['amenities-cafes'], weight: 2, maxCount: 4 },
+  { id: 'grocery', layers: ['poi-grocery'], weight: 3, maxCount: 5 },
+  { id: 'restaurants', layers: ['poi-food-drink'], weight: 3, maxCount: 10 },
+  { id: 'shopping', layers: ['poi-shopping'], weight: 2, maxCount: 5 },
+  { id: 'coffee', layers: ['poi-food-drink'], weight: 2, maxCount: 4 },
   { id: 'parks', layers: ['parks'], weight: 2, maxCount: 3 },
-  { id: 'schools', layers: ['amenities-education'], weight: 2, maxCount: 3 },
-  { id: 'entertainment', layers: ['amenities-entertainment'], weight: 1, maxCount: 3 },
-  { id: 'healthcare', layers: ['amenities-healthcare'], weight: 1, maxCount: 2 },
+  { id: 'schools', layers: ['poi-education'], weight: 2, maxCount: 3 },
+  { id: 'healthcare', layers: ['poi-health'], weight: 1, maxCount: 2 },
 ];
 
 /**
@@ -574,7 +570,7 @@ function calculateIntersectionDensity(
   layerData: Map<string, LayerData>,
   areaKm2: number
 ): number {
-  const roadLayers = ['roads-primary', 'roads-secondary', 'roads-residential'];
+  const roadLayers = ['roads-primary', 'roads-residential'];
   let totalRoadLength = 0;
 
   for (const layerId of roadLayers) {
@@ -669,12 +665,13 @@ function calculateFifteenMinScore(
   const breakdown: Record<string, number> = {};
 
   // Essential categories for 15-minute city
+  // Layer IDs must match layerManifest.ts
   const essentialCategories = [
-    { id: 'food', layers: ['amenities-restaurants', 'amenities-cafes', 'amenities-shops'] },
-    { id: 'healthcare', layers: ['amenities-healthcare'] },
-    { id: 'education', layers: ['amenities-education'] },
+    { id: 'food', layers: ['poi-food-drink', 'poi-grocery'] },
+    { id: 'healthcare', layers: ['poi-health'] },
+    { id: 'education', layers: ['poi-education'] },
     { id: 'green_space', layers: ['parks'] },
-    { id: 'transit', layers: ['transit-stops', 'transit-stations'] },
+    { id: 'transit', layers: ['transit-stops', 'rail-lines'] },
   ];
 
   let categoriesWithAccess = 0;
@@ -953,17 +950,17 @@ export function getMetricInterpretation(
   value: number,
   metricId: DerivedMetricType
 ): 'low' | 'medium' | 'high' {
-  // Thresholds based on metric type
+  // Thresholds based on metric type (must match interpretation text in definitions)
   const thresholds: Record<DerivedMetricType, { low: number; high: number }> = {
-    diversity_index: { low: 30, high: 60 },
-    green_ratio: { low: 10, high: 20 },
-    street_connectivity: { low: 50, high: 100 },
-    building_density: { low: 20, high: 40 },
-    transit_coverage: { low: 30, high: 70 },
-    mixed_use_score: { low: 30, high: 60 },
-    walkability_proxy: { low: 40, high: 70 },
-    bike_score: { low: 50, high: 70 },
-    fifteen_min_score: { low: 50, high: 80 },
+    diversity_index: { low: 30, high: 60 },      // Normalized 0-100 scale
+    green_ratio: { low: 10, high: 20 },          // < 10% low, 10-20% medium, > 20% high
+    street_connectivity: { low: 50, high: 100 }, // < 50 low, 50-100 medium, > 100 high
+    building_density: { low: 20, high: 40 },     // < 20% low, 20-40% medium, > 40% high
+    transit_coverage: { low: 25, high: 50 },     // < 25 low, 25-50 medium, > 50 high
+    mixed_use_score: { low: 30, high: 60 },      // < 30 low, 30-60 medium, > 60 high
+    walkability_proxy: { low: 50, high: 70 },    // < 50 low, 50-70 medium, > 70 high
+    bike_score: { low: 50, high: 70 },           // < 50 low, 50-70 medium, > 70 high
+    fifteen_min_score: { low: 50, high: 80 },    // < 50% low, 50-80% medium, > 80% high
   };
 
   const t = thresholds[metricId];

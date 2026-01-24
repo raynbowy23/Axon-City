@@ -116,6 +116,26 @@ export function ExternalIndicesPanel({ isMobile = false }: ExternalIndicesPanelP
     }
   };
 
+  // Get progress bar percentage normalized to the metric's scale
+  // This makes the progress bar visually match the interpretation (low/medium/high)
+  const getProgressPercent = (value: number, metricId: DerivedMetricType): number => {
+    // Define the max value for each metric (value at which bar should be full)
+    const maxValues: Partial<Record<DerivedMetricType, number>> = {
+      diversity_index: 100,
+      green_ratio: 30,           // 30% green space is exceptional
+      street_connectivity: 150,  // 150 intersections/km² is very high
+      building_density: 60,      // 60% building coverage is very dense
+      transit_coverage: 100,
+      mixed_use_score: 100,
+      walkability_proxy: 100,
+      bike_score: 100,
+      fifteen_min_score: 100,
+    };
+
+    const max = maxValues[metricId] || 100;
+    return Math.min((value / max) * 100, 100);
+  };
+
   if (!isIndexPanelOpen) return null;
 
   return (
@@ -243,6 +263,18 @@ export function ExternalIndicesPanel({ isMobile = false }: ExternalIndicesPanelP
                   const definition = getMetricDefinition(metric.metricId);
                   const interpretation = getMetricInterpretation(metric.value, metric.metricId);
 
+                  // Build tooltip showing required layers and their availability
+                  const requiredLayers = definition?.requiredLayers || [];
+                  const availableLayers = requiredLayers.filter(layerId => {
+                    const data = layerData.get(layerId);
+                    return data?.clippedFeatures && data.clippedFeatures.features.length > 0;
+                  });
+                  const layerStatusList = requiredLayers.map(layerId => {
+                    const hasData = availableLayers.includes(layerId);
+                    return `${hasData ? '✓' : '✗'} ${layerId}`;
+                  }).join('\n');
+                  const dataTooltip = `Data availability (${availableLayers.length}/${requiredLayers.length} layers):\n${layerStatusList}`;
+
                   return (
                     <div
                       key={metric.metricId}
@@ -280,18 +312,21 @@ export function ExternalIndicesPanel({ isMobile = false }: ExternalIndicesPanelP
                             display: 'flex',
                             alignItems: 'center',
                             gap: '6px',
+                            cursor: 'help',
                           }}
+                          title={dataTooltip}
                         >
                           <span
                             style={{
-                              fontSize: '10px',
+                              fontSize: '9px',
                               padding: '2px 6px',
                               borderRadius: '4px',
-                              backgroundColor: getConfidenceColor(metric.confidence),
-                              color: 'white',
+                              backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                              color: 'rgba(255, 255, 255, 0.6)',
+                              border: '1px solid rgba(255, 255, 255, 0.2)',
                             }}
                           >
-                            {metric.confidence}
+                            {availableLayers.length}/{requiredLayers.length}
                           </span>
                         </div>
                       </div>
@@ -315,7 +350,7 @@ export function ExternalIndicesPanel({ isMobile = false }: ExternalIndicesPanelP
                         <span
                           style={{
                             fontSize: '11px',
-                            color: 'rgba(255, 255, 255, 0.5)',
+                            color: getInterpretationColor(interpretation),
                             textTransform: 'capitalize',
                           }}
                         >
@@ -323,7 +358,7 @@ export function ExternalIndicesPanel({ isMobile = false }: ExternalIndicesPanelP
                         </span>
                       </div>
 
-                      {/* Progress bar */}
+                      {/* Progress bar - normalized to metric's scale */}
                       <div
                         style={{
                           marginTop: '8px',
@@ -335,7 +370,7 @@ export function ExternalIndicesPanel({ isMobile = false }: ExternalIndicesPanelP
                       >
                         <div
                           style={{
-                            width: `${Math.min(metric.value, 100)}%`,
+                            width: `${getProgressPercent(metric.value, metric.metricId)}%`,
                             height: '100%',
                             backgroundColor: getInterpretationColor(interpretation),
                             transition: 'width 0.3s ease',
