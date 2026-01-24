@@ -67,14 +67,6 @@ export function ControlPanel({ isMobile = false }: ControlPanelProps) {
   if (isMobile) {
     return (
       <div style={{ color: 'white', fontSize: '14px' }}>
-        {/* Analysis Presets */}
-        <div style={{ marginBottom: '20px' }}>
-          <div style={{ marginBottom: '12px', fontWeight: '600', fontSize: '15px' }}>
-            Analysis Presets
-          </div>
-          <StorySelector isMobile />
-        </div>
-
         {/* Exploded View Controls */}
         <div style={{ marginBottom: '20px' }}>
           <div style={{ marginBottom: '12px', fontWeight: '600', fontSize: '15px' }}>
@@ -138,6 +130,14 @@ export function ControlPanel({ isMobile = false }: ControlPanelProps) {
               </div>
             </>
           )}
+        </div>
+
+        {/* Analysis Presets */}
+        <div style={{ marginBottom: '20px' }}>
+          <div style={{ marginBottom: '12px', fontWeight: '600', fontSize: '15px' }}>
+            Analysis Presets
+          </div>
+          <StorySelector isMobile />
         </div>
 
         {/* View Presets - larger buttons for mobile */}
@@ -235,14 +235,6 @@ export function ControlPanel({ isMobile = false }: ControlPanelProps) {
     >
       <h3 style={{ margin: '0 0 16px 0', fontSize: '16px' }}>Layer Controls</h3>
 
-      {/* Analysis Presets */}
-      <div style={{ marginBottom: '20px' }}>
-        <div style={{ marginBottom: '8px', fontWeight: '600' }}>
-          Analysis Presets
-        </div>
-        <StorySelector />
-      </div>
-
       {/* Exploded View Controls */}
       <div style={{ marginBottom: '20px' }}>
         <div style={{ marginBottom: '8px', fontWeight: '600' }}>
@@ -306,6 +298,14 @@ export function ControlPanel({ isMobile = false }: ControlPanelProps) {
             </div>
           </>
         )}
+      </div>
+
+      {/* Analysis Presets */}
+      <div style={{ marginBottom: '20px' }}>
+        <div style={{ marginBottom: '8px', fontWeight: '600' }}>
+          Analysis Presets
+        </div>
+        <StorySelector />
       </div>
 
       {/* View Controls */}
