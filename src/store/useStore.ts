@@ -263,6 +263,7 @@ export const useStore = create<AppState>((set) => ({
         ...newAreas[areaIndex],
         polygon,
         layerData: new Map(), // Clear layer data when polygon changes
+        fetchBbox: undefined, // Clear fetchBbox since data is cleared
       };
 
       return {
@@ -270,6 +271,40 @@ export const useStore = create<AppState>((set) => ({
         // Update legacy selectionPolygon if this is the active area
         selectionPolygon: state.activeAreaId === areaId ? polygon : state.selectionPolygon,
       };
+    }),
+
+  // Update polygon without clearing layer data (for re-clip optimization)
+  updateAreaPolygonKeepData: (areaId: string, polygon: SelectionPolygon) =>
+    set((state) => {
+      const areaIndex = state.areas.findIndex((a) => a.id === areaId);
+      if (areaIndex === -1) return state;
+
+      const newAreas = [...state.areas];
+      newAreas[areaIndex] = {
+        ...newAreas[areaIndex],
+        polygon,
+        // Keep layerData and fetchBbox - will be re-clipped
+      };
+
+      return {
+        areas: newAreas,
+        selectionPolygon: state.activeAreaId === areaId ? polygon : state.selectionPolygon,
+      };
+    }),
+
+  // Store the bounding box used when fetching data
+  setAreaFetchBbox: (areaId: string, bbox: [number, number, number, number]) =>
+    set((state) => {
+      const areaIndex = state.areas.findIndex((a) => a.id === areaId);
+      if (areaIndex === -1) return state;
+
+      const newAreas = [...state.areas];
+      newAreas[areaIndex] = {
+        ...newAreas[areaIndex],
+        fetchBbox: bbox,
+      };
+
+      return { areas: newAreas };
     }),
 
   updateAreaLayerData: (areaId: string, layerId: string, data: LayerData) =>

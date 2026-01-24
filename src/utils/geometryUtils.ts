@@ -234,3 +234,52 @@ export function simplifyFeatures(
     }),
   };
 }
+
+/**
+ * Get bounding box from a polygon
+ */
+export function getPolygonBbox(
+  polygon: Polygon | MultiPolygon
+): [number, number, number, number] {
+  const bbox = turf.bbox(turf.feature(polygon));
+  return bbox as [number, number, number, number];
+}
+
+/**
+ * Check if bbox1 is entirely contained within bbox2
+ * bbox format: [minLng, minLat, maxLng, maxLat]
+ */
+export function isBboxWithin(
+  innerBbox: [number, number, number, number],
+  outerBbox: [number, number, number, number]
+): boolean {
+  const [innerMinLng, innerMinLat, innerMaxLng, innerMaxLat] = innerBbox;
+  const [outerMinLng, outerMinLat, outerMaxLng, outerMaxLat] = outerBbox;
+
+  return (
+    innerMinLng >= outerMinLng &&
+    innerMinLat >= outerMinLat &&
+    innerMaxLng <= outerMaxLng &&
+    innerMaxLat <= outerMaxLat
+  );
+}
+
+/**
+ * Expand a bounding box by a percentage margin
+ * Useful for adding buffer to fetch areas
+ */
+export function expandBbox(
+  bbox: [number, number, number, number],
+  marginPercent: number = 0.1
+): [number, number, number, number] {
+  const [minLng, minLat, maxLng, maxLat] = bbox;
+  const lngMargin = (maxLng - minLng) * marginPercent;
+  const latMargin = (maxLat - minLat) * marginPercent;
+
+  return [
+    minLng - lngMargin,
+    minLat - latMargin,
+    maxLng + lngMargin,
+    maxLat + latMargin,
+  ];
+}

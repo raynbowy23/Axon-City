@@ -94,6 +94,15 @@ export interface SelectionPolygon {
   id: string;
   geometry: Polygon | MultiPolygon;
   area: number; // in m²
+  shapeType?: DrawingMode; // Original shape type for shape-preserving edits
+  // For rectangles and circles: store parameters for shape-preserving edits
+  shapeParams?: {
+    // Rectangle: 4 corner points for maintaining rectangular shape during resize
+    rectangleCorners?: [[number, number], [number, number], [number, number], [number, number]];
+    // Circle: center and radius for maintaining circular shape during resize
+    circleCenter?: [number, number];
+    circleRadius?: number;
+  };
 }
 
 // Colors for comparison areas (colorblind-friendly, distinct)
@@ -108,6 +117,9 @@ export const AREA_NAMES = ['Area A', 'Area B', 'Area C', 'Area D'] as const;
 
 export const MAX_COMPARISON_AREAS = 4;
 
+// Bounding box for geographic regions [minLng, minLat, maxLng, maxLat]
+export type BoundingBox = [number, number, number, number];
+
 // A comparison area represents one geographic region being analyzed
 export interface ComparisonArea {
   id: string;
@@ -115,6 +127,9 @@ export interface ComparisonArea {
   color: [number, number, number, number];
   polygon: SelectionPolygon;
   layerData: Map<string, LayerData>;
+  // Bounding box of the area when data was last fetched
+  // Used to determine if re-clip is sufficient vs re-fetch needed
+  fetchBbox?: BoundingBox;
 }
 
 export interface ViewState {
@@ -199,7 +214,9 @@ export interface AppState {
   activeAreaId: string | null;
   addArea: (polygon: SelectionPolygon) => string | null; // returns area id or null if max reached
   updateAreaPolygon: (areaId: string, polygon: SelectionPolygon) => void;
+  updateAreaPolygonKeepData: (areaId: string, polygon: SelectionPolygon) => void; // Update polygon without clearing layer data
   updateAreaLayerData: (areaId: string, layerId: string, data: LayerData) => void;
+  setAreaFetchBbox: (areaId: string, bbox: BoundingBox) => void; // Store bbox after fetching
   removeArea: (areaId: string) => void;
   setActiveAreaId: (areaId: string | null) => void;
   renameArea: (areaId: string, name: string) => void;

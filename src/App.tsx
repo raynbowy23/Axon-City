@@ -15,7 +15,7 @@ import { MapSettingsPanel } from './components/MapSettingsPanel';
 import { AreaSelector } from './components/AreaSelector';
 import { EditSelectionInfo } from './components/EditSelectionInfo';
 import { ShareButton } from './components/ShareButton';
-import { DrawingTool } from './components/DrawingTool';
+import { DrawingTool, type ShapeInfo } from './components/DrawingTool';
 import { usePolygonDrawing } from './hooks/usePolygonDrawing';
 import { useIsMobile, useIsTablet } from './hooks/useMediaQuery';
 import { useUrlState } from './hooks/useUrlState';
@@ -26,6 +26,9 @@ import {
   clipFeaturesToPolygon,
   calculateLayerStats,
   calculatePolygonArea,
+  getPolygonBbox,
+  isBboxWithin,
+  expandBbox,
 } from './utils/geometryUtils';
 import type { CustomLayerConfig, SelectionPolygon, LayerConfig } from './types';
 import { MAX_COMPARISON_AREAS } from './types';
@@ -56,7 +59,9 @@ function App() {
     activeAreaId,
     addArea,
     updateAreaPolygon,
+    updateAreaPolygonKeepData,
     updateAreaLayerData,
+    setAreaFetchBbox,
     clearAreas,
   } = useStore();
 
@@ -204,7 +209,13 @@ function App() {
   // Handle fetching data when polygon is completed
   // areaId parameter: if provided, update that area; if null, create a new area
   const handlePolygonComplete = useCallback(
-    async (polygon: Polygon, existingAreaId?: string) => {
+    async (shapeInfoOrPolygon: ShapeInfo | Polygon, existingAreaId?: string) => {
+      // Support both ShapeInfo (from drawing) and Polygon (from editing)
+      const isShapeInfo = 'shapeType' in shapeInfoOrPolygon;
+      const polygon = isShapeInfo ? shapeInfoOrPolygon.polygon : shapeInfoOrPolygon;
+      const shapeType = isShapeInfo ? shapeInfoOrPolygon.shapeType : undefined;
+      const shapeParams = isShapeInfo ? shapeInfoOrPolygon.shapeParams : undefined;
+
       // Create abort controller for this fetch
       fetchAbortControllerRef.current = new AbortController();
       const signal = fetchAbortControllerRef.current.signal;
@@ -212,11 +223,13 @@ function App() {
       setIsLoading(true);
       setLoadingMessage('Preparing to fetch data...');
 
-      // Create selection polygon object
+      // Create selection polygon object with shape info for shape-preserving edits
       const selectionPoly: SelectionPolygon = {
         id: `selection-${Date.now()}`,
         geometry: polygon,
         area: calculatePolygonArea(polygon) * 1_000_000,
+        shapeType,
+        shapeParams,
       };
 
       // Determine the area ID: either update existing or create new
@@ -298,6 +311,12 @@ function App() {
 
         setLoadingMessage('Complete!');
 
+        // Store the bounding box for re-clip optimization (with 10% margin)
+        if (areaId) {
+          const expandedBbox = expandBbox(bbox, 0.1);
+          setAreaFetchBbox(areaId, expandedBbox);
+        }
+
         // Track that we've fetched data for this polygon
         lastFetchedPolygonRef.current = JSON.stringify(polygon.coordinates);
       } catch (error) {
@@ -318,6 +337,49 @@ function App() {
   // Track the last active area to detect area switches vs polygon edits
   const lastActiveAreaIdRef = useRef<string | null>(null);
   const isFetchingRef = useRef(false);
+
+  // Helper function to re-clip existing data without fetching
+  const reClipExistingData = useCallback(
+    (areaId: string, polygon: Polygon, selectionPoly: SelectionPolygon) => {
+      const area = areas.find((a) => a.id === areaId);
+      if (!area) return;
+
+      // Update polygon while keeping data
+      updateAreaPolygonKeepData(areaId, selectionPoly);
+
+      const polygonAreaKm2 = calculatePolygonArea(polygon);
+
+      // Re-clip each layer's data to the new polygon
+      for (const [layerId, data] of area.layerData.entries()) {
+        const layer = layerManifest.layers.find((l) => l.id === layerId);
+        if (!layer || !data.features) continue;
+
+        // Re-clip features to the new polygon
+        const clippedFeatures = clipFeaturesToPolygon(
+          data.features,
+          polygon,
+          layer.geometryType
+        );
+
+        // Recalculate stats
+        const stats = calculateLayerStats(clippedFeatures, layer, polygonAreaKm2);
+
+        const layerDataEntry = {
+          layerId,
+          features: data.features, // Keep original features
+          clippedFeatures,
+          stats,
+        };
+
+        // Update in both global and per-area storage
+        setLayerData(layerId, layerDataEntry);
+        updateAreaLayerData(areaId, layerId, layerDataEntry);
+      }
+
+      setLoadingMessage('Re-clipped data');
+    },
+    [areas, updateAreaPolygonKeepData, setLayerData, updateAreaLayerData, setLoadingMessage]
+  );
 
   // Re-fetch data when polygon is edited (dragged) - NOT when switching areas
   useEffect(() => {
@@ -349,16 +411,49 @@ function App() {
       if (lastFetchedPolygonRef.current && lastFetchedPolygonRef.current !== currentPolygonStr) {
         // Update ref IMMEDIATELY to prevent re-entry
         lastFetchedPolygonRef.current = currentPolygonStr;
+
+        // Find the active area to check if re-clip is sufficient
+        const activeArea = areas.find((a) => a.id === activeAreaId);
+        const polygon = selectionPolygon.geometry as Polygon;
+
+        // Check if we can re-clip instead of re-fetching
+        if (activeArea?.fetchBbox && activeArea.layerData.size > 0) {
+          const newBbox = getPolygonBbox(polygon);
+
+          // If the new polygon fits within the previously fetched bbox, just re-clip
+          if (isBboxWithin(newBbox, activeArea.fetchBbox)) {
+            // Create selection polygon with shape info preserved
+            const selectionPoly: SelectionPolygon = {
+              id: selectionPolygon.id,
+              geometry: polygon,
+              area: calculatePolygonArea(polygon) * 1_000_000,
+              shapeType: selectionPolygon.shapeType,
+              shapeParams: selectionPolygon.shapeParams,
+            };
+
+            // Re-clip existing data - no API call needed
+            reClipExistingData(activeAreaId, polygon, selectionPoly);
+            return;
+          }
+        }
+
+        // Need to re-fetch: polygon expanded beyond cached data bounds
         isFetchingRef.current = true;
 
         // Polygon was edited, re-fetch data for the active area
-        handlePolygonComplete(selectionPolygon.geometry as Polygon, activeAreaId)
+        // Preserve shape info (shapeType and shapeParams) for shape-preserving edits
+        const shapeInfo: ShapeInfo = {
+          polygon: selectionPolygon.geometry as Polygon,
+          shapeType: selectionPolygon.shapeType || 'polygon',
+          shapeParams: selectionPolygon.shapeParams,
+        };
+        handlePolygonComplete(shapeInfo, activeAreaId)
           .finally(() => {
             isFetchingRef.current = false;
           });
       }
     }
-  }, [selectionPolygon, isDrawing, isLoading, draggingVertexIndex, handlePolygonComplete, activeAreaId]);
+  }, [selectionPolygon, isDrawing, isLoading, draggingVertexIndex, handlePolygonComplete, activeAreaId, areas, reClipExistingData]);
 
   // Track last processed polygon for custom layers
   const lastProcessedPolygonRef = useRef<string | null>(null);
@@ -690,8 +785,8 @@ function App() {
                     }}
                   >
                     <DrawingTool
-                      onComplete={(polygon) => {
-                        handlePolygonComplete(polygon, isAddingNewArea ? undefined : activeAreaId || undefined);
+                      onComplete={(shapeInfo) => {
+                        handlePolygonComplete(shapeInfo, isAddingNewArea ? undefined : activeAreaId || undefined);
                         setIsAddingNewArea(false);
                       }}
                     />
@@ -746,8 +841,8 @@ function App() {
               </>
             ) : (
               <DrawingTool
-                onComplete={(polygon) => {
-                  handlePolygonComplete(polygon, isAddingNewArea ? undefined : activeAreaId || undefined);
+                onComplete={(shapeInfo) => {
+                  handlePolygonComplete(shapeInfo, isAddingNewArea ? undefined : activeAreaId || undefined);
                   setIsAddingNewArea(false);
                 }}
               />
@@ -956,8 +1051,8 @@ function App() {
                     }}
                   >
                     <DrawingTool
-                      onComplete={(polygon) => {
-                        handlePolygonComplete(polygon, isAddingNewArea ? undefined : activeAreaId || undefined);
+                      onComplete={(shapeInfo) => {
+                        handlePolygonComplete(shapeInfo, isAddingNewArea ? undefined : activeAreaId || undefined);
                         setIsAddingNewArea(false);
                       }}
                     />
@@ -965,55 +1060,65 @@ function App() {
                 )}
 
                 {/* Clear/Share buttons row */}
-                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'center' }}>
-                  {/* Cancel button during loading */}
-                  {isLoading && (
-                    <button
-                      onClick={cancelFetch}
-                      style={{
-                        padding: '14px 24px',
-                        backgroundColor: '#D94A4A',
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: '12px',
-                        cursor: 'pointer',
-                        fontSize: '15px',
-                        fontWeight: '600',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '8px',
-                        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.4)',
-                        minHeight: '48px',
-                      }}
-                    >
-                      <span>✕</span>
-                      <span>Cancel</span>
-                    </button>
-                  )}
-
-                  {(selectionPolygon || areas.length > 0) && !isLoading && (
-                    <>
+                {(isLoading || selectionPolygon || areas.length > 0) && (
+                  <div
+                    style={{
+                      backgroundColor: 'rgba(0, 0, 0, 0.85)',
+                      padding: '12px 16px',
+                      borderRadius: '12px',
+                      display: 'flex',
+                      gap: '10px',
+                      flexWrap: 'wrap',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    {/* Cancel button during loading */}
+                    {isLoading && (
                       <button
-                        onClick={handleClearSelection}
+                        onClick={cancelFetch}
                         style={{
-                          padding: '14px 20px',
+                          padding: '12px 20px',
                           backgroundColor: '#D94A4A',
                           color: 'white',
                           border: 'none',
-                          borderRadius: '12px',
+                          borderRadius: '8px',
                           cursor: 'pointer',
-                          fontSize: '15px',
+                          fontSize: '14px',
                           fontWeight: '600',
-                          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.4)',
-                          minHeight: '48px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px',
+                          minHeight: '44px',
                         }}
                       >
-                        {areas.length > 1 ? 'Clear All' : 'Clear'}
+                        <span>✕</span>
+                        <span>Cancel</span>
                       </button>
-                      <ShareButton disabled={areas.length === 0} isMobile />
-                    </>
-                  )}
-                </div>
+                    )}
+
+                    {(selectionPolygon || areas.length > 0) && !isLoading && (
+                      <>
+                        <button
+                          onClick={handleClearSelection}
+                          style={{
+                            padding: '12px 20px',
+                            backgroundColor: '#D94A4A',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '8px',
+                            cursor: 'pointer',
+                            fontSize: '14px',
+                            fontWeight: '600',
+                            minHeight: '44px',
+                          }}
+                        >
+                          {areas.length > 1 ? 'Clear All' : 'Clear'}
+                        </button>
+                        <ShareButton disabled={areas.length === 0} isMobile />
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
             ) : (
               <div
@@ -1023,8 +1128,8 @@ function App() {
                 }}
               >
                 <DrawingTool
-                  onComplete={(polygon) => {
-                    handlePolygonComplete(polygon, isAddingNewArea ? undefined : activeAreaId || undefined);
+                  onComplete={(shapeInfo) => {
+                    handlePolygonComplete(shapeInfo, isAddingNewArea ? undefined : activeAreaId || undefined);
                     setIsAddingNewArea(false);
                   }}
                 />

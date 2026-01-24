@@ -11,6 +11,12 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import { useStore } from '../store/useStore';
 import { layerManifest, getLayersByCustomOrder } from '../data/layerManifest';
 import { setMapInstance, setDeckCanvas } from '../utils/mapRef';
+import {
+  resizeRectangle,
+  resizeCircle,
+  getCircleCenter,
+  getRectangleCorners,
+} from '../utils/shapeGeometry';
 import type { LayerData, LayerGroup, AnyLayerConfig, MapStyleType, ComparisonArea, SelectedFeature } from '../types';
 
 // Map style URLs - all free and publicly available
@@ -744,25 +750,97 @@ export function MapView() {
     [setDraggingVertexIndex, isLoading]
   );
 
-  // Handle drag movement
+  // Handle drag movement - with shape-preserving logic for rectangles and circles
   const onDrag = useCallback(
     (info: PickingInfo) => {
       if (draggingVertexIndex !== null && info.coordinate) {
         const [lng, lat] = info.coordinate;
-        updateVertex(draggingVertexIndex, [lng, lat]);
+        const newPosition: [number, number] = [lng, lat];
+
+        // Check shape type for shape-preserving behavior
+        const shapeType = selectionPolygon?.shapeType;
+
+        if (shapeType === 'rectangle' && editableVertices.length === 4) {
+          // Use stored original corners for edge directions (keeps rectangle orientation stable)
+          // Use current vertices for actual corner positions
+          const originalCorners = selectionPolygon?.shapeParams?.rectangleCorners;
+          const currentCorners = getRectangleCorners(editableVertices);
+
+          if (originalCorners && currentCorners) {
+            const { corners: newCorners } = resizeRectangle(
+              draggingVertexIndex,
+              newPosition,
+              originalCorners,
+              currentCorners
+            );
+            // Update all vertices at once
+            setEditableVertices([...newCorners]);
+          } else if (currentCorners) {
+            // Fallback: use current corners for both
+            const { corners: newCorners } = resizeRectangle(draggingVertexIndex, newPosition, currentCorners);
+            setEditableVertices([...newCorners]);
+          }
+        } else if (shapeType === 'circle') {
+          // Get circle center and resize
+          const center = selectionPolygon?.shapeParams?.circleCenter || getCircleCenter(editableVertices);
+          const { polygon: newCircle } = resizeCircle(newPosition, center);
+          const newCoords = newCircle.coordinates[0].slice(0, -1) as [number, number][];
+          setEditableVertices(newCoords);
+        } else {
+          // Default polygon behavior - free vertex editing
+          updateVertex(draggingVertexIndex, newPosition);
+        }
       }
     },
-    [draggingVertexIndex, updateVertex]
+    [draggingVertexIndex, updateVertex, selectionPolygon, editableVertices, setEditableVertices]
   );
 
-  // Handle drag end - update the selection polygon
+  // Handle drag end - update the selection polygon with shape info preserved
   const onDragEnd = useCallback(() => {
     if (draggingVertexIndex !== null && editableVertices.length >= 3) {
-      // Create new polygon from edited vertices
-      const newPolygon: Polygon = {
-        type: 'Polygon',
-        coordinates: [[...editableVertices, editableVertices[0]]],
-      };
+      const shapeType = selectionPolygon?.shapeType;
+
+      let newPolygon: Polygon;
+      let newShapeParams = selectionPolygon?.shapeParams;
+
+      if (shapeType === 'rectangle' && editableVertices.length === 4) {
+        // Rectangle: store updated corners
+        newPolygon = {
+          type: 'Polygon',
+          coordinates: [[...editableVertices, editableVertices[0]]],
+        };
+        newShapeParams = {
+          rectangleCorners: [
+            editableVertices[0],
+            editableVertices[1],
+            editableVertices[2],
+            editableVertices[3],
+          ] as [[number, number], [number, number], [number, number], [number, number]],
+        };
+      } else if (shapeType === 'circle') {
+        // Circle: update center (stays same) and radius
+        const center = selectionPolygon?.shapeParams?.circleCenter || getCircleCenter(editableVertices);
+        const edgePoint = editableVertices[0];
+        const dLng = edgePoint[0] - center[0];
+        const dLat = edgePoint[1] - center[1];
+        const latCorrectionFactor = Math.cos((center[1] * Math.PI) / 180);
+        const radius = Math.sqrt((dLng * latCorrectionFactor) ** 2 + dLat ** 2);
+
+        newPolygon = {
+          type: 'Polygon',
+          coordinates: [[...editableVertices, editableVertices[0]]],
+        };
+        newShapeParams = {
+          circleCenter: center,
+          circleRadius: radius,
+        };
+      } else {
+        // Default polygon
+        newPolygon = {
+          type: 'Polygon',
+          coordinates: [[...editableVertices, editableVertices[0]]],
+        };
+      }
 
       // Calculate new area
       const area = editableVertices.length >= 3 ? calculatePolygonAreaFromCoords(editableVertices) : 0;
@@ -771,6 +849,8 @@ export function MapView() {
         id: selectionPolygon?.id || `selection-${Date.now()}`,
         geometry: newPolygon,
         area,
+        shapeType: shapeType,
+        shapeParams: newShapeParams,
       });
 
       setDraggingVertexIndex(null);
@@ -793,23 +873,31 @@ export function MapView() {
     }
   }, [selectionPolygon, setSelectionPolygon]);
 
-  // Handle adding a vertex at midpoint
+  // Handle adding a vertex at midpoint (only for polygons, not rectangles/circles)
   const handleAddVertex = useCallback((afterIndex: number, position: [number, number]) => {
+    // Don't allow adding vertices to rectangles or circles - it would break the shape
+    const shapeType = selectionPolygon?.shapeType;
+    if (shapeType === 'rectangle' || shapeType === 'circle') return;
+
     addVertex(afterIndex, position);
     // Update polygon with new vertices (need to include the new vertex)
     const newVertices = [...editableVertices];
     newVertices.splice(afterIndex + 1, 0, position);
     updatePolygonFromVertices(newVertices);
-  }, [addVertex, editableVertices, updatePolygonFromVertices]);
+  }, [addVertex, editableVertices, updatePolygonFromVertices, selectionPolygon]);
 
-  // Handle removing a vertex
+  // Handle removing a vertex (only for polygons, not rectangles/circles)
   const handleRemoveVertex = useCallback((index: number) => {
+    // Don't allow removing vertices from rectangles or circles - it would break the shape
+    const shapeType = selectionPolygon?.shapeType;
+    if (shapeType === 'rectangle' || shapeType === 'circle') return;
+
     if (editableVertices.length <= 3) return; // Can't remove if only 3 vertices
     removeVertex(index);
     // Update polygon with remaining vertices
     const newVertices = editableVertices.filter((_: [number, number], i: number) => i !== index);
     updatePolygonFromVertices(newVertices);
-  }, [removeVertex, editableVertices, updatePolygonFromVertices]);
+  }, [removeVertex, editableVertices, updatePolygonFromVertices, selectionPolygon]);
 
   // Create deck.gl layers
   const deckLayers = useMemo((): Layer[] => {
@@ -1061,10 +1149,14 @@ export function MapView() {
 
     // Editable vertex handles - shown when selection exists and not drawing
     if (!isDrawing && editableVertices.length > 0) {
+      // For rectangles and circles, don't allow vertex removal (would break shape)
+      const currentShapeType = selectionPolygon?.shapeType;
+      const isShapePreserving = currentShapeType === 'rectangle' || currentShapeType === 'circle';
+
       const vertexData = editableVertices.map((vertex: [number, number], index: number) => ({
         position: vertex,
         index,
-        canRemove: editableVertices.length > 3 && !isLoading,
+        canRemove: !isShapePreserving && editableVertices.length > 3 && !isLoading,
       }));
 
       // Calculate midpoints for adding new vertices
@@ -1097,8 +1189,12 @@ export function MapView() {
         );
       }
 
-      // Midpoint handles for adding new vertices (hidden when loading)
-      if (!isLoading) {
+      // Midpoint handles for adding new vertices (hidden when loading or for rectangles/circles)
+      // Rectangles and circles use shape-preserving edits, so adding vertices is not allowed
+      const shapeType = selectionPolygon?.shapeType;
+      const allowAddVertex = !isLoading && shapeType !== 'rectangle' && shapeType !== 'circle';
+
+      if (allowAddVertex) {
         layers.push(
           new ScatterplotLayer({
             id: 'midpoint-handles',
