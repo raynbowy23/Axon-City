@@ -70,7 +70,7 @@ function saveSize(size: PanelSize): void {
 }
 
 export function StatsPanel({ isMobile = false }: StatsPanelProps) {
-  const { layerData, activeLayers, selectionPolygon, isLoading, loadingMessage, setExtractedViewOpen, isExtractedViewOpen, customLayers, areas, activeAreaId } = useStore();
+  const { layerData, activeLayers, selectionPolygon, isLoading, loadingMessage, setExtractedViewOpen, isExtractedViewOpen, customLayers, areas, activeAreaId, isIndexPanelOpen, setIndexPanelOpen } = useStore();
 
   // Get the active area's layer data, falling back to global layerData
   const activeArea = areas.find((a: ComparisonArea) => a.id === activeAreaId);
@@ -395,24 +395,85 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
           </div>
         )}
 
-        <button
-          onClick={() => setExtractedViewOpen(!isExtractedViewOpen)}
+        {/* View mode toggle - Layers / Analysis */}
+        <div
           style={{
-            width: '100%',
-            padding: '14px',
-            backgroundColor: isExtractedViewOpen ? '#4A90D9' : 'rgba(74, 144, 217, 0.3)',
-            color: 'white',
-            border: 'none',
+            display: 'flex',
+            backgroundColor: 'rgba(255, 255, 255, 0.1)',
             borderRadius: '8px',
-            cursor: 'pointer',
-            fontSize: '15px',
-            fontWeight: '500',
+            overflow: 'hidden',
             marginBottom: '16px',
-            minHeight: '48px',
           }}
         >
-          {isExtractedViewOpen ? 'Hide 3D View' : 'Open 3D View'}
-        </button>
+          <button
+            onClick={() => setViewMode('layers')}
+            style={{
+              flex: 1,
+              padding: '12px',
+              backgroundColor: viewMode === 'layers' ? '#4A90D9' : 'transparent',
+              color: 'white',
+              border: 'none',
+              cursor: 'pointer',
+              fontSize: '14px',
+              fontWeight: '500',
+            }}
+          >
+            Layers
+          </button>
+          <button
+            onClick={() => setViewMode('analysis')}
+            style={{
+              flex: 1,
+              padding: '12px',
+              backgroundColor: viewMode === 'analysis' ? '#4A90D9' : 'transparent',
+              color: 'white',
+              border: 'none',
+              cursor: 'pointer',
+              fontSize: '14px',
+              fontWeight: '500',
+            }}
+          >
+            Metrics
+          </button>
+        </div>
+
+        {/* Action buttons row */}
+        <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
+          <button
+            onClick={() => setExtractedViewOpen(!isExtractedViewOpen)}
+            style={{
+              flex: 1,
+              padding: '14px',
+              backgroundColor: isExtractedViewOpen ? '#4A90D9' : 'rgba(74, 144, 217, 0.3)',
+              color: 'white',
+              border: 'none',
+              borderRadius: '8px',
+              cursor: 'pointer',
+              fontSize: '14px',
+              fontWeight: '500',
+              minHeight: '48px',
+            }}
+          >
+            {isExtractedViewOpen ? 'Hide 3D' : '3D View'}
+          </button>
+          <button
+            onClick={() => setIndexPanelOpen(!isIndexPanelOpen)}
+            style={{
+              flex: 1,
+              padding: '14px',
+              backgroundColor: isIndexPanelOpen ? '#22C55E' : 'rgba(34, 197, 94, 0.3)',
+              color: 'white',
+              border: 'none',
+              borderRadius: '8px',
+              cursor: 'pointer',
+              fontSize: '14px',
+              fontWeight: '500',
+              minHeight: '48px',
+            }}
+          >
+            {isIndexPanelOpen ? 'Hide Indices' : 'Urban Indices'}
+          </button>
+        </div>
 
         {isLoading && (
           <div
@@ -446,7 +507,39 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
           </div>
         )}
 
-        {hasStats && (
+        {/* Analysis View - Metrics */}
+        {viewMode === 'analysis' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            {canCompare ? (
+              <ComparisonTable
+                sortedAreas={sortedAreas}
+                onExport={() => {
+                  const exportAreas = areas.map((area: ComparisonArea) => {
+                    const areaKm2 = area.polygon.area / 1_000_000;
+                    const areaLayerData = area.layerData.size > 0 ? area.layerData : layerData;
+                    return {
+                      name: area.name,
+                      metrics: calculatePOIMetrics(areaLayerData, areaKm2),
+                      derivedMetrics: calculateDerivedMetrics(
+                        areaLayerData,
+                        areaKm2,
+                        area.polygon.geometry as Polygon
+                      ),
+                    };
+                  });
+                  if (exportAreas.length > 0) {
+                    exportMetrics(exportAreas);
+                  }
+                }}
+              />
+            ) : (
+              <MetricsPanel />
+            )}
+          </div>
+        )}
+
+        {/* Layers View */}
+        {viewMode === 'layers' && hasStats && (
           <div>
             {Array.from(groupedStats.entries()).map(([groupId, layers]) => {
               const group = getGroupById(groupId);
