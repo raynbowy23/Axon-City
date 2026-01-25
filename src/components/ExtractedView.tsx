@@ -1425,11 +1425,37 @@ export function ExtractedView({ isMobile = false }: ExtractedViewProps) {
     }
   }, [isResizing, isDragging, size]);
 
-  // Add/remove global mouse listeners
+  // Handle touch move for window dragging (iPad/tablet)
+  const handleTouchMoveWindow = useCallback((e: TouchEvent) => {
+    if (!isDragging) return;
+    e.preventDefault();
+    const touch = e.touches[0];
+    const deltaX = touch.clientX - startRef.current.x;
+    const deltaY = touch.clientY - startRef.current.y;
+
+    setPosition({
+      x: Math.max(0, startRef.current.posX + deltaX),
+      y: Math.max(0, startRef.current.posY + deltaY),
+    });
+  }, [isDragging]);
+
+  // Handle touch end for window dragging
+  const handleTouchEndWindow = useCallback(() => {
+    if (isDragging) {
+      setIsDragging(false);
+    }
+  }, [isDragging]);
+
+  // Add/remove global mouse/touch listeners
   useEffect(() => {
     if (isResizing || isDragging) {
+      // Mouse listeners
       document.addEventListener('mousemove', handleMouseMove);
       document.addEventListener('mouseup', handleMouseUp);
+      // Touch listeners for window dragging (iPad/tablet)
+      document.addEventListener('touchmove', handleTouchMoveWindow, { passive: false });
+      document.addEventListener('touchend', handleTouchEndWindow);
+      document.addEventListener('touchcancel', handleTouchEndWindow);
       document.body.style.userSelect = 'none';
       if (isResizing) {
         document.body.style.cursor = resizeDirection === 'corner' ? 'nwse-resize' : resizeDirection === 'right' ? 'ew-resize' : 'ns-resize';
@@ -1441,10 +1467,13 @@ export function ExtractedView({ isMobile = false }: ExtractedViewProps) {
     return () => {
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
+      document.removeEventListener('touchmove', handleTouchMoveWindow);
+      document.removeEventListener('touchend', handleTouchEndWindow);
+      document.removeEventListener('touchcancel', handleTouchEndWindow);
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
     };
-  }, [isResizing, isDragging, handleMouseMove, handleMouseUp, resizeDirection]);
+  }, [isResizing, isDragging, handleMouseMove, handleMouseUp, handleTouchMoveWindow, handleTouchEndWindow, resizeDirection]);
 
   // Start resize
   const startResize = useCallback((e: React.MouseEvent, direction: 'right' | 'bottom' | 'corner') => {
@@ -1455,12 +1484,21 @@ export function ExtractedView({ isMobile = false }: ExtractedViewProps) {
     startRef.current = { x: e.clientX, y: e.clientY, width: size.width, height: size.height, posX: position.x, posY: position.y };
   }, [size, position]);
 
-  // Start drag
+  // Start drag (mouse)
   const startDrag = useCallback((e: React.MouseEvent) => {
     if ((e.target as HTMLElement).closest('button, input, .deck-canvas')) return;
     e.preventDefault();
     setIsDragging(true);
     startRef.current = { x: e.clientX, y: e.clientY, width: size.width, height: size.height, posX: position.x, posY: position.y };
+  }, [size, position]);
+
+  // Start drag (touch) - for iPad/tablet window dragging
+  const startDragTouch = useCallback((e: React.TouchEvent) => {
+    if ((e.target as HTMLElement).closest('button, input, .deck-canvas')) return;
+    e.preventDefault();
+    const touch = e.touches[0];
+    setIsDragging(true);
+    startRef.current = { x: touch.clientX, y: touch.clientY, width: size.width, height: size.height, posX: position.x, posY: position.y };
   }, [size, position]);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1681,6 +1719,7 @@ export function ExtractedView({ isMobile = false }: ExtractedViewProps) {
           borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
         }}
         onMouseDown={isMobile ? undefined : startDrag}
+        onTouchStart={isMobile ? undefined : startDragTouch}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <span style={{ color: 'white', fontWeight: '600', fontSize: isMobile ? '16px' : '14px' }}>
