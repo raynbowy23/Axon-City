@@ -308,29 +308,16 @@ const DeckGLView = memo(function DeckGLView({
       return;
     }
 
-    // Single finger: pan (move target) - matches desktop drag behavior
+    // Single finger: rotate (orbit) horizontally and tilt vertically
     const dx = touch.clientX - lastMouseRef.current.x;
     const dy = touch.clientY - lastMouseRef.current.y;
     lastMouseRef.current = { x: touch.clientX, y: touch.clientY };
 
-    // Convert screen movement to world movement based on current rotation
-    const angle = (currentViewState.rotationOrbit * Math.PI) / 180;
-    const cosA = Math.cos(angle);
-    const sinA = Math.sin(angle);
-
-    // Scale pan speed based on zoom
-    const panScale = Math.pow(2, -currentViewState.zoom) * 2;
-    const worldDx = (dx * cosA - dy * sinA) * panScale;
-    const worldDy = (dx * sinA + dy * cosA) * panScale;
-
     onViewStateChangeRef.current({
       viewState: {
         ...currentViewState,
-        target: [
-          currentViewState.target[0] - worldDx,
-          currentViewState.target[1] + worldDy,
-          currentViewState.target[2],
-        ],
+        rotationOrbit: currentViewState.rotationOrbit + dx * 0.5,
+        rotationX: Math.max(0, Math.min(90, currentViewState.rotationX - dy * 0.3)),
       },
     });
   }, []);
@@ -1425,26 +1412,45 @@ export function ExtractedView({ isMobile = false }: ExtractedViewProps) {
     }
   }, [isResizing, isDragging, size]);
 
-  // Handle touch move for window dragging (iPad/tablet)
+  // Handle touch move for window dragging and resizing (iPad/tablet)
   const handleTouchMoveWindow = useCallback((e: TouchEvent) => {
-    if (!isDragging) return;
+    if (!isDragging && !isResizing) return;
     e.preventDefault();
     const touch = e.touches[0];
     const deltaX = touch.clientX - startRef.current.x;
     const deltaY = touch.clientY - startRef.current.y;
 
-    setPosition({
-      x: Math.max(0, startRef.current.posX + deltaX),
-      y: Math.max(0, startRef.current.posY + deltaY),
-    });
-  }, [isDragging]);
+    if (isResizing && resizeDirection) {
+      let newWidth = startRef.current.width;
+      let newHeight = startRef.current.height;
 
-  // Handle touch end for window dragging
+      if (resizeDirection === 'right' || resizeDirection === 'corner') {
+        newWidth = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, startRef.current.width + deltaX));
+      }
+      if (resizeDirection === 'bottom' || resizeDirection === 'corner') {
+        newHeight = Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, startRef.current.height + deltaY));
+      }
+
+      setSize({ width: newWidth, height: newHeight });
+    } else if (isDragging) {
+      setPosition({
+        x: Math.max(0, startRef.current.posX + deltaX),
+        y: Math.max(0, startRef.current.posY + deltaY),
+      });
+    }
+  }, [isDragging, isResizing, resizeDirection]);
+
+  // Handle touch end for window dragging and resizing
   const handleTouchEndWindow = useCallback(() => {
+    if (isResizing) {
+      setIsResizing(false);
+      setResizeDirection(null);
+      saveSize(size);
+    }
     if (isDragging) {
       setIsDragging(false);
     }
-  }, [isDragging]);
+  }, [isDragging, isResizing, size]);
 
   // Add/remove global mouse/touch listeners
   useEffect(() => {
@@ -1475,13 +1481,23 @@ export function ExtractedView({ isMobile = false }: ExtractedViewProps) {
     };
   }, [isResizing, isDragging, handleMouseMove, handleMouseUp, handleTouchMoveWindow, handleTouchEndWindow, resizeDirection]);
 
-  // Start resize
+  // Start resize (mouse)
   const startResize = useCallback((e: React.MouseEvent, direction: 'right' | 'bottom' | 'corner') => {
     e.preventDefault();
     e.stopPropagation();
     setIsResizing(true);
     setResizeDirection(direction);
     startRef.current = { x: e.clientX, y: e.clientY, width: size.width, height: size.height, posX: position.x, posY: position.y };
+  }, [size, position]);
+
+  // Start resize (touch) - for iPad/tablet
+  const startResizeTouch = useCallback((e: React.TouchEvent, direction: 'right' | 'bottom' | 'corner') => {
+    e.preventDefault();
+    e.stopPropagation();
+    const touch = e.touches[0];
+    setIsResizing(true);
+    setResizeDirection(direction);
+    startRef.current = { x: touch.clientX, y: touch.clientY, width: size.width, height: size.height, posX: position.x, posY: position.y };
   }, [size, position]);
 
   // Start drag (mouse)
@@ -1709,34 +1725,31 @@ export function ExtractedView({ isMobile = false }: ExtractedViewProps) {
       <div
         className="extracted-view-header"
         style={{
-          padding: isMobile ? '12px 16px' : '12px 16px',
-          paddingTop: isMobile ? 'calc(12px + env(safe-area-inset-top, 0px))' : '12px',
+          padding: isMobile ? '12px 16px' : '8px 12px',
+          paddingTop: isMobile ? 'calc(12px + env(safe-area-inset-top, 0px))' : '8px',
           backgroundColor: 'rgba(0, 0, 0, 0.4)',
           display: 'flex',
+          flexWrap: 'wrap',
           alignItems: 'center',
           justifyContent: 'space-between',
+          gap: '8px',
           cursor: isMobile ? 'default' : 'move',
           borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
         }}
         onMouseDown={isMobile ? undefined : startDrag}
         onTouchStart={isMobile ? undefined : startDragTouch}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <span style={{ color: 'white', fontWeight: '600', fontSize: isMobile ? '16px' : '14px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+          <span style={{ color: 'white', fontWeight: '600', fontSize: isMobile ? '16px' : '13px' }}>
             3D View
           </span>
-          {!isMobile && (
-            <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: '11px' }}>
-              {size.width}×{size.height}
-            </span>
-          )}
         </div>
 
-        <div className="extracted-view-controls" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          {/* Desktop spacing controls */}
-          {!isMobile && (
+        <div className="extracted-view-controls" style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+          {/* Desktop spacing controls - only show if window is wide enough */}
+          {!isMobile && size.width >= 600 && (
             <>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'white', fontSize: '11px' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '4px', color: 'white', fontSize: '10px' }}>
                 Group:
                 <input
                   type="range"
@@ -1744,12 +1757,12 @@ export function ExtractedView({ isMobile = false }: ExtractedViewProps) {
                   max="200"
                   value={layerSpacing}
                   onChange={(e) => setLayerSpacing(Number(e.target.value))}
-                  style={{ width: '60px', cursor: 'pointer' }}
+                  style={{ width: '50px', cursor: 'pointer' }}
                 />
-                <span style={{ width: '70px', fontSize: '10px' }}>{layerSpacing}m / {Math.round(layerSpacing * 3.28084)}ft</span>
+                <span style={{ fontSize: '9px' }}>{layerSpacing}m</span>
               </label>
 
-              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'white', fontSize: '11px' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '4px', color: 'white', fontSize: '10px' }}>
                 Layer:
                 <input
                   type="range"
@@ -1758,36 +1771,36 @@ export function ExtractedView({ isMobile = false }: ExtractedViewProps) {
                   step="0.05"
                   value={intraGroupRatio}
                   onChange={(e) => setIntraGroupRatio(Number(e.target.value))}
-                  style={{ width: '60px', cursor: 'pointer' }}
+                  style={{ width: '50px', cursor: 'pointer' }}
                 />
-                <span style={{ width: '70px', fontSize: '10px' }}>{Math.round(layerSpacing * intraGroupRatio)}m / {Math.round(layerSpacing * intraGroupRatio * 3.28084)}ft</span>
+                <span style={{ fontSize: '9px' }}>{Math.round(layerSpacing * intraGroupRatio)}m</span>
               </label>
             </>
           )}
 
-          {/* Mobile settings toggle */}
-          {isMobile && (
+          {/* Settings toggle - show on mobile OR narrow windows (tablet/iPad) */}
+          {(isMobile || size.width < 600) && (
             <button
               onClick={() => setIsSettingsExpanded(!isSettingsExpanded)}
               style={{
-                padding: '10px 14px',
+                padding: isMobile ? '10px 14px' : '4px 8px',
                 backgroundColor: isSettingsExpanded ? 'rgba(74, 144, 217, 0.8)' : 'rgba(255,255,255,0.1)',
                 color: 'white',
                 border: 'none',
-                borderRadius: '8px',
+                borderRadius: isMobile ? '8px' : '4px',
                 cursor: 'pointer',
-                fontSize: '14px',
-                minHeight: '44px',
+                fontSize: isMobile ? '14px' : '11px',
+                minHeight: isMobile ? '44px' : 'auto',
                 display: 'flex',
                 alignItems: 'center',
-                gap: '6px',
+                gap: '4px',
               }}
             >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <svg width={isMobile ? 18 : 14} height={isMobile ? 18 : 14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <circle cx="12" cy="12" r="3" />
                 <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
               </svg>
-              {isSettingsExpanded ? 'Hide' : 'Settings'}
+              {isMobile ? (isSettingsExpanded ? 'Hide' : 'Settings') : ''}
             </button>
           )}
 
@@ -1807,6 +1820,7 @@ export function ExtractedView({ isMobile = false }: ExtractedViewProps) {
                 display: 'flex',
                 alignItems: 'center',
                 gap: '4px',
+                whiteSpace: 'nowrap',
               }}
               title={isComparisonMode ? 'Show single area' : 'Compare all areas side by side'}
             >
@@ -1825,11 +1839,12 @@ export function ExtractedView({ isMobile = false }: ExtractedViewProps) {
                 border: 'none',
                 borderRadius: isMobile ? '8px' : '4px',
                 cursor: 'pointer',
-                fontSize: isMobile ? '14px' : '10px',
+                fontSize: isMobile ? '14px' : '11px',
                 minHeight: isMobile ? '44px' : 'auto',
                 display: 'flex',
                 alignItems: 'center',
                 gap: '4px',
+                whiteSpace: 'nowrap',
               }}
               title={cameraSyncMode === 'sync' ? 'Switch to separate camera control' : 'Switch to synchronized camera control'}
             >
@@ -1847,19 +1862,20 @@ export function ExtractedView({ isMobile = false }: ExtractedViewProps) {
               border: 'none',
               borderRadius: isMobile ? '8px' : '4px',
               cursor: isSaving ? 'not-allowed' : 'pointer',
-              fontSize: isMobile ? '14px' : '12px',
+              fontSize: isMobile ? '14px' : '11px',
               minHeight: isMobile ? '44px' : 'auto',
               display: 'flex',
               alignItems: 'center',
-              gap: '6px',
+              gap: '4px',
+              whiteSpace: 'nowrap',
             }}
             title="Save as PNG image"
           >
             {isSaving && (
               <div
                 style={{
-                  width: '12px',
-                  height: '12px',
+                  width: '10px',
+                  height: '10px',
                   border: '2px solid rgba(255, 255, 255, 0.3)',
                   borderTopColor: 'white',
                   borderRadius: '50%',
@@ -1867,7 +1883,7 @@ export function ExtractedView({ isMobile = false }: ExtractedViewProps) {
                 }}
               />
             )}
-            {isSaving ? 'Saving...' : 'Save'}
+            {isSaving ? 'Saving' : 'Save'}
           </button>
 
           <button
@@ -1879,17 +1895,18 @@ export function ExtractedView({ isMobile = false }: ExtractedViewProps) {
               border: 'none',
               borderRadius: isMobile ? '8px' : '4px',
               cursor: 'pointer',
-              fontSize: isMobile ? '14px' : '12px',
+              fontSize: isMobile ? '14px' : '11px',
               minHeight: isMobile ? '44px' : 'auto',
+              whiteSpace: 'nowrap',
             }}
           >
-            Close
+            ✕
           </button>
         </div>
       </div>
 
-      {/* Mobile collapsible settings panel */}
-      {isMobile && isSettingsExpanded && (
+      {/* Collapsible settings panel - for mobile OR narrow windows (tablet/iPad) */}
+      {(isMobile || size.width < 600) && isSettingsExpanded && (
         <div
           style={{
             padding: '12px 16px',
@@ -2385,7 +2402,7 @@ export function ExtractedView({ isMobile = false }: ExtractedViewProps) {
         )}
       </div>
 
-      {/* Resize handles - only on desktop */}
+      {/* Resize handles - desktop and tablet (not mobile fullscreen) */}
       {!isMobile && (
         <>
           <div
@@ -2393,11 +2410,12 @@ export function ExtractedView({ isMobile = false }: ExtractedViewProps) {
               position: 'absolute',
               right: -4,
               top: 50,
-              width: 8,
+              width: 12,
               height: 'calc(100% - 60px)',
               cursor: 'ew-resize',
             }}
             onMouseDown={(e) => startResize(e, 'right')}
+            onTouchStart={(e) => startResizeTouch(e, 'right')}
           />
           <div
             style={{
@@ -2405,31 +2423,33 @@ export function ExtractedView({ isMobile = false }: ExtractedViewProps) {
               bottom: -4,
               left: 10,
               width: 'calc(100% - 20px)',
-              height: 8,
+              height: 12,
               cursor: 'ns-resize',
             }}
             onMouseDown={(e) => startResize(e, 'bottom')}
+            onTouchStart={(e) => startResizeTouch(e, 'bottom')}
           />
           <div
             style={{
               position: 'absolute',
-              bottom: -6,
-              right: -6,
-              width: 16,
-              height: 16,
+              bottom: -8,
+              right: -8,
+              width: 24,
+              height: 24,
               cursor: 'nwse-resize',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
             }}
             onMouseDown={(e) => startResize(e, 'corner')}
+            onTouchStart={(e) => startResizeTouch(e, 'corner')}
           >
             <div
               style={{
-                width: 10,
-                height: 10,
-                borderBottom: '2px solid rgba(255,255,255,0.4)',
-                borderRight: '2px solid rgba(255,255,255,0.4)',
+                width: 12,
+                height: 12,
+                borderBottom: '3px solid rgba(255,255,255,0.5)',
+                borderRight: '3px solid rgba(255,255,255,0.5)',
               }}
             />
           </div>
