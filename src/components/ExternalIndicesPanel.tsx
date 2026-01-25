@@ -10,7 +10,7 @@ import {
   getMetricDefinition,
 } from '../utils/externalIndices';
 import { calculatePolygonArea } from '../utils/geometryUtils';
-import type { DerivedMetricType, IndexImportConfig, Polygon } from '../types';
+import type { DerivedMetricType, IndexImportConfig, Polygon, DerivedMetricValue, ComparisonArea } from '../types';
 
 interface ExternalIndicesPanelProps {
   isMobile?: boolean;
@@ -20,7 +20,7 @@ export function ExternalIndicesPanel({ isMobile = false }: ExternalIndicesPanelP
   const {
     isIndexPanelOpen,
     setIndexPanelOpen,
-    selectionPolygon,
+    areas,
     layerData,
     externalIndices,
     addExternalIndex,
@@ -30,6 +30,8 @@ export function ExternalIndicesPanel({ isMobile = false }: ExternalIndicesPanelP
   } = useStore();
 
   const [activeTab, setActiveTab] = useState<'derived' | 'external'>('derived');
+  const [viewMode, setViewMode] = useState<'single' | 'compare'>('compare');
+  const [selectedAreaId, setSelectedAreaId] = useState<string | null>(null);
   const [isImporting, setIsImporting] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
   const [csvHeaders, setCsvHeaders] = useState<string[]>([]);
@@ -37,16 +39,35 @@ export function ExternalIndicesPanel({ isMobile = false }: ExternalIndicesPanelP
   const [importConfig, setImportConfig] = useState<Partial<IndexImportConfig>>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Calculate derived metrics when selection or layer data changes
+  // Calculate derived metrics for all areas when layer data changes
   useEffect(() => {
-    if (selectionPolygon && layerData.size > 0) {
-      const areaKm2 = calculatePolygonArea(selectionPolygon.geometry as Polygon);
-      const metrics = calculateDerivedMetrics(layerData, areaKm2, selectionPolygon.geometry as Polygon);
-      setDerivedMetrics(selectionPolygon.id, metrics);
+    for (const area of areas) {
+      if (area.layerData.size > 0) {
+        const areaKm2 = calculatePolygonArea(area.polygon.geometry as Polygon);
+        const metrics = calculateDerivedMetrics(area.layerData, areaKm2, area.polygon.geometry as Polygon);
+        setDerivedMetrics(area.id, metrics);
+      }
     }
-  }, [selectionPolygon, layerData, setDerivedMetrics]);
+  }, [areas, setDerivedMetrics]);
 
-  const currentMetrics = selectionPolygon ? derivedMetrics.get(selectionPolygon.id) : undefined;
+  // Auto-select first area if none selected
+  useEffect(() => {
+    if (areas.length > 0 && !selectedAreaId) {
+      setSelectedAreaId(areas[0].id);
+    } else if (areas.length === 0) {
+      setSelectedAreaId(null);
+    } else if (selectedAreaId && !areas.find(a => a.id === selectedAreaId)) {
+      setSelectedAreaId(areas[0]?.id || null);
+    }
+  }, [areas, selectedAreaId]);
+
+  // Get metrics for all areas
+  const areaMetrics: { area: ComparisonArea; metrics: DerivedMetricValue[] }[] = areas
+    .filter(area => derivedMetrics.has(area.id))
+    .map(area => ({ area, metrics: derivedMetrics.get(area.id) || [] }));
+
+  // Get selected area for single view
+  const selectedAreaData = areaMetrics.find(am => am.area.id === selectedAreaId);
 
   const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -235,7 +256,7 @@ export function ExternalIndicesPanel({ isMobile = false }: ExternalIndicesPanelP
       >
         {activeTab === 'derived' && (
           <div>
-            {!selectionPolygon ? (
+            {areas.length === 0 ? (
               <div
                 style={{
                   textAlign: 'center',
@@ -246,7 +267,7 @@ export function ExternalIndicesPanel({ isMobile = false }: ExternalIndicesPanelP
               >
                 Draw a selection area to see derived metrics
               </div>
-            ) : !currentMetrics || currentMetrics.length === 0 ? (
+            ) : areaMetrics.length === 0 ? (
               <div
                 style={{
                   textAlign: 'center',
@@ -255,132 +276,361 @@ export function ExternalIndicesPanel({ isMobile = false }: ExternalIndicesPanelP
                   fontSize: '13px',
                 }}
               >
-                Loading metrics...
+                Loading metrics... (Fetch data for areas first)
               </div>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                {currentMetrics.map((metric) => {
-                  const definition = getMetricDefinition(metric.metricId);
-                  const interpretation = getMetricInterpretation(metric.value, metric.metricId);
+              <>
+                {/* View mode toggle - only show when multiple areas */}
+                {areaMetrics.length > 1 && (
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      marginBottom: '12px',
+                      padding: '8px',
+                      backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                      borderRadius: '8px',
+                    }}
+                  >
+                    <div style={{ display: 'flex', gap: '4px' }}>
+                      <button
+                        onClick={() => setViewMode('single')}
+                        style={{
+                          padding: '6px 12px',
+                          fontSize: '11px',
+                          fontWeight: '500',
+                          border: 'none',
+                          borderRadius: '4px',
+                          cursor: 'pointer',
+                          backgroundColor: viewMode === 'single' ? '#4A90D9' : 'rgba(255, 255, 255, 0.1)',
+                          color: viewMode === 'single' ? 'white' : 'rgba(255, 255, 255, 0.6)',
+                        }}
+                      >
+                        Single
+                      </button>
+                      <button
+                        onClick={() => setViewMode('compare')}
+                        style={{
+                          padding: '6px 12px',
+                          fontSize: '11px',
+                          fontWeight: '500',
+                          border: 'none',
+                          borderRadius: '4px',
+                          cursor: 'pointer',
+                          backgroundColor: viewMode === 'compare' ? '#4A90D9' : 'rgba(255, 255, 255, 0.1)',
+                          color: viewMode === 'compare' ? 'white' : 'rgba(255, 255, 255, 0.6)',
+                        }}
+                      >
+                        Compare
+                      </button>
+                    </div>
 
-                  // Build tooltip showing required layers and their availability
-                  const requiredLayers = definition?.requiredLayers || [];
-                  const availableLayers = requiredLayers.filter(layerId => {
-                    const data = layerData.get(layerId);
-                    return data?.clippedFeatures && data.clippedFeatures.features.length > 0;
-                  });
-                  const layerStatusList = requiredLayers.map(layerId => {
-                    const hasData = availableLayers.includes(layerId);
-                    return `${hasData ? '✓' : '✗'} ${layerId}`;
-                  }).join('\n');
-                  const dataTooltip = `Data availability (${availableLayers.length}/${requiredLayers.length} layers):\n${layerStatusList}`;
+                    {/* Area selector for single view */}
+                    {viewMode === 'single' && (
+                      <select
+                        value={selectedAreaId || ''}
+                        onChange={(e) => setSelectedAreaId(e.target.value)}
+                        style={{
+                          padding: '6px 8px',
+                          fontSize: '11px',
+                          backgroundColor: 'rgba(0, 0, 0, 0.3)',
+                          border: '1px solid rgba(255, 255, 255, 0.2)',
+                          borderRadius: '4px',
+                          color: 'white',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        {areaMetrics.map(({ area }) => (
+                          <option key={area.id} value={area.id}>
+                            {area.name}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                )}
 
-                  return (
+                {/* Single area view */}
+                {(areaMetrics.length === 1 || viewMode === 'single') && selectedAreaData ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    {areaMetrics.length === 1 && (
+                      <div
+                        style={{
+                          fontSize: '12px',
+                          fontWeight: '500',
+                          color: `rgba(${selectedAreaData.area.color.slice(0, 3).join(',')}, 1)`,
+                          marginBottom: '4px',
+                        }}
+                      >
+                        {selectedAreaData.area.name}
+                      </div>
+                    )}
+                    {selectedAreaData.metrics.map((metric) => {
+                      const definition = getMetricDefinition(metric.metricId);
+                      const interpretation = getMetricInterpretation(metric.value, metric.metricId);
+
+                      // Build tooltip showing required layers and their availability
+                      const requiredLayers = definition?.requiredLayers || [];
+                      const availableLayers = requiredLayers.filter(layerId => {
+                        const data = selectedAreaData.area.layerData.get(layerId);
+                        return data?.clippedFeatures && data.clippedFeatures.features.length > 0;
+                      });
+                      const layerStatusList = requiredLayers.map(layerId => {
+                        const hasData = availableLayers.includes(layerId);
+                        return `${hasData ? '✓' : '✗'} ${layerId}`;
+                      }).join('\n');
+                      const dataTooltip = `Data availability (${availableLayers.length}/${requiredLayers.length} layers):\n${layerStatusList}`;
+
+                      return (
+                        <div
+                          key={metric.metricId}
+                          style={{
+                            backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                            borderRadius: '8px',
+                            padding: '12px',
+                            borderLeft: `3px solid ${getInterpretationColor(interpretation)}`,
+                          }}
+                        >
+                          <div
+                            style={{
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'flex-start',
+                              marginBottom: '8px',
+                            }}
+                          >
+                            <div>
+                              <div style={{ fontSize: '13px', fontWeight: '500', color: 'white' }}>
+                                {definition?.name || metric.metricId}
+                              </div>
+                              <div
+                                style={{
+                                  fontSize: '10px',
+                                  color: 'rgba(255, 255, 255, 0.5)',
+                                  marginTop: '2px',
+                                }}
+                              >
+                                {definition?.description}
+                              </div>
+                            </div>
+                            <div
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                cursor: 'help',
+                              }}
+                              title={dataTooltip}
+                            >
+                              <span
+                                style={{
+                                  fontSize: '9px',
+                                  padding: '2px 6px',
+                                  borderRadius: '4px',
+                                  backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                                  color: 'rgba(255, 255, 255, 0.6)',
+                                  border: '1px solid rgba(255, 255, 255, 0.2)',
+                                }}
+                              >
+                                {availableLayers.length}/{requiredLayers.length}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div
+                            style={{
+                              display: 'flex',
+                              alignItems: 'baseline',
+                              gap: '8px',
+                            }}
+                          >
+                            <span
+                              style={{
+                                fontSize: '24px',
+                                fontWeight: '700',
+                                color: getInterpretationColor(interpretation),
+                              }}
+                            >
+                              {formatMetricValue(metric.value, metric.metricId)}
+                            </span>
+                            <span
+                              style={{
+                                fontSize: '11px',
+                                color: getInterpretationColor(interpretation),
+                                textTransform: 'capitalize',
+                              }}
+                            >
+                              ({interpretation})
+                            </span>
+                          </div>
+
+                          {/* Progress bar - normalized to metric's scale */}
+                          <div
+                            style={{
+                              marginTop: '8px',
+                              height: '4px',
+                              backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                              borderRadius: '2px',
+                              overflow: 'hidden',
+                            }}
+                          >
+                            <div
+                              style={{
+                                width: `${getProgressPercent(metric.value, metric.metricId)}%`,
+                                height: '100%',
+                                backgroundColor: getInterpretationColor(interpretation),
+                                transition: 'width 0.3s ease',
+                              }}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  // Multi-area comparison view
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                {/* Area legend */}
+                <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                  {areaMetrics.map(({ area }) => (
                     <div
-                      key={metric.metricId}
+                      key={area.id}
                       style={{
-                        backgroundColor: 'rgba(255, 255, 255, 0.05)',
-                        borderRadius: '8px',
-                        padding: '12px',
-                        borderLeft: `3px solid ${getInterpretationColor(interpretation)}`,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        fontSize: '11px',
                       }}
                     >
                       <div
                         style={{
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: 'flex-start',
-                          marginBottom: '8px',
+                          width: '12px',
+                          height: '12px',
+                          borderRadius: '3px',
+                          backgroundColor: `rgba(${area.color.slice(0, 3).join(',')}, 1)`,
                         }}
-                      >
-                        <div>
-                          <div style={{ fontSize: '13px', fontWeight: '500', color: 'white' }}>
-                            {definition?.name || metric.metricId}
-                          </div>
-                          <div
-                            style={{
-                              fontSize: '10px',
-                              color: 'rgba(255, 255, 255, 0.5)',
-                              marginTop: '2px',
-                            }}
-                          >
-                            {definition?.description}
-                          </div>
-                        </div>
-                        <div
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                            cursor: 'help',
-                          }}
-                          title={dataTooltip}
-                        >
-                          <span
-                            style={{
-                              fontSize: '9px',
-                              padding: '2px 6px',
-                              borderRadius: '4px',
-                              backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                              color: 'rgba(255, 255, 255, 0.6)',
-                              border: '1px solid rgba(255, 255, 255, 0.2)',
-                            }}
-                          >
-                            {availableLayers.length}/{requiredLayers.length}
-                          </span>
-                        </div>
+                      />
+                      <span style={{ color: 'rgba(255, 255, 255, 0.8)' }}>{area.name}</span>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Comparison table */}
+                {DERIVED_METRIC_DEFINITIONS.map((definition) => {
+                  const metricValues = areaMetrics.map(({ area, metrics }) => {
+                    const metric = metrics.find(m => m.metricId === definition.id);
+                    return { area, metric };
+                  });
+
+                  // Find best/worst for highlighting
+                  const values = metricValues
+                    .filter(v => v.metric)
+                    .map(v => v.metric!.value);
+                  const maxValue = Math.max(...values);
+                  const minValue = Math.min(...values);
+
+                  return (
+                    <div
+                      key={definition.id}
+                      style={{
+                        backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                        borderRadius: '8px',
+                        padding: '12px',
+                      }}
+                    >
+                      <div style={{ fontSize: '12px', fontWeight: '500', color: 'white', marginBottom: '8px' }}>
+                        {definition.name}
                       </div>
 
-                      <div
-                        style={{
-                          display: 'flex',
-                          alignItems: 'baseline',
-                          gap: '8px',
-                        }}
-                      >
-                        <span
-                          style={{
-                            fontSize: '24px',
-                            fontWeight: '700',
-                            color: getInterpretationColor(interpretation),
-                          }}
-                        >
-                          {formatMetricValue(metric.value, metric.metricId)}
-                        </span>
-                        <span
-                          style={{
-                            fontSize: '11px',
-                            color: getInterpretationColor(interpretation),
-                            textTransform: 'capitalize',
-                          }}
-                        >
-                          ({interpretation})
-                        </span>
+                      {/* Values for each area */}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        {metricValues.map(({ area, metric }) => {
+                          if (!metric) return null;
+                          const interpretation = getMetricInterpretation(metric.value, metric.metricId);
+                          const isBest = values.length > 1 && metric.value === maxValue;
+                          const isWorst = values.length > 1 && metric.value === minValue && minValue !== maxValue;
+
+                          return (
+                            <div
+                              key={area.id}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px',
+                              }}
+                            >
+                              {/* Area color indicator */}
+                              <div
+                                style={{
+                                  width: '4px',
+                                  height: '24px',
+                                  borderRadius: '2px',
+                                  backgroundColor: `rgba(${area.color.slice(0, 3).join(',')}, 1)`,
+                                  flexShrink: 0,
+                                }}
+                              />
+
+                              {/* Progress bar with value */}
+                              <div style={{ flex: 1, position: 'relative' }}>
+                                <div
+                                  style={{
+                                    height: '24px',
+                                    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                                    borderRadius: '4px',
+                                    overflow: 'hidden',
+                                  }}
+                                >
+                                  <div
+                                    style={{
+                                      width: `${getProgressPercent(metric.value, metric.metricId)}%`,
+                                      height: '100%',
+                                      backgroundColor: `rgba(${area.color.slice(0, 3).join(',')}, 0.6)`,
+                                      transition: 'width 0.3s ease',
+                                    }}
+                                  />
+                                </div>
+                                <div
+                                  style={{
+                                    position: 'absolute',
+                                    top: '50%',
+                                    left: '8px',
+                                    transform: 'translateY(-50%)',
+                                    fontSize: '12px',
+                                    fontWeight: '600',
+                                    color: 'white',
+                                    textShadow: '0 1px 2px rgba(0,0,0,0.5)',
+                                  }}
+                                >
+                                  {formatMetricValue(metric.value, metric.metricId)}
+                                  {isBest && <span style={{ marginLeft: '4px', color: '#4CAF50' }}>▲</span>}
+                                  {isWorst && <span style={{ marginLeft: '4px', color: '#FF5722' }}>▼</span>}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
 
-                      {/* Progress bar - normalized to metric's scale */}
-                      <div
-                        style={{
-                          marginTop: '8px',
-                          height: '4px',
-                          backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                          borderRadius: '2px',
-                          overflow: 'hidden',
-                        }}
-                      >
+                      {/* Delta indicator for 2 areas */}
+                      {areaMetrics.length === 2 && values.length === 2 && (
                         <div
                           style={{
-                            width: `${getProgressPercent(metric.value, metric.metricId)}%`,
-                            height: '100%',
-                            backgroundColor: getInterpretationColor(interpretation),
-                            transition: 'width 0.3s ease',
+                            marginTop: '6px',
+                            fontSize: '10px',
+                            color: 'rgba(255, 255, 255, 0.5)',
+                            textAlign: 'right',
                           }}
-                        />
-                      </div>
+                        >
+                          Δ {Math.abs(values[0] - values[1]).toFixed(1)} ({((Math.abs(values[0] - values[1]) / Math.min(...values)) * 100).toFixed(0)}%)
+                        </div>
+                      )}
                     </div>
                   );
                 })}
-              </div>
+                </div>
+                )}
+              </>
             )}
 
             {/* Walk Score Disclaimer */}
