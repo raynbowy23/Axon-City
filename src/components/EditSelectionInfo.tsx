@@ -15,6 +15,12 @@ interface EditSelectionInfoProps {
 export function EditSelectionInfo({ variant = 'block' }: EditSelectionInfoProps) {
   const [isCollapsed, setIsCollapsed] = useState(true); // Default to collapsed
   const [showTooltip, setShowTooltip] = useState(false);
+  const [isTouchDevice, setIsTouchDevice] = useState(false);
+
+  // Detect touch device
+  useEffect(() => {
+    setIsTouchDevice('ontouchstart' in window || navigator.maxTouchPoints > 0);
+  }, []);
 
   // Check window height and update collapsed state
   useEffect(() => {
@@ -35,11 +41,11 @@ export function EditSelectionInfo({ variant = 'block' }: EditSelectionInfoProps)
       <div style={{ position: 'relative', display: 'inline-flex' }}>
         <button
           onClick={() => setShowTooltip(!showTooltip)}
-          onMouseEnter={() => setShowTooltip(true)}
-          onMouseLeave={() => setShowTooltip(false)}
+          onMouseEnter={isTouchDevice ? undefined : () => setShowTooltip(true)}
+          onMouseLeave={isTouchDevice ? undefined : () => setShowTooltip(false)}
           style={{
-            width: '16px',
-            height: '16px',
+            width: '10px',
+            height: '10px',
             borderRadius: '50%',
             backgroundColor: 'rgba(255, 200, 50, 0.2)',
             border: '1px solid rgba(255, 200, 50, 0.6)',
@@ -48,12 +54,12 @@ export function EditSelectionInfo({ variant = 'block' }: EditSelectionInfoProps)
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            fontSize: '10px',
+            fontSize: '7px',
             fontWeight: '600',
             fontStyle: 'italic',
             fontFamily: 'Georgia, serif',
-            transition: 'all 0.15s ease',
             padding: 0,
+            lineHeight: 1,
           }}
           title="Edit Selection Tips"
         >
