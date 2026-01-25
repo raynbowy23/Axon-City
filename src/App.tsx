@@ -992,14 +992,14 @@ function App() {
       {/* Mobile Layout */}
       {isMobile && (
         <>
-          {/* Mobile Logo - square version for space efficiency */}
+          {/* Mobile Logo - square version for space efficiency, vertically centered with search bar */}
           <a
             href="https://github.com/raynbowy23/Axon-City.git"
             target="_blank"
             rel="noopener noreferrer"
             style={{
               position: 'absolute',
-              top: '10px',
+              top: '14px',
               left: '10px',
               zIndex: 1000,
             }}
