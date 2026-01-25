@@ -32,6 +32,7 @@ export function ExternalIndicesPanel({ isMobile = false }: ExternalIndicesPanelP
   const [activeTab, setActiveTab] = useState<'derived' | 'external'>('derived');
   const [viewMode, setViewMode] = useState<'single' | 'compare'>('compare');
   const [selectedAreaId, setSelectedAreaId] = useState<string | null>(null);
+  const [areaOrder, setAreaOrder] = useState<string[]>([]); // Custom order of area IDs
   const [isImporting, setIsImporting] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
   const [csvHeaders, setCsvHeaders] = useState<string[]>([]);
@@ -61,10 +62,40 @@ export function ExternalIndicesPanel({ isMobile = false }: ExternalIndicesPanelP
     }
   }, [areas, selectedAreaId]);
 
-  // Get metrics for all areas
+  // Sync areaOrder with areas (add new, remove deleted)
+  useEffect(() => {
+    const currentIds = areas.map(a => a.id);
+    const newOrder = areaOrder.filter(id => currentIds.includes(id));
+    const addedIds = currentIds.filter(id => !areaOrder.includes(id));
+    if (addedIds.length > 0 || newOrder.length !== areaOrder.length) {
+      setAreaOrder([...newOrder, ...addedIds]);
+    }
+  }, [areas, areaOrder]);
+
+  // Move area up or down in the order
+  const moveArea = useCallback((areaId: string, direction: 'up' | 'down') => {
+    setAreaOrder(prevOrder => {
+      const index = prevOrder.indexOf(areaId);
+      if (index === -1) return prevOrder;
+
+      const newIndex = direction === 'up' ? index - 1 : index + 1;
+      if (newIndex < 0 || newIndex >= prevOrder.length) return prevOrder;
+
+      const newOrder = [...prevOrder];
+      [newOrder[index], newOrder[newIndex]] = [newOrder[newIndex], newOrder[index]];
+      return newOrder;
+    });
+  }, []);
+
+  // Get metrics for all areas, sorted by custom order
   const areaMetrics: { area: ComparisonArea; metrics: DerivedMetricValue[] }[] = areas
     .filter(area => derivedMetrics.has(area.id))
-    .map(area => ({ area, metrics: derivedMetrics.get(area.id) || [] }));
+    .map(area => ({ area, metrics: derivedMetrics.get(area.id) || [] }))
+    .sort((a, b) => {
+      const indexA = areaOrder.indexOf(a.area.id);
+      const indexB = areaOrder.indexOf(b.area.id);
+      return indexA - indexB;
+    });
 
   // Get selected area for single view
   const selectedAreaData = areaMetrics.find(am => am.area.id === selectedAreaId);
@@ -490,145 +521,276 @@ export function ExternalIndicesPanel({ isMobile = false }: ExternalIndicesPanelP
                   </div>
                 ) : (
                   // Multi-area comparison view
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                {/* Area legend */}
-                <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-                  {areaMetrics.map(({ area }) => (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                    {/* Area legend with reorder controls */}
                     <div
-                      key={area.id}
                       style={{
                         display: 'flex',
-                        alignItems: 'center',
+                        flexDirection: 'column',
                         gap: '6px',
-                        fontSize: '11px',
-                      }}
-                    >
-                      <div
-                        style={{
-                          width: '12px',
-                          height: '12px',
-                          borderRadius: '3px',
-                          backgroundColor: `rgba(${area.color.slice(0, 3).join(',')}, 1)`,
-                        }}
-                      />
-                      <span style={{ color: 'rgba(255, 255, 255, 0.8)' }}>{area.name}</span>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Comparison table */}
-                {DERIVED_METRIC_DEFINITIONS.map((definition) => {
-                  const metricValues = areaMetrics.map(({ area, metrics }) => {
-                    const metric = metrics.find(m => m.metricId === definition.id);
-                    return { area, metric };
-                  });
-
-                  // Find best/worst for highlighting
-                  const values = metricValues
-                    .filter(v => v.metric)
-                    .map(v => v.metric!.value);
-                  const maxValue = Math.max(...values);
-                  const minValue = Math.min(...values);
-
-                  return (
-                    <div
-                      key={definition.id}
-                      style={{
+                        padding: '8px',
                         backgroundColor: 'rgba(255, 255, 255, 0.05)',
                         borderRadius: '8px',
-                        padding: '12px',
                       }}
                     >
-                      <div style={{ fontSize: '12px', fontWeight: '500', color: 'white', marginBottom: '8px' }}>
-                        {definition.name}
+                      <div style={{ fontSize: '10px', color: 'rgba(255, 255, 255, 0.5)', marginBottom: '4px' }}>
+                        Area Order (drag or use arrows to reorder)
                       </div>
-
-                      {/* Values for each area */}
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                        {metricValues.map(({ area, metric }) => {
-                          if (!metric) return null;
-                          const interpretation = getMetricInterpretation(metric.value, metric.metricId);
-                          const isBest = values.length > 1 && metric.value === maxValue;
-                          const isWorst = values.length > 1 && metric.value === minValue && minValue !== maxValue;
-
-                          return (
-                            <div
-                              key={area.id}
-                              style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '8px',
-                              }}
-                            >
-                              {/* Area color indicator */}
-                              <div
-                                style={{
-                                  width: '4px',
-                                  height: '24px',
-                                  borderRadius: '2px',
-                                  backgroundColor: `rgba(${area.color.slice(0, 3).join(',')}, 1)`,
-                                  flexShrink: 0,
-                                }}
-                              />
-
-                              {/* Progress bar with value */}
-                              <div style={{ flex: 1, position: 'relative' }}>
-                                <div
-                                  style={{
-                                    height: '24px',
-                                    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                                    borderRadius: '4px',
-                                    overflow: 'hidden',
-                                  }}
-                                >
-                                  <div
-                                    style={{
-                                      width: `${getProgressPercent(metric.value, metric.metricId)}%`,
-                                      height: '100%',
-                                      backgroundColor: `rgba(${area.color.slice(0, 3).join(',')}, 0.6)`,
-                                      transition: 'width 0.3s ease',
-                                    }}
-                                  />
-                                </div>
-                                <div
-                                  style={{
-                                    position: 'absolute',
-                                    top: '50%',
-                                    left: '8px',
-                                    transform: 'translateY(-50%)',
-                                    fontSize: '12px',
-                                    fontWeight: '600',
-                                    color: 'white',
-                                    textShadow: '0 1px 2px rgba(0,0,0,0.5)',
-                                  }}
-                                >
-                                  {formatMetricValue(metric.value, metric.metricId)}
-                                  {isBest && <span style={{ marginLeft: '4px', color: '#4CAF50' }}>▲</span>}
-                                  {isWorst && <span style={{ marginLeft: '4px', color: '#FF5722' }}>▼</span>}
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-
-                      {/* Delta indicator for 2 areas */}
-                      {areaMetrics.length === 2 && values.length === 2 && (
+                      {areaMetrics.map(({ area }, index) => (
                         <div
+                          key={area.id}
                           style={{
-                            marginTop: '6px',
-                            fontSize: '10px',
-                            color: 'rgba(255, 255, 255, 0.5)',
-                            textAlign: 'right',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            padding: '4px 8px',
+                            backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                            borderRadius: '4px',
                           }}
                         >
-                          Δ {Math.abs(values[0] - values[1]).toFixed(1)} ({((Math.abs(values[0] - values[1]) / Math.min(...values)) * 100).toFixed(0)}%)
+                          {/* Reorder buttons */}
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                            <button
+                              onClick={() => moveArea(area.id, 'up')}
+                              disabled={index === 0}
+                              style={{
+                                width: '16px',
+                                height: '12px',
+                                padding: 0,
+                                border: 'none',
+                                borderRadius: '2px',
+                                backgroundColor: index === 0 ? 'transparent' : 'rgba(255, 255, 255, 0.1)',
+                                color: index === 0 ? 'rgba(255, 255, 255, 0.2)' : 'rgba(255, 255, 255, 0.6)',
+                                cursor: index === 0 ? 'default' : 'pointer',
+                                fontSize: '8px',
+                                lineHeight: 1,
+                              }}
+                            >
+                              ▲
+                            </button>
+                            <button
+                              onClick={() => moveArea(area.id, 'down')}
+                              disabled={index === areaMetrics.length - 1}
+                              style={{
+                                width: '16px',
+                                height: '12px',
+                                padding: 0,
+                                border: 'none',
+                                borderRadius: '2px',
+                                backgroundColor: index === areaMetrics.length - 1 ? 'transparent' : 'rgba(255, 255, 255, 0.1)',
+                                color: index === areaMetrics.length - 1 ? 'rgba(255, 255, 255, 0.2)' : 'rgba(255, 255, 255, 0.6)',
+                                cursor: index === areaMetrics.length - 1 ? 'default' : 'pointer',
+                                fontSize: '8px',
+                                lineHeight: 1,
+                              }}
+                            >
+                              ▼
+                            </button>
+                          </div>
+
+                          {/* Area color indicator */}
+                          <div
+                            style={{
+                              width: '12px',
+                              height: '12px',
+                              borderRadius: '3px',
+                              backgroundColor: `rgba(${area.color.slice(0, 3).join(',')}, 1)`,
+                              flexShrink: 0,
+                            }}
+                          />
+
+                          {/* Area name */}
+                          <span style={{ fontSize: '11px', color: 'rgba(255, 255, 255, 0.8)', flex: 1 }}>
+                            {area.name}
+                          </span>
+
+                          {/* Position indicator */}
+                          <span style={{ fontSize: '10px', color: 'rgba(255, 255, 255, 0.4)' }}>
+                            #{index + 1}
+                          </span>
                         </div>
-                      )}
+                      ))}
                     </div>
-                  );
-                })}
-                </div>
+
+                    {/* Comparison table */}
+                    {DERIVED_METRIC_DEFINITIONS.map((definition) => {
+                      const metricValues = areaMetrics.map(({ area, metrics }) => {
+                        const metric = metrics.find(m => m.metricId === definition.id);
+                        return { area, metric };
+                      });
+
+                      // Find best/worst for highlighting
+                      const values = metricValues
+                        .filter(v => v.metric)
+                        .map(v => v.metric!.value);
+                      const maxValue = Math.max(...values);
+                      const minValue = Math.min(...values);
+
+                      return (
+                        <div
+                          key={definition.id}
+                          style={{
+                            backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                            borderRadius: '8px',
+                            padding: '12px',
+                          }}
+                        >
+                          <div style={{ fontSize: '12px', fontWeight: '500', color: 'white', marginBottom: '8px' }}>
+                            {definition.name}
+                          </div>
+
+                          {/* Values for each area */}
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                            {metricValues.map(({ area, metric }) => {
+                              if (!metric) return null;
+                              const interpretation = getMetricInterpretation(metric.value, metric.metricId);
+                              const isBest = values.length > 1 && metric.value === maxValue;
+                              const isWorst = values.length > 1 && metric.value === minValue && minValue !== maxValue;
+
+                              return (
+                                <div
+                                  key={area.id}
+                                  style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '8px',
+                                  }}
+                                >
+                                  {/* Area color indicator */}
+                                  <div
+                                    style={{
+                                      width: '4px',
+                                      height: '24px',
+                                      borderRadius: '2px',
+                                      backgroundColor: `rgba(${area.color.slice(0, 3).join(',')}, 1)`,
+                                      flexShrink: 0,
+                                    }}
+                                  />
+
+                                  {/* Progress bar with value */}
+                                  <div style={{ flex: 1, position: 'relative' }}>
+                                    <div
+                                      style={{
+                                        height: '24px',
+                                        backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                                        borderRadius: '4px',
+                                        overflow: 'hidden',
+                                      }}
+                                    >
+                                      <div
+                                        style={{
+                                          width: `${getProgressPercent(metric.value, metric.metricId)}%`,
+                                          height: '100%',
+                                          backgroundColor: `rgba(${area.color.slice(0, 3).join(',')}, 0.6)`,
+                                          transition: 'width 0.3s ease',
+                                        }}
+                                      />
+                                    </div>
+                                    <div
+                                      style={{
+                                        position: 'absolute',
+                                        top: '50%',
+                                        left: '8px',
+                                        transform: 'translateY(-50%)',
+                                        fontSize: '12px',
+                                        fontWeight: '600',
+                                        color: 'white',
+                                        textShadow: '0 1px 2px rgba(0,0,0,0.5)',
+                                      }}
+                                    >
+                                      {formatMetricValue(metric.value, metric.metricId)}
+                                      {isBest && <span style={{ marginLeft: '4px', color: '#4CAF50' }}>▲</span>}
+                                      {isWorst && <span style={{ marginLeft: '4px', color: '#FF5722' }}>▼</span>}
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+
+                          {/* Delta indicator */}
+                          {values.length >= 2 && (
+                            <div
+                              style={{
+                                marginTop: '8px',
+                                padding: '6px 8px',
+                                backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                                borderRadius: '4px',
+                                fontSize: '10px',
+                                color: 'rgba(255, 255, 255, 0.6)',
+                              }}
+                            >
+                              {(() => {
+                                const range = maxValue - minValue;
+                                const baselineValue = metricValues[0]?.metric?.value || 0;
+                                const baselineArea = metricValues[0]?.area;
+                                const bestArea = metricValues.find(v => v.metric?.value === maxValue)?.area;
+                                const worstArea = metricValues.find(v => v.metric?.value === minValue)?.area;
+                                const avgValue = values.reduce((a, b) => a + b, 0) / values.length;
+
+                                return (
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                    {/* Range */}
+                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                      <span>Range:</span>
+                                      <span style={{ color: 'rgba(255, 255, 255, 0.8)' }}>
+                                        {range.toFixed(1)} ({minValue > 0 ? ((range / minValue) * 100).toFixed(0) : '—'}%)
+                                      </span>
+                                    </div>
+
+                                    {/* Average */}
+                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                      <span>Average:</span>
+                                      <span style={{ color: 'rgba(255, 255, 255, 0.8)' }}>
+                                        {avgValue.toFixed(1)}
+                                      </span>
+                                    </div>
+
+                                    {/* Comparison to baseline (first area) */}
+                                    {values.length === 2 && baselineValue > 0 && (
+                                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                        <span>vs {baselineArea?.name}:</span>
+                                        <span
+                                          style={{
+                                            color: metricValues[1]?.metric?.value! > baselineValue
+                                              ? '#4CAF50'
+                                              : metricValues[1]?.metric?.value! < baselineValue
+                                                ? '#FF5722'
+                                                : 'rgba(255, 255, 255, 0.8)',
+                                          }}
+                                        >
+                                          {metricValues[1]?.metric?.value! > baselineValue ? '+' : ''}
+                                          {((metricValues[1]?.metric?.value! - baselineValue) / baselineValue * 100).toFixed(1)}%
+                                        </span>
+                                      </div>
+                                    )}
+
+                                    {/* Best/Worst for 3+ areas */}
+                                    {values.length > 2 && bestArea && worstArea && (
+                                      <>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                          <span>Best:</span>
+                                          <span style={{ color: '#4CAF50' }}>
+                                            {bestArea.name} ({maxValue.toFixed(1)})
+                                          </span>
+                                        </div>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                          <span>Lowest:</span>
+                                          <span style={{ color: '#FF5722' }}>
+                                            {worstArea.name} ({minValue.toFixed(1)})
+                                          </span>
+                                        </div>
+                                      </>
+                                    )}
+                                  </div>
+                                );
+                              })()}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
                 )}
               </>
             )}
