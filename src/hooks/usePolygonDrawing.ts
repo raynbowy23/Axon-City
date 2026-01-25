@@ -15,6 +15,7 @@ export function usePolygonDrawing() {
     viewState,
     setDrawingPoints: setStoreDrawingPoints,
     drawingPoints: storeDrawingPoints,
+    drawingMode,
   } = useStore();
   const [drawingPoints, setDrawingPoints] = useState<[number, number][]>([]);
 
@@ -88,11 +89,23 @@ export function usePolygonDrawing() {
       // Unproject screen coordinates to [lng, lat]
       const [lng, lat] = viewport.unproject([x, y]);
 
-      const newPoints = [...drawingPoints, [lng, lat] as [number, number]];
+      // Determine max points based on drawing mode
+      const maxPoints = drawingMode === 'circle' ? 2 : drawingMode === 'rectangle' ? 3 : Infinity;
+
+      let newPoints: [number, number][];
+
+      if (drawingPoints.length >= maxPoints) {
+        // Max points reached - update the last point instead of adding
+        newPoints = [...drawingPoints.slice(0, -1), [lng, lat] as [number, number]];
+      } else {
+        // Add new point
+        newPoints = [...drawingPoints, [lng, lat] as [number, number]];
+      }
+
       updatePoints(newPoints);
 
-      // Update preview polygon if we have 3+ points
-      if (newPoints.length >= 3) {
+      // Update preview polygon if we have 3+ points (for polygon mode)
+      if (drawingMode === 'polygon' && newPoints.length >= 3) {
         const polygon: Polygon = {
           type: 'Polygon',
           coordinates: [[...newPoints, newPoints[0]]],
@@ -104,7 +117,7 @@ export function usePolygonDrawing() {
         });
       }
     },
-    [viewState, setSelectionPolygon, drawingPoints, updatePoints]
+    [viewState, setSelectionPolygon, drawingPoints, updatePoints, drawingMode]
   );
 
   const undoLastPoint = useCallback(() => {

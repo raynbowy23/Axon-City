@@ -139,7 +139,6 @@ export function DrawingTool({ onComplete }: DrawingToolProps) {
   // Use refs to avoid dependency issues in useEffect
   const onCompleteRef = useRef(onComplete);
   onCompleteRef.current = onComplete;
-  const autoCompleteTriggeredRef = useRef(false);
 
   // Handle keyboard shortcuts
   useEffect(() => {
@@ -158,11 +157,6 @@ export function DrawingTool({ onComplete }: DrawingToolProps) {
 
   // Update preview polygon when drawing points change
   useEffect(() => {
-    // Reset auto-complete flag when points change
-    if (drawingPoints.length < 2) {
-      autoCompleteTriggeredRef.current = false;
-    }
-
     if (drawingPoints.length === 0) {
       setPreviewPolygon(null);
       setSelectionPolygon(null);
@@ -173,8 +167,6 @@ export function DrawingTool({ onComplete }: DrawingToolProps) {
     }
 
     let polygon: Polygon | null = null;
-    let shapeInfo: ShapeInfo | null = null;
-    let shouldAutoComplete = false;
 
     if (drawingMode === 'polygon') {
       if (drawingPoints.length >= 3) {
@@ -182,42 +174,17 @@ export function DrawingTool({ onComplete }: DrawingToolProps) {
           type: 'Polygon',
           coordinates: [[...drawingPoints, drawingPoints[0]]],
         };
-        shapeInfo = { polygon, shapeType: 'polygon' };
       }
     } else if (drawingMode === 'rectangle') {
-      if (drawingPoints.length >= 2) {
-        // For 2 points, show a temporary line preview
-        // For 3 points, show the complete rectangle and auto-complete
-        if (drawingPoints.length === 3) {
-          polygon = createRectanglePolygon(drawingPoints[0], drawingPoints[1], drawingPoints[2]);
-          const coords = polygon.coordinates[0] as [number, number][];
-          shapeInfo = {
-            polygon,
-            shapeType: 'rectangle',
-            shapeParams: {
-              rectangleCorners: [coords[0], coords[1], coords[2], coords[3]],
-            },
-          };
-          shouldAutoComplete = true;
-        }
+      // For 3 points, show the complete rectangle
+      if (drawingPoints.length === 3) {
+        polygon = createRectanglePolygon(drawingPoints[0], drawingPoints[1], drawingPoints[2]);
       }
     } else if (drawingMode === 'circle') {
       if (drawingPoints.length === 2) {
         const center = drawingPoints[0];
         const edgePoint = drawingPoints[1];
         polygon = createCirclePolygon(center, edgePoint);
-        const dLng = edgePoint[0] - center[0];
-        const dLat = edgePoint[1] - center[1];
-        const radius = Math.sqrt(dLng * dLng + dLat * dLat);
-        shapeInfo = {
-          polygon,
-          shapeType: 'circle',
-          shapeParams: {
-            circleCenter: center,
-            circleRadius: radius,
-          },
-        };
-        shouldAutoComplete = true;
       }
     }
 
@@ -228,25 +195,12 @@ export function DrawingTool({ onComplete }: DrawingToolProps) {
         geometry: polygon,
         area: calculatePolygonArea(polygon) * 1_000_000,
       });
-
-      // Auto-complete for rectangle and circle (deferred to avoid state conflicts)
-      // Only trigger once per drawing session
-      if (shouldAutoComplete && !autoCompleteTriggeredRef.current && shapeInfo) {
-        autoCompleteTriggeredRef.current = true;
-        const completedShapeInfo = shapeInfo;
-        const timeoutId = setTimeout(() => {
-          setIsDrawing(false);
-          setDrawingPoints([]);
-          onCompleteRef.current(completedShapeInfo);
-        }, 100);
-        return () => clearTimeout(timeoutId);
-      }
     } else {
       setPreviewPolygon(null);
       setSelectionPolygon(null);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [drawingPoints.length, drawingMode]);
+  }, [drawingPoints, drawingMode]);
 
   const startDrawing = useCallback((mode?: DrawingMode) => {
     if (mode) {
@@ -542,44 +496,53 @@ export function DrawingTool({ onComplete }: DrawingToolProps) {
           )}
 
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            {/* Undo button - only for polygon mode */}
             {drawingMode === 'polygon' && (
-              <>
-                <button
-                  onClick={undoLastPoint}
-                  disabled={drawingPoints.length === 0}
-                  style={{
-                    padding: '8px 14px',
-                    backgroundColor: drawingPoints.length === 0 ? 'rgba(255, 255, 255, 0.1)' : 'rgba(255, 255, 255, 0.15)',
-                    color: 'white',
-                    border: '1px solid rgba(255, 255, 255, 0.15)',
-                    borderRadius: '6px',
-                    cursor: drawingPoints.length === 0 ? 'not-allowed' : 'pointer',
-                    fontSize: '12px',
-                    opacity: drawingPoints.length === 0 ? 0.5 : 1,
-                    transition: 'all 0.15s ease',
-                  }}
-                >
-                  ↩ Undo
-                </button>
+              <button
+                onClick={undoLastPoint}
+                disabled={drawingPoints.length === 0}
+                style={{
+                  padding: '8px 14px',
+                  backgroundColor: drawingPoints.length === 0 ? 'rgba(255, 255, 255, 0.1)' : 'rgba(255, 255, 255, 0.15)',
+                  color: 'white',
+                  border: '1px solid rgba(255, 255, 255, 0.15)',
+                  borderRadius: '6px',
+                  cursor: drawingPoints.length === 0 ? 'not-allowed' : 'pointer',
+                  fontSize: '12px',
+                  opacity: drawingPoints.length === 0 ? 0.5 : 1,
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                ↩ Undo
+              </button>
+            )}
+            {/* Complete button - for all modes when shape is ready */}
+            {(() => {
+              const isPolygonReady = drawingMode === 'polygon' && drawingPoints.length >= 3;
+              const isRectangleReady = drawingMode === 'rectangle' && drawingPoints.length === 3;
+              const isCircleReady = drawingMode === 'circle' && drawingPoints.length === 2;
+              const isReady = isPolygonReady || isRectangleReady || isCircleReady;
+
+              return (
                 <button
                   onClick={completeDrawing}
-                  disabled={drawingPoints.length < 3}
+                  disabled={!isReady}
                   style={{
                     padding: '8px 14px',
-                    backgroundColor: drawingPoints.length < 3 ? 'rgba(34, 197, 94, 0.2)' : 'rgba(34, 197, 94, 0.4)',
+                    backgroundColor: !isReady ? 'rgba(34, 197, 94, 0.2)' : 'rgba(34, 197, 94, 0.4)',
                     color: 'white',
-                    border: `1px solid ${drawingPoints.length < 3 ? 'rgba(34, 197, 94, 0.3)' : 'rgba(34, 197, 94, 0.6)'}`,
+                    border: `1px solid ${!isReady ? 'rgba(34, 197, 94, 0.3)' : 'rgba(34, 197, 94, 0.6)'}`,
                     borderRadius: '6px',
-                    cursor: drawingPoints.length < 3 ? 'not-allowed' : 'pointer',
+                    cursor: !isReady ? 'not-allowed' : 'pointer',
                     fontSize: '12px',
-                    opacity: drawingPoints.length < 3 ? 0.5 : 1,
+                    opacity: !isReady ? 0.5 : 1,
                     transition: 'all 0.15s ease',
                   }}
                 >
                   ✓ Complete
                 </button>
-              </>
-            )}
+              );
+            })()}
             <button
               onClick={cancelDrawing}
               style={{
