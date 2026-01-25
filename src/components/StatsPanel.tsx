@@ -88,6 +88,18 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
   const [isLayerComparisonMode, setIsLayerComparisonMode] = useState(false);
   const canCompare = areas.length >= 2;
 
+  // Track actual viewport height for iPad compatibility
+  const [viewportHeight, setViewportHeight] = useState(window.innerHeight);
+  useEffect(() => {
+    const updateHeight = () => setViewportHeight(window.innerHeight);
+    window.addEventListener('resize', updateHeight);
+    window.addEventListener('orientationchange', updateHeight);
+    return () => {
+      window.removeEventListener('resize', updateHeight);
+      window.removeEventListener('orientationchange', updateHeight);
+    };
+  }, []);
+
   // Compute effective area order (keeps existing order, adds new areas at end)
   const effectiveAreaOrder = useMemo(() => {
     const currentIds = areas.map((a: ComparisonArea) => a.id);
@@ -507,9 +519,12 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
     );
   }
 
+  const maxPanelHeight = viewportHeight - BOTTOM_OFFSET - TOP_CONTROLS_HEIGHT;
+
   return (
     <div
       ref={panelRef}
+      className="panel-stats"
       style={{
         position: 'absolute',
         bottom: `${BOTTOM_OFFSET}px`,
@@ -520,9 +535,9 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
         padding: '16px',
         borderRadius: '8px',
         width: size.width,
-        height: Math.min(size.height, window.innerHeight - BOTTOM_OFFSET - TOP_CONTROLS_HEIGHT),
+        height: Math.min(size.height, maxPanelHeight),
         minHeight: MIN_HEIGHT,
-        maxHeight: `calc(100vh - ${BOTTOM_OFFSET + TOP_CONTROLS_HEIGHT}px)`, // Leave room for top drawing controls and bottom buttons
+        maxHeight: maxPanelHeight,
         overflowY: 'auto',
         fontSize: '13px',
         boxSizing: 'border-box',

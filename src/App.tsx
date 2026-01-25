@@ -736,12 +736,8 @@ function App() {
   return (
     <div
       ref={containerRef}
-      className={isDrawing ? 'drawing-area' : ''}
+      className={`app-container ${isDrawing ? 'drawing-area' : ''}`}
       style={{
-        width: '100vw',
-        height: '100vh',
-        position: 'relative',
-        overflow: 'hidden',
         cursor: isDrawing ? 'crosshair' : 'auto',
         touchAction: isDrawing ? 'none' : 'auto',
       }}

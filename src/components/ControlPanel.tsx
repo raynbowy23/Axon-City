@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { useStore } from '../store/useStore';
 import { layerManifest } from '../data/layerManifest';
 import { DraggableLayerList } from './DraggableLayerList';
@@ -11,6 +12,17 @@ interface ControlPanelProps {
 }
 
 export function ControlPanel({ isMobile = false }: ControlPanelProps) {
+  // Track actual viewport height for iPad compatibility
+  const [viewportHeight, setViewportHeight] = useState(window.innerHeight);
+  useEffect(() => {
+    const updateHeight = () => setViewportHeight(window.innerHeight);
+    window.addEventListener('resize', updateHeight);
+    window.addEventListener('orientationchange', updateHeight);
+    return () => {
+      window.removeEventListener('resize', updateHeight);
+      window.removeEventListener('orientationchange', updateHeight);
+    };
+  }, []);
   const {
     explodedView,
     setExplodedView,
@@ -219,6 +231,7 @@ export function ControlPanel({ isMobile = false }: ControlPanelProps) {
   // Desktop layout
   return (
     <div
+      className="panel-control"
       style={{
         position: 'absolute',
         top: '10px',
@@ -229,7 +242,7 @@ export function ControlPanel({ isMobile = false }: ControlPanelProps) {
         padding: '16px',
         borderRadius: '8px',
         maxWidth: '280px',
-        maxHeight: 'calc(100vh - 70px)',
+        maxHeight: viewportHeight - 70,
         overflowY: 'auto',
         fontSize: '13px',
       }}
