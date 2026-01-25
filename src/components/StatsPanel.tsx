@@ -18,16 +18,14 @@ const MIN_HEIGHT = 150;
 const DEFAULT_WIDTH = 360;
 const COMPARISON_WIDTH = 500; // Default width when in comparison mode
 
-// Get default height capped at half viewport
+// Default height for panel
 function getDefaultHeight(): number {
-  const halfViewport = Math.floor(window.innerHeight / 2);
-  return Math.min(280, halfViewport - 100); // 100px buffer for bottom offset
+  return 280;
 }
 
-// Get max height capped at half viewport
+// Max height for panel (allow most of viewport)
 function getMaxHeight(): number {
-  const halfViewport = Math.floor(window.innerHeight / 2);
-  return Math.min(400, halfViewport);
+  return Math.max(400, Math.floor(window.innerHeight * 0.8));
 }
 
 // Top controls area height (logo + area selector + buttons + margin)
@@ -112,15 +110,6 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
     };
   }, []);
 
-  // Constrain size when viewport changes to ensure max height is never exceeded
-  useEffect(() => {
-    const maxHeight = getMaxHeight();
-    if (size.height > maxHeight) {
-      const newSize = { ...size, height: maxHeight };
-      setSize(newSize);
-      saveSize(newSize);
-    }
-  }, [viewportHeight, size.height]);
 
   // Compute effective area order (keeps existing order, adds new areas at end)
   const effectiveAreaOrder = useMemo(() => {
@@ -541,11 +530,8 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
     );
   }
 
-  // Cap max height at half viewport height
-  const maxPanelHeight = Math.min(
-    viewportHeight - BOTTOM_OFFSET - TOP_CONTROLS_HEIGHT,
-    Math.floor(viewportHeight / 2)
-  );
+  // Max height allows most of viewport (leaving space for controls)
+  const maxPanelHeight = viewportHeight - BOTTOM_OFFSET - TOP_CONTROLS_HEIGHT;
 
   return (
     <div
@@ -628,12 +614,12 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
             <button
               onClick={() => setViewMode('layers')}
               style={{
-                padding: '3px 6px',
+                padding: '4px 8px',
                 backgroundColor: viewMode === 'layers' ? '#4A90D9' : 'transparent',
                 color: 'white',
                 border: 'none',
                 cursor: 'pointer',
-                fontSize: '9px',
+                fontSize: '11px',
                 fontWeight: '500',
               }}
               title="Layer statistics"
@@ -643,12 +629,12 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
             <button
               onClick={() => setViewMode('analysis')}
               style={{
-                padding: '3px 6px',
+                padding: '4px 8px',
                 backgroundColor: viewMode === 'analysis' ? '#4A90D9' : 'transparent',
                 color: 'white',
                 border: 'none',
                 cursor: 'pointer',
-                fontSize: '9px',
+                fontSize: '11px',
                 fontWeight: '500',
               }}
               title="POI metrics and comparison"
@@ -660,13 +646,13 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
             <button
               onClick={toggleLayerComparisonMode}
               style={{
-                padding: '3px 6px',
+                padding: '4px 8px',
                 backgroundColor: isLayerComparisonMode ? '#22C55E' : 'rgba(34, 197, 94, 0.3)',
                 color: 'white',
                 border: 'none',
                 borderRadius: '4px',
                 cursor: 'pointer',
-                fontSize: '9px',
+                fontSize: '11px',
                 fontWeight: '500',
                 whiteSpace: 'nowrap',
               }}
@@ -678,13 +664,13 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
           <button
             onClick={() => setExtractedViewOpen(!isExtractedViewOpen)}
             style={{
-              padding: '3px 6px',
+              padding: '4px 8px',
               backgroundColor: isExtractedViewOpen ? '#4A90D9' : 'rgba(74, 144, 217, 0.3)',
               color: 'white',
               border: 'none',
               borderRadius: '4px',
               cursor: 'pointer',
-              fontSize: '9px',
+              fontSize: '11px',
               fontWeight: '500',
             }}
             title="Open extracted 3D view of selection"
@@ -695,13 +681,13 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
             <button
               onClick={() => setIsExportDialogOpen(true)}
               style={{
-                padding: '3px 6px',
+                padding: '4px 8px',
                 backgroundColor: 'rgba(75, 192, 192, 0.3)',
                 color: 'white',
                 border: 'none',
                 borderRadius: '4px',
                 cursor: 'pointer',
-                fontSize: '9px',
+                fontSize: '11px',
                 fontWeight: '500',
               }}
               title="Export report"
