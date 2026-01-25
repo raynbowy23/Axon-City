@@ -773,6 +773,10 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
           {areas.length > 0 && (
             <button
               onClick={() => setIsExportDialogOpen(true)}
+              onTouchEnd={(e) => {
+                e.preventDefault();
+                setIsExportDialogOpen(true);
+              }}
               style={{
                 padding: '4px 8px',
                 backgroundColor: 'rgba(75, 192, 192, 0.3)',
@@ -782,6 +786,7 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
                 cursor: 'pointer',
                 fontSize: '11px',
                 fontWeight: '500',
+                touchAction: 'manipulation',
               }}
               title="Export report"
             >

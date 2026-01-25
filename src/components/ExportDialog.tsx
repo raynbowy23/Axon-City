@@ -145,9 +145,14 @@ export function ExportDialog({ isOpen, onClose, areas, activeLayers }: ExportDia
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        zIndex: 1000,
+        zIndex: 2000,
       }}
       onClick={onClose}
+      onTouchEnd={(e) => {
+        if (e.target === e.currentTarget) {
+          onClose();
+        }
+      }}
     >
       <div
         style={{
@@ -159,8 +164,10 @@ export function ExportDialog({ isOpen, onClose, areas, activeLayers }: ExportDia
           maxHeight: '90vh',
           overflowY: 'auto',
           border: '1px solid rgba(255, 255, 255, 0.1)',
+          WebkitOverflowScrolling: 'touch',
         }}
         onClick={(e) => e.stopPropagation()}
+        onTouchEnd={(e) => e.stopPropagation()}
       >
         {/* Header */}
         <div
@@ -183,13 +190,18 @@ export function ExportDialog({ isOpen, onClose, areas, activeLayers }: ExportDia
           </h2>
           <button
             onClick={onClose}
+            onTouchEnd={(e) => {
+              e.preventDefault();
+              onClose();
+            }}
             style={{
               background: 'none',
               border: 'none',
               color: 'rgba(255, 255, 255, 0.6)',
               fontSize: '20px',
               cursor: 'pointer',
-              padding: '4px',
+              padding: '8px',
+              touchAction: 'manipulation',
             }}
           >
             ×
@@ -257,6 +269,10 @@ export function ExportDialog({ isOpen, onClose, areas, activeLayers }: ExportDia
               <button
                 key={opt.value}
                 onClick={() => setFormat(opt.value)}
+                onTouchEnd={(e) => {
+                  e.preventDefault();
+                  setFormat(opt.value);
+                }}
                 style={{
                   display: 'flex',
                   flexDirection: 'column',
@@ -275,6 +291,7 @@ export function ExportDialog({ isOpen, onClose, areas, activeLayers }: ExportDia
                   cursor: 'pointer',
                   textAlign: 'center',
                   transition: 'all 0.15s ease',
+                  touchAction: 'manipulation',
                 }}
               >
                 <span style={{ fontSize: '24px' }}>{opt.icon}</span>
@@ -464,6 +481,12 @@ export function ExportDialog({ isOpen, onClose, areas, activeLayers }: ExportDia
         {/* Export button */}
         <button
           onClick={handleExport}
+          onTouchEnd={(e) => {
+            if (!isExporting) {
+              e.preventDefault();
+              handleExport();
+            }
+          }}
           disabled={isExporting}
           style={{
             width: '100%',
@@ -482,6 +505,7 @@ export function ExportDialog({ isOpen, onClose, areas, activeLayers }: ExportDia
             justifyContent: 'center',
             gap: '8px',
             transition: 'all 0.15s ease',
+            touchAction: 'manipulation',
           }}
         >
           {isExporting ? (
