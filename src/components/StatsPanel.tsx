@@ -15,10 +15,20 @@ import type { LayerStats, LayerGroup, AnyLayerConfig, Polygon, ComparisonArea } 
 const MIN_WIDTH = 280;
 const MAX_WIDTH = 800; // Increased for comparison mode
 const MIN_HEIGHT = 150;
-const MAX_HEIGHT = 400; // Reduced to prevent overlap with top controls
 const DEFAULT_WIDTH = 360;
-const DEFAULT_HEIGHT = 280; // Reduced default height
 const COMPARISON_WIDTH = 500; // Default width when in comparison mode
+
+// Get default height capped at half viewport
+function getDefaultHeight(): number {
+  const halfViewport = Math.floor(window.innerHeight / 2);
+  return Math.min(280, halfViewport - 100); // 100px buffer for bottom offset
+}
+
+// Get max height capped at half viewport
+function getMaxHeight(): number {
+  const halfViewport = Math.floor(window.innerHeight / 2);
+  return Math.min(400, halfViewport);
+}
 
 // Top controls area height (logo + area selector + buttons + margin)
 const TOP_CONTROLS_HEIGHT = 200;
@@ -36,19 +46,21 @@ interface StatsPanelProps {
 }
 
 function loadSavedSize(): PanelSize {
+  const maxHeight = getMaxHeight();
+  const defaultHeight = getDefaultHeight();
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
       const parsed = JSON.parse(saved);
       return {
         width: Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, parsed.width || DEFAULT_WIDTH)),
-        height: Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, parsed.height || DEFAULT_HEIGHT)),
+        height: Math.min(maxHeight, Math.max(MIN_HEIGHT, parsed.height || defaultHeight)),
       };
     }
   } catch {
     // Ignore parse errors
   }
-  return { width: DEFAULT_WIDTH, height: DEFAULT_HEIGHT };
+  return { width: DEFAULT_WIDTH, height: defaultHeight };
 }
 
 function saveSize(size: PanelSize): void {
@@ -99,6 +111,16 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
       window.removeEventListener('orientationchange', updateHeight);
     };
   }, []);
+
+  // Constrain size when viewport changes to ensure max height is never exceeded
+  useEffect(() => {
+    const maxHeight = getMaxHeight();
+    if (size.height > maxHeight) {
+      const newSize = { ...size, height: maxHeight };
+      setSize(newSize);
+      saveSize(newSize);
+    }
+  }, [viewportHeight, size.height]);
 
   // Compute effective area order (keeps existing order, adds new areas at end)
   const effectiveAreaOrder = useMemo(() => {
@@ -158,7 +180,7 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
     }
 
     if (resizeDirection === 'top' || resizeDirection === 'corner') {
-      newHeight = Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, startPosRef.current.height + deltaY));
+      newHeight = Math.min(getMaxHeight(), Math.max(MIN_HEIGHT, startPosRef.current.height + deltaY));
     }
 
     setSize({ width: newWidth, height: newHeight });
@@ -519,7 +541,11 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
     );
   }
 
-  const maxPanelHeight = viewportHeight - BOTTOM_OFFSET - TOP_CONTROLS_HEIGHT;
+  // Cap max height at half viewport height
+  const maxPanelHeight = Math.min(
+    viewportHeight - BOTTOM_OFFSET - TOP_CONTROLS_HEIGHT,
+    Math.floor(viewportHeight / 2)
+  );
 
   return (
     <div
