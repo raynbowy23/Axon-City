@@ -15,6 +15,7 @@ import { MapControlsMenu } from './components/MapControlsMenu';
 import { AreaSelector } from './components/AreaSelector';
 import { EditSelectionInfo } from './components/EditSelectionInfo';
 import { ShareButton } from './components/ShareButton';
+import { ExportDialog } from './components/ExportDialog';
 import { DrawingTool, type ShapeInfo } from './components/DrawingTool';
 import { usePolygonDrawing } from './hooks/usePolygonDrawing';
 import { useIsMobile, useIsTablet } from './hooks/useMediaQuery';
@@ -195,6 +196,9 @@ function App() {
 
   // State to track if we're adding a new area or editing existing
   const [isAddingNewArea, setIsAddingNewArea] = useState(false);
+
+  // Mobile export dialog state
+  const [isMobileExportOpen, setIsMobileExportOpen] = useState(false);
 
   // Handle mobile tab changes
   const handleMobileTabChange = useCallback((tab: MobileTab) => {
@@ -1147,6 +1151,32 @@ function App() {
                           {areas.length > 1 ? 'Clear All' : 'Clear'}
                         </button>
                         <ShareButton disabled={areas.length === 0} isMobile />
+                        {areas.length > 0 && (
+                          <button
+                            onClick={() => setIsMobileExportOpen(true)}
+                            style={{
+                              padding: '12px 20px',
+                              backgroundColor: 'rgba(75, 192, 192, 0.9)',
+                              color: 'white',
+                              border: 'none',
+                              borderRadius: '8px',
+                              cursor: 'pointer',
+                              fontSize: '14px',
+                              fontWeight: '600',
+                              minHeight: '44px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '8px',
+                            }}
+                          >
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                              <polyline points="7 10 12 15 17 10" />
+                              <line x1="12" y1="15" x2="12" y2="3" />
+                            </svg>
+                            Export
+                          </button>
+                        )}
                       </>
                     )}
                   </div>
@@ -1222,6 +1252,14 @@ function App() {
       <ExtractedView isMobile={isMobile} />
       <DataInputPanel />
       <ExternalIndicesPanel isMobile={isMobile} />
+
+      {/* Mobile Export Dialog */}
+      <ExportDialog
+        isOpen={isMobileExportOpen}
+        onClose={() => setIsMobileExportOpen(false)}
+        areas={areas}
+        activeLayers={activeLayers}
+      />
 
       {/* Loading animation keyframes */}
       <style>
