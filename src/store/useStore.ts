@@ -233,7 +233,8 @@ export const useStore = create<AppState>((set) => ({
       }
 
       const areaIndex = state.areas.length;
-      newAreaId = `area-${Date.now()}`;
+      // Use timestamp + random string to ensure unique IDs even when called rapidly
+      newAreaId = `area-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
       const newArea: ComparisonArea = {
         id: newAreaId,

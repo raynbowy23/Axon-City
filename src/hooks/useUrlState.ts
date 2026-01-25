@@ -45,6 +45,7 @@ export function useUrlState(onAreasRestored?: (polygons: { name: string; polygon
   const updateTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastUrlRef = useRef<string>('');
   const areasRestoredRef = useRef(false);
+  const isRestoringRef = useRef(false); // Flag to prevent URL updates during restoration
 
   // Initialize from URL on mount
   useEffect(() => {
@@ -89,6 +90,7 @@ export function useUrlState(onAreasRestored?: (polygons: { name: string; polygon
     const currentAreas = useStore.getState().areas;
     if (urlState.areas.length > 0 && !areasRestoredRef.current && currentAreas.length === 0) {
       areasRestoredRef.current = true;
+      isRestoringRef.current = true; // Prevent URL updates during restoration
 
       const restoredPolygons: { name: string; polygon: Polygon }[] = [];
 
@@ -139,13 +141,18 @@ export function useUrlState(onAreasRestored?: (polygons: { name: string; polygon
           onAreasRestored(restoredPolygons);
         }, 100);
       }
+
+      // Clear restoration flag after state has propagated
+      setTimeout(() => {
+        isRestoringRef.current = false;
+      }, 200);
     }
   }, [setViewState, applyStory, setActiveLayers, setExplodedView, setMapStyle, addArea, renameArea, onAreasRestored]);
 
   // Update URL when state changes (debounced)
   useEffect(() => {
-    // Skip during initialization
-    if (!isInitializedRef.current) return;
+    // Skip during initialization or restoration
+    if (!isInitializedRef.current || isRestoringRef.current) return;
 
     // Clear pending update
     if (updateTimeoutRef.current) {

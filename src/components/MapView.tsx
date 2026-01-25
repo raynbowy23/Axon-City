@@ -905,16 +905,15 @@ export function MapView() {
 
     // Areas are rendered via areasLayer (separate useMemo) - added at the end
 
-    // Selection polygon preview during drawing
-    // Show when: drawing mode with 3+ points, OR when there's a selection but no areas yet
+    // Selection polygon preview during drawing or for active area
     if (selectionPolygon) {
-      // Check if this polygon is already in the areas array (to avoid duplicate rendering)
-      const isAlreadyAnArea = areas.some(
+      // Check if this polygon is already in the areas array
+      const matchingArea = areas.find(
         (area: ComparisonArea) => area.polygon.id === selectionPolygon.id
       );
 
-      if (!isAlreadyAnArea) {
-        // Determine color based on what area number this will be
+      if (!matchingArea) {
+        // Not yet an area - show preview with blue color
         const nextAreaIndex = areas.length;
         const previewColor = nextAreaIndex < 4
           ? [59, 130, 246] // Blue for next area
@@ -924,11 +923,30 @@ export function MapView() {
           new PolygonLayer({
             id: 'selection-polygon-preview',
             data: [selectionPolygon.geometry],
-            // GeoJSON Polygon coordinates is array of rings, we need the exterior ring [0]
             getPolygon: (d: Polygon) => d.coordinates[0],
             getFillColor: [...previewColor, 50] as [number, number, number, number],
             getLineColor: [...previewColor, 255] as [number, number, number, number],
             getLineWidth: 3,
+            lineWidthUnits: 'pixels',
+            filled: true,
+            stroked: true,
+            pickable: false,
+          })
+        );
+      } else {
+        // This polygon belongs to an area - render it with the area's color
+        // This ensures the active area polygon is always visible even if areasLayer has issues
+        const [r, g, b] = matchingArea.color;
+        const isActive = matchingArea.id === activeAreaId;
+
+        layers.push(
+          new PolygonLayer({
+            id: 'active-area-polygon',
+            data: [selectionPolygon.geometry],
+            getPolygon: (d: Polygon) => d.coordinates[0],
+            getFillColor: [r, g, b, isActive ? 80 : 50] as [number, number, number, number],
+            getLineColor: [r, g, b, 255] as [number, number, number, number],
+            getLineWidth: isActive ? 5 : 3,
             lineWidthUnits: 'pixels',
             filled: true,
             stroked: true,

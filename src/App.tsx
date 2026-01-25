@@ -31,7 +31,7 @@ import {
   isBboxWithin,
   expandBbox,
 } from './utils/geometryUtils';
-import type { CustomLayerConfig, SelectionPolygon, LayerConfig } from './types';
+import type { CustomLayerConfig, SelectionPolygon, LayerConfig, ComparisonArea } from './types';
 import { MAX_COMPARISON_AREAS } from './types';
 import './App.css';
 
@@ -341,6 +341,39 @@ function App() {
   // Track the last active area to detect area switches vs polygon edits
   const lastActiveAreaIdRef = useRef<string | null>(null);
   const isFetchingRef = useRef(false);
+
+  // Sync selectionPolygon with active area and trigger fetch if needed
+  // (fixes React Strict Mode double-mount issue where selectionPolygon becomes null)
+  useEffect(() => {
+    if (activeAreaId && areas.length > 0) {
+      const activeArea = areas.find((a: ComparisonArea) => a.id === activeAreaId);
+      const currentSelectionPolygon = useStore.getState().selectionPolygon;
+
+      if (activeArea) {
+        // Sync selectionPolygon if it's null
+        if (!currentSelectionPolygon) {
+          useStore.getState().setSelectionPolygon(activeArea.polygon);
+        }
+
+        // Trigger data fetch if area has no data (happens after URL restoration with Strict Mode)
+        if (activeArea.layerData.size === 0 && !isLoading && !isFetchingRef.current) {
+          const { activeLayers: currentActiveLayers } = useStore.getState();
+          if (currentActiveLayers.length > 0) {
+            isFetchingRef.current = true;
+            const shapeInfo: ShapeInfo = {
+              polygon: activeArea.polygon.geometry as Polygon,
+              shapeType: activeArea.polygon.shapeType || 'polygon',
+              shapeParams: activeArea.polygon.shapeParams,
+            };
+            handlePolygonComplete(shapeInfo, activeAreaId)
+              .finally(() => {
+                isFetchingRef.current = false;
+              });
+          }
+        }
+      }
+    }
+  }, [activeAreaId, areas, isLoading, handlePolygonComplete]);
 
   // Helper function to re-clip existing data without fetching
   const reClipExistingData = useCallback(
