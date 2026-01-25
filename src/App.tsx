@@ -10,9 +10,8 @@ import { DataInputPanel } from './components/DataInputPanel';
 import { ExternalIndicesPanel } from './components/ExternalIndicesPanel';
 import { BottomSheet, type BottomSheetState } from './components/BottomSheet';
 import { MobileNav, type MobileTab } from './components/MobileNav';
-import { MapStyleSwitcher } from './components/MapStyleSwitcher';
-import { MapLanguageSwitcher } from './components/MapLanguageSwitcher';
 import { MapSettingsPanel } from './components/MapSettingsPanel';
+import { MapControlsMenu } from './components/MapControlsMenu';
 import { AreaSelector } from './components/AreaSelector';
 import { EditSelectionInfo } from './components/EditSelectionInfo';
 import { ShareButton } from './components/ShareButton';
@@ -905,37 +904,13 @@ function App() {
               bottom: '10px',
               left: '10px',
               zIndex: 1000,
-              display: 'flex',
-              gap: '8px',
             }}
           >
-            <MapStyleSwitcher />
-            <MapLanguageSwitcher />
-            <ShareButton disabled={areas.length === 0} />
-            <button
-              onClick={() => setIndexPanelOpen(!isIndexPanelOpen)}
-              title="Urban Metrics & Indices"
-              style={{
-                padding: '8px 12px',
-                backgroundColor: isIndexPanelOpen ? 'rgba(74, 144, 217, 0.3)' : 'rgba(0, 0, 0, 0.7)',
-                color: isIndexPanelOpen ? '#4A90D9' : 'white',
-                border: isIndexPanelOpen ? '1px solid #4A90D9' : '1px solid rgba(255, 255, 255, 0.2)',
-                borderRadius: '6px',
-                cursor: 'pointer',
-                fontSize: '12px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-              }}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M3 3v18h18" />
-                <path d="M18 17V9" />
-                <path d="M13 17V5" />
-                <path d="M8 17v-3" />
-              </svg>
-              Metrics
-            </button>
+            <MapControlsMenu
+              onMetricsClick={() => setIndexPanelOpen(!isIndexPanelOpen)}
+              shareDisabled={areas.length === 0}
+              metricsActive={isIndexPanelOpen}
+            />
           </div>
 
           {/* Footer credit - bottom center */}

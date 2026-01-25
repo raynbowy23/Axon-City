@@ -13,6 +13,7 @@ import { getStoryById } from '../data/storyPresets';
 interface ShareButtonProps {
   disabled?: boolean;
   isMobile?: boolean;
+  variant?: 'default' | 'menu';
 }
 
 // Check if native share is available (with file support)
@@ -22,7 +23,7 @@ function canUseNativeShare(): boolean {
          typeof navigator.canShare === 'function';
 }
 
-export function ShareButton({ disabled = false, isMobile = false }: ShareButtonProps) {
+export function ShareButton({ disabled = false, isMobile = false, variant = 'default' }: ShareButtonProps) {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isSharing, setIsSharing] = useState(false);
 
@@ -103,7 +104,20 @@ export function ShareButton({ disabled = false, isMobile = false }: ShareButtonP
     }
   }, [disabled, isMobile, handleNativeShare]);
 
-  const buttonStyle: React.CSSProperties = {
+  const buttonStyle: React.CSSProperties = variant === 'menu' ? {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    padding: '8px 12px',
+    backgroundColor: disabled ? 'rgba(255,255,255,0.05)' : 'rgba(34, 197, 94, 0.2)',
+    color: disabled ? 'rgba(255,255,255,0.3)' : 'white',
+    border: 'none',
+    borderRadius: '6px',
+    cursor: disabled ? 'not-allowed' : 'pointer',
+    fontSize: '12px',
+    fontWeight: '500',
+    width: '100%',
+  } : {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -129,13 +143,13 @@ export function ShareButton({ disabled = false, isMobile = false }: ShareButtonP
         disabled={disabled || isSharing}
         style={buttonStyle}
         title={disabled ? 'Select an area to share' : 'Share this view'}
-        onMouseEnter={(e) => {
+        onMouseEnter={variant === 'menu' ? undefined : (e) => {
           if (!disabled && !isSharing) {
             e.currentTarget.style.backgroundColor = 'rgba(74, 144, 217, 1)';
             e.currentTarget.style.transform = 'scale(1.02)';
           }
         }}
-        onMouseLeave={(e) => {
+        onMouseLeave={variant === 'menu' ? undefined : (e) => {
           if (!disabled) {
             e.currentTarget.style.backgroundColor = 'rgba(74, 144, 217, 0.9)';
             e.currentTarget.style.transform = 'scale(1)';
