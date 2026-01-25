@@ -21,7 +21,6 @@ export function ExternalIndicesPanel({ isMobile = false }: ExternalIndicesPanelP
     isIndexPanelOpen,
     setIndexPanelOpen,
     areas,
-    layerData,
     externalIndices,
     addExternalIndex,
     removeExternalIndex,
@@ -145,17 +144,6 @@ export function ExternalIndicesPanel({ isMobile = false }: ExternalIndicesPanelP
       setIsImporting(false);
     }
   }, [importConfig, addExternalIndex]);
-
-  const getConfidenceColor = (confidence: 'high' | 'medium' | 'low') => {
-    switch (confidence) {
-      case 'high':
-        return '#4CAF50';
-      case 'medium':
-        return '#FFC107';
-      case 'low':
-        return '#FF5722';
-    }
-  };
 
   const getInterpretationColor = (level: 'low' | 'medium' | 'high') => {
     switch (level) {
@@ -643,7 +631,6 @@ export function ExternalIndicesPanel({ isMobile = false }: ExternalIndicesPanelP
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                             {metricValues.map(({ area, metric }) => {
                               if (!metric) return null;
-                              const interpretation = getMetricInterpretation(metric.value, metric.metricId);
                               const isBest = values.length > 1 && metric.value === maxValue;
                               const isWorst = values.length > 1 && metric.value === minValue && minValue !== maxValue;
 

@@ -1,4 +1,3 @@
-import * as turf from '@turf/turf';
 import type {
   ExternalIndex,
   DerivedMetricType,
@@ -6,9 +5,7 @@ import type {
   DerivedMetricValue,
   IndexImportConfig,
   LayerData,
-  FeatureCollection,
   Polygon,
-  Feature,
 } from '../types';
 
 // Derived metric definitions
@@ -421,7 +418,7 @@ const TRANSIT_BENCHMARKS = {
 function calculateTransitCoverage(
   layerData: Map<string, LayerData>,
   areaKm2: number,
-  polygon?: Polygon
+  _polygon?: Polygon
 ): { value: number; confidence: 'high' | 'medium' | 'low'; breakdown: Record<string, number> } {
   const breakdown: Record<string, number> = {};
 
