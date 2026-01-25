@@ -571,10 +571,10 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
         />
       </div>
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-        <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
+        <div style={{ flexShrink: 0 }}>
           <h3 style={{ margin: 0, fontSize: '14px' }}>
-            {viewMode === 'analysis' ? 'Analysis' : isLayerComparisonMode ? 'Area Comparison' : 'Selection Statistics'}
+            {viewMode === 'analysis' ? 'Analysis' : isLayerComparisonMode ? 'Area Comparison' : 'Stats'}
           </h3>
           {!isLayerComparisonMode && activeArea && viewMode === 'layers' && (
             <div
@@ -589,7 +589,7 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
             </div>
           )}
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
           {/* View mode toggle */}
           <div
             style={{
@@ -602,12 +602,12 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
             <button
               onClick={() => setViewMode('layers')}
               style={{
-                padding: '4px 8px',
+                padding: '3px 6px',
                 backgroundColor: viewMode === 'layers' ? '#4A90D9' : 'transparent',
                 color: 'white',
                 border: 'none',
                 cursor: 'pointer',
-                fontSize: '10px',
+                fontSize: '9px',
                 fontWeight: '500',
               }}
               title="Layer statistics"
@@ -617,12 +617,12 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
             <button
               onClick={() => setViewMode('analysis')}
               style={{
-                padding: '4px 8px',
+                padding: '3px 6px',
                 backgroundColor: viewMode === 'analysis' ? '#4A90D9' : 'transparent',
                 color: 'white',
                 border: 'none',
                 cursor: 'pointer',
-                fontSize: '10px',
+                fontSize: '9px',
                 fontWeight: '500',
               }}
               title="POI metrics and comparison"
@@ -634,14 +634,15 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
             <button
               onClick={toggleLayerComparisonMode}
               style={{
-                padding: '4px 8px',
+                padding: '3px 6px',
                 backgroundColor: isLayerComparisonMode ? '#22C55E' : 'rgba(34, 197, 94, 0.3)',
                 color: 'white',
                 border: 'none',
                 borderRadius: '4px',
                 cursor: 'pointer',
-                fontSize: '10px',
+                fontSize: '9px',
                 fontWeight: '500',
+                whiteSpace: 'nowrap',
               }}
               title={isLayerComparisonMode ? 'Show single area' : 'Compare all areas'}
             >
@@ -651,30 +652,30 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
           <button
             onClick={() => setExtractedViewOpen(!isExtractedViewOpen)}
             style={{
-              padding: '4px 8px',
+              padding: '3px 6px',
               backgroundColor: isExtractedViewOpen ? '#4A90D9' : 'rgba(74, 144, 217, 0.3)',
               color: 'white',
               border: 'none',
               borderRadius: '4px',
               cursor: 'pointer',
-              fontSize: '10px',
+              fontSize: '9px',
               fontWeight: '500',
             }}
             title="Open extracted 3D view of selection"
           >
-            {isExtractedViewOpen ? 'Hide 3D' : '3D'}
+            3D
           </button>
           {areas.length > 0 && (
             <button
               onClick={() => setIsExportDialogOpen(true)}
               style={{
-                padding: '4px 8px',
+                padding: '3px 6px',
                 backgroundColor: 'rgba(75, 192, 192, 0.3)',
                 color: 'white',
                 border: 'none',
                 borderRadius: '4px',
                 cursor: 'pointer',
-                fontSize: '10px',
+                fontSize: '9px',
                 fontWeight: '500',
               }}
               title="Export report"
