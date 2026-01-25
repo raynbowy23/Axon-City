@@ -73,12 +73,59 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
   // View mode - layer stats or analysis (metrics/comparison)
   const [viewMode, setViewMode] = useState<'layers' | 'analysis'>('layers');
 
+  // Sort strategy for analysis comparison view
+  const [sortStrategy, setSortStrategy] = useState<'manual' | 'name' | 'size'>('manual');
+  const [areaOrder, setAreaOrder] = useState<string[]>([]);
+
   // Export dialog state
   const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
 
   // Comparison mode for layers view - show all areas side by side
   const [isLayerComparisonMode, setIsLayerComparisonMode] = useState(false);
   const canCompare = areas.length >= 2;
+
+  // Keep area order in sync with areas list
+  useEffect(() => {
+    setAreaOrder((prev) => {
+      const currentIds = areas.map((a: ComparisonArea) => a.id);
+      // Add any new areas that aren't in the order
+      const newOrder = [...prev.filter((id) => currentIds.includes(id))];
+      const missing = currentIds.filter((id: string) => !newOrder.includes(id));
+      return [...newOrder, ...missing];
+    });
+  }, [areas]);
+
+  // Compute sorted areas based on strategy
+  const sortedAreas = useMemo(() => {
+    if (sortStrategy === 'name') {
+      return [...areas].sort((a: ComparisonArea, b: ComparisonArea) =>
+        a.name.localeCompare(b.name)
+      );
+    }
+    if (sortStrategy === 'size') {
+      return [...areas].sort((a: ComparisonArea, b: ComparisonArea) =>
+        b.polygon.area - a.polygon.area // Largest first
+      );
+    }
+    // Manual order
+    return areaOrder
+      .map((id) => areas.find((a: ComparisonArea) => a.id === id))
+      .filter((a): a is ComparisonArea => a !== undefined);
+  }, [areas, sortStrategy, areaOrder]);
+
+  // Move area up/down in manual order
+  const moveArea = useCallback((areaId: string, direction: 'up' | 'down') => {
+    setAreaOrder((prev) => {
+      const idx = prev.indexOf(areaId);
+      if (idx === -1) return prev;
+      const newIdx = direction === 'up' ? idx - 1 : idx + 1;
+      if (newIdx < 0 || newIdx >= prev.length) return prev;
+      const newOrder = [...prev];
+      [newOrder[idx], newOrder[newIdx]] = [newOrder[newIdx], newOrder[idx]];
+      return newOrder;
+    });
+    setSortStrategy('manual');
+  }, []);
   const panelRef = useRef<HTMLDivElement>(null);
   const startPosRef = useRef<{ x: number; y: number; width: number; height: number }>({ x: 0, y: 0, width: 0, height: 0 });
 
@@ -674,7 +721,107 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
           {/* Show ComparisonTable for multiple areas, MetricsPanel for single */}
           {canCompare ? (
             <>
+              {/* Sort strategy and area reorder controls */}
+              <div style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '8px',
+                padding: '8px',
+                backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                borderRadius: '6px',
+              }}>
+                {/* Sort strategy buttons */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.6)' }}>Sort:</span>
+                  <div style={{ display: 'flex', gap: '4px' }}>
+                    {(['manual', 'name', 'size'] as const).map((strategy) => (
+                      <button
+                        key={strategy}
+                        onClick={() => setSortStrategy(strategy)}
+                        style={{
+                          padding: '3px 8px',
+                          fontSize: '10px',
+                          borderRadius: '4px',
+                          border: 'none',
+                          cursor: 'pointer',
+                          backgroundColor: sortStrategy === strategy ? '#4A90D9' : 'rgba(255,255,255,0.1)',
+                          color: sortStrategy === strategy ? 'white' : 'rgba(255,255,255,0.7)',
+                        }}
+                      >
+                        {strategy === 'manual' ? 'Manual' : strategy === 'name' ? 'Name' : 'Size'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Area reorder list (manual mode) */}
+                {sortStrategy === 'manual' && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    {sortedAreas.map((area, idx) => (
+                      <div
+                        key={area.id}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          padding: '4px 6px',
+                          backgroundColor: 'rgba(255,255,255,0.05)',
+                          borderRadius: '4px',
+                          borderLeft: `3px solid rgba(${area.color.slice(0, 3).join(',')}, 0.8)`,
+                        }}
+                      >
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '1px' }}>
+                          <button
+                            onClick={() => moveArea(area.id, 'up')}
+                            disabled={idx === 0}
+                            style={{
+                              padding: '0 4px',
+                              fontSize: '8px',
+                              lineHeight: '10px',
+                              border: 'none',
+                              borderRadius: '2px',
+                              cursor: idx === 0 ? 'not-allowed' : 'pointer',
+                              backgroundColor: idx === 0 ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.15)',
+                              color: idx === 0 ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.8)',
+                            }}
+                          >
+                            ▲
+                          </button>
+                          <button
+                            onClick={() => moveArea(area.id, 'down')}
+                            disabled={idx === sortedAreas.length - 1}
+                            style={{
+                              padding: '0 4px',
+                              fontSize: '8px',
+                              lineHeight: '10px',
+                              border: 'none',
+                              borderRadius: '2px',
+                              cursor: idx === sortedAreas.length - 1 ? 'not-allowed' : 'pointer',
+                              backgroundColor: idx === sortedAreas.length - 1 ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.15)',
+                              color: idx === sortedAreas.length - 1 ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.8)',
+                            }}
+                          >
+                            ▼
+                          </button>
+                        </div>
+                        <span style={{
+                          fontSize: '11px',
+                          color: `rgba(${area.color.slice(0, 3).join(',')}, 1)`,
+                          fontWeight: '500',
+                        }}>
+                          {area.name}
+                        </span>
+                        <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.5)', marginLeft: 'auto' }}>
+                          {formatAreaCompact(area.polygon.area)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               <ComparisonTable
+                sortedAreas={sortedAreas}
                 onExport={() => {
                   const exportAreas = areas.map((area: ComparisonArea) => ({
                     name: area.name,
@@ -1157,4 +1304,18 @@ function formatLength(meters: number): string {
     return `${meters.toFixed(0)} m (${feet.toFixed(0)} ft)`;
   }
   return `${(meters / 1000).toFixed(2)} km (${miles.toFixed(2)} mi)`;
+}
+
+// Compact area format for reorder list
+function formatAreaCompact(areaM2: number): string {
+  const areaKm2 = areaM2 / 1_000_000;
+  const areaHa = areaKm2 * 100;
+
+  if (areaKm2 < 0.01) {
+    return `${areaM2.toFixed(0)} m²`;
+  }
+  if (areaKm2 < 1) {
+    return `${areaHa.toFixed(1)} ha`;
+  }
+  return `${areaKm2.toFixed(2)} km²`;
 }

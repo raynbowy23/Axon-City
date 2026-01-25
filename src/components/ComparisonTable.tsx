@@ -16,6 +16,8 @@ import type { ComparisonArea, NormalizationMode } from '../types';
 
 interface ComparisonTableProps {
   onExport?: () => void;
+  /** Optional sorted areas - if not provided, uses store areas */
+  sortedAreas?: ComparisonArea[];
 }
 
 interface MetricRow {
@@ -35,8 +37,10 @@ interface AreaMetrics {
   metrics: ReturnType<typeof calculatePOIMetrics>;
 }
 
-export function ComparisonTable({ onExport }: ComparisonTableProps) {
-  const { areas } = useStore();
+export function ComparisonTable({ onExport, sortedAreas }: ComparisonTableProps) {
+  const { areas: storeAreas } = useStore();
+  // Use sorted areas if provided, otherwise fall back to store areas
+  const areas = sortedAreas || storeAreas;
   const [normalization, setNormalization] = useState<NormalizationMode>('per_km2');
 
   // Calculate metrics for each area

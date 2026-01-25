@@ -534,7 +534,7 @@ export function ExternalIndicesPanel({ isMobile = false }: ExternalIndicesPanelP
                       }}
                     >
                       <div style={{ fontSize: '10px', color: 'rgba(255, 255, 255, 0.5)', marginBottom: '4px' }}>
-                        Area Order (drag or use arrows to reorder)
+                        Area Order (use arrows to reorder)
                       </div>
                       {areaMetrics.map(({ area }, index) => (
                         <div
