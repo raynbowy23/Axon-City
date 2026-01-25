@@ -103,8 +103,6 @@ function decodePolyline(encoded: string): number[][] {
 function encodeAreas(areas: EncodedArea[]): string {
   if (areas.length === 0) return '';
 
-  console.log('[urlState] Encoding areas:', areas.length, areas.map(a => a.name));
-
   return areas.map((area) => {
     // Use short name or first letter + number
     const shortName = area.name.length <= 2 ? area.name : area.name.charAt(0);
@@ -119,11 +117,8 @@ function encodeAreas(areas: EncodedArea[]): string {
 function decodeAreas(encoded: string): EncodedArea[] {
   if (!encoded) return [];
 
-  console.log('[urlState] Decoding areas from:', encoded);
-
   try {
     const parts = encoded.split('|');
-    console.log('[urlState] Found', parts.length, 'area parts');
 
     return parts.map((part, index) => {
       // Split only on the first ~ (polyline can contain ~ characters)
@@ -131,7 +126,6 @@ function decodeAreas(encoded: string): EncodedArea[] {
       const name = sepIndex > 0 ? part.substring(0, sepIndex) : '';
       const polyline = sepIndex > 0 ? part.substring(sepIndex + 1) : part;
       const coords = decodePolyline(polyline || '');
-      console.log('[urlState] Decoded area', index, ':', name, 'with', coords.length, 'coordinates');
       return {
         name: name || `Area ${String.fromCharCode(65 + index)}`,
         coordinates: coords,
@@ -273,8 +267,6 @@ export function createShareableState(
   explodedView: boolean,
   mapStyle: MapStyleType
 ): ShareableState {
-  console.log('[urlState] createShareableState called with areas:', areas.length, areas.map(a => a.name));
-
   const encodedAreas: EncodedArea[] = areas.map((area) => {
     // Get coordinates from polygon
     const polygon = area.polygon.geometry as Polygon;
