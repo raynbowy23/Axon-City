@@ -1596,13 +1596,20 @@ export function MapView() {
   // Memoize controller to prevent DeckGL re-initialization
   // Enable two-finger pitch control like Google Maps
   const controller = useMemo(() => ({
+    // Mouse controls
     dragRotate: draggingVertexIndex === null,
-    touchRotate: draggingVertexIndex === null,
-    touchZoom: draggingVertexIndex === null,
-    touchPitch: draggingVertexIndex === null, // Two-finger vertical drag to tilt
-    keyboard: true,
     dragPan: draggingVertexIndex === null,
-    inertia: true, // Smooth momentum after gestures
+    scrollZoom: true,
+    doubleClickZoom: true,
+    // Touch controls (iPad/mobile)
+    touchRotate: draggingVertexIndex === null, // Two-finger rotate (bearing)
+    touchZoom: draggingVertexIndex === null,   // Pinch to zoom
+    touchPan: draggingVertexIndex === null,    // Single-finger drag to pan
+    touchPitch: draggingVertexIndex === null,  // Two-finger vertical drag to tilt
+    // General settings
+    keyboard: true,
+    inertia: true,
+    inertiaEasing: (t: number) => 1 - Math.pow(1 - t, 3), // Smooth deceleration
   }), [draggingVertexIndex]);
 
   // Memoize getCursor function

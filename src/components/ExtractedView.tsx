@@ -267,59 +267,70 @@ const DeckGLView = memo(function DeckGLView({
     const touch = e.touches[0];
     const currentViewState = viewStateRef.current;
 
-    // Handle two-finger gestures: pinch-to-zoom and pan
+    // Handle two-finger gestures: pinch-to-zoom, rotate (twist), and tilt
     if (e.touches.length >= 2 && touchStartRef.current.distance !== undefined) {
       const currentDistance = getTouchDistance(e.touches as unknown as React.TouchList);
       const currentMidpoint = getTouchMidpoint(e.touches as unknown as React.TouchList);
+      const currentAngle = getTouchAngle(e.touches as unknown as React.TouchList);
 
       // Pinch-to-zoom
       const distanceDelta = currentDistance - touchStartRef.current.distance;
       const zoomDelta = distanceDelta * 0.008;
 
-      // Two-finger pan (move midpoint)
-      let newTarget = currentViewState.target;
+      // Two-finger twist to rotate orbit
+      let newRotationOrbit = currentViewState.rotationOrbit;
+      if (touchStartRef.current.angle !== undefined) {
+        const angleDelta = currentAngle - touchStartRef.current.angle;
+        // Normalize angle delta to handle wrap-around
+        const normalizedAngleDelta = ((angleDelta + 180) % 360) - 180;
+        newRotationOrbit = currentViewState.rotationOrbit - normalizedAngleDelta;
+      }
+
+      // Two-finger vertical movement to tilt (rotationX)
+      let newRotationX = currentViewState.rotationX;
       if (touchStartRef.current.midpoint) {
-        const mdx = currentMidpoint.x - touchStartRef.current.midpoint.x;
         const mdy = currentMidpoint.y - touchStartRef.current.midpoint.y;
-
-        const angle = (currentViewState.rotationOrbit * Math.PI) / 180;
-        const cosA = Math.cos(angle);
-        const sinA = Math.sin(angle);
-        const panScale = Math.pow(2, -currentViewState.zoom) * 2;
-        const worldDx = (mdx * cosA - mdy * sinA) * panScale;
-        const worldDy = (mdx * sinA + mdy * cosA) * panScale;
-
-        newTarget = [
-          currentViewState.target[0] - worldDx,
-          currentViewState.target[1] + worldDy,
-          currentViewState.target[2],
-        ] as [number, number, number];
+        newRotationX = Math.max(0, Math.min(90, currentViewState.rotationX - mdy * 0.3));
       }
 
       onViewStateChangeRef.current({
         viewState: {
           ...currentViewState,
           zoom: Math.max(-2, Math.min(5, currentViewState.zoom + zoomDelta)),
-          target: newTarget,
+          rotationOrbit: newRotationOrbit,
+          rotationX: newRotationX,
         },
       });
 
       touchStartRef.current.distance = currentDistance;
       touchStartRef.current.midpoint = currentMidpoint;
+      touchStartRef.current.angle = currentAngle;
       return;
     }
 
-    // Single finger: rotate (orbit) horizontally and tilt vertically
-    // This provides intuitive one-finger rotation control
+    // Single finger: pan (move target) - matches desktop drag behavior
     const dx = touch.clientX - lastMouseRef.current.x;
     const dy = touch.clientY - lastMouseRef.current.y;
     lastMouseRef.current = { x: touch.clientX, y: touch.clientY };
 
+    // Convert screen movement to world movement based on current rotation
+    const angle = (currentViewState.rotationOrbit * Math.PI) / 180;
+    const cosA = Math.cos(angle);
+    const sinA = Math.sin(angle);
+
+    // Scale pan speed based on zoom
+    const panScale = Math.pow(2, -currentViewState.zoom) * 2;
+    const worldDx = (dx * cosA - dy * sinA) * panScale;
+    const worldDy = (dx * sinA + dy * cosA) * panScale;
+
     onViewStateChangeRef.current({
       viewState: {
         ...currentViewState,
-        rotationOrbit: currentViewState.rotationOrbit + dx * 0.5,
-        rotationX: Math.max(0, Math.min(90, currentViewState.rotationX - dy * 0.3)),
+        target: [
+          currentViewState.target[0] - worldDx,
+          currentViewState.target[1] + worldDy,
+          currentViewState.target[2],
+        ],
       },
     });
   }, []);
