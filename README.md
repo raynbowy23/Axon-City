@@ -3,14 +3,13 @@
 </p>
 
 <p align="center">
-  <strong>An interactive exploded axonometric map visualization tool for exploring urban spatial data</strong>
+  <strong>An interactive exploded axonometric map visualization tool for exploring and comparing urban spatial data</strong>
 </p>
 
 <p align="center">
   <a href="#features">Features</a> •
   <a href="#quick-start">Quick Start</a> •
   <a href="#usage">Usage</a> •
-  <a href="#for-developers">For Developers</a> •
   <a href="#license">License</a>
 </p>
 
@@ -24,38 +23,32 @@
 ---
 
 <p align="center">
-  <img src="public/main.png" alt="AxonCity Screenshot" width="100%" />
+  <img src="public/main2.png" alt="AxonCity Screenshot" width="100%" />
 </p>
+
+## What is AxonCity?
+
+AxonCity is a web-based urban analysis tool that transforms OpenStreetMap data into interactive 3D exploded axonometric visualizations. Simply draw an area on the map, and AxonCity fetches real-time urban data, such as buildings, roads, parks, transit stops, and more. Then displays them as separated vertical layers for easy exploration.
+
+Compare multiple neighborhoods side-by-side, analyze urban metrics like Walk Score and building density, and export your findings as PDF reports, CSV data, or shareable images. Whether you're an urban planner, researcher, or curious explorer, AxonCity helps you understand the spatial composition of any city in the world.
 
 ## Features
 
-### 🗺️ Interactive Map Selection
-- Draw custom polygon areas on the map to define your region of interest
-- Edit selection by dragging vertices, adding new points, or removing existing ones
-- Search for any location worldwide using the integrated search bar
+**🗺️ Interactive Map Selection**: Draw custom areas using polygon, rectangle, or circle tools with editable vertices, location search, and multiple map styles.
 
-### 🏙️ Exploded Axonometric View
-- Visualize urban layers separated vertically in an exploded diagram style
-- Toggle between flat and exploded views with adjustable layer spacing
-- Layers grouped by category: Environment, Land Use, Infrastructure, Access & Transit, and Traffic Control
+**🏙️ Multi-Area Comparison**: Select and compare multiple neighborhoods simultaneously with side-by-side statistics and easy area switching.
 
-### 🎮 3D Extracted View
-- Dedicated 3D viewer with orbit controls for detailed exploration
-- Interactive layer group toggles
-- Click features to pin information cards
-- Save high-quality screenshots with location labels
+**📊 Urban Metrics & Analysis**: Analyze Walk Score, Transit Score, Bike Score, Green Space Ratio, Building Density, and Mixed-Use Score for any selected area.
 
-### 📡 Real-time OpenStreetMap Data
-- Fetches live data from OpenStreetMap's Overpass API
-- Automatic feature clipping to selection polygon
-- Statistics calculation (count, density, area, length) per layer
+**🎮 3D Exploded View**: Explore urban layers in a vertically separated axonometric view with orbit controls and pinnable feature info cards.
 
-### 📂 Custom Data Import
-- Upload your own GeoJSON or CSV files as custom layers
-- Auto-detection of coordinate columns in CSV files
-- Zoom-to-extent functionality for imported data
+**📤 Export & Sharing**: Export your analysis as PDF reports, CSV/JSON data, or PNG screenshots, and generate shareable URLs.
 
----
+**📡 Real-time Data**: Fetch live OpenStreetMap data via Overpass API with automatic clipping, layer statistics, and optimized caching.
+
+**📂 Custom Data Import**: Upload your own GeoJSON or CSV files as custom layers with auto-detected coordinates and custom colors.
+
+**📱 Mobile Support**: Fully responsive design with touch-friendly drawing and loading indicators for mobile devices.
 
 ## Quick Start
 
@@ -79,21 +72,29 @@ npm run dev
 
 The application will be available at `http://localhost:5173`
 
----
-
 ## Usage
 
+### Basic Workflow
+
 1. **Search for a location** using the search bar at the top
-2. **Click "Draw Selection Area"** to start drawing a polygon
-3. **Click on the map** to add points (minimum 3 required)
-4. **Press Enter** to complete drawing
+2. **Select a drawing mode** - Polygon, Rectangle, or Circle
+3. **Draw your area** on the map
+4. **Click Complete** to finish drawing
 5. **Wait for data to load** from OpenStreetMap
 6. **Explore** using the control panel:
    - Toggle layer visibility
    - Adjust exploded view settings
    - Reorder layers via drag-and-drop
-7. **Open Extracted View** for 3D exploration
-8. **Save screenshots** with the Save Image button
+7. **View Metrics** in the Stats panel for urban analysis
+8. **Export** your analysis as PDF, CSV, or PNG
+
+### Multi-Area Comparison
+
+1. Draw your first area and wait for data to load
+2. Click **"Draw Selection Area"** again to add another area
+3. Click on any drawn area to switch between them
+4. Open the **Stats panel** to compare metrics across areas
+5. Use the **Extracted View** for 3D comparison with sync/separate modes
 
 ### Keyboard Shortcuts
 
@@ -108,8 +109,7 @@ The application will be available at `http://localhost:5173`
 - **Drag vertices** to reshape the polygon
 - **Click blue midpoints** to add new vertices
 - **Double-click vertices** to remove them
-
----
+- For rectangles and circles, dragging vertices maintains the shape type
 
 ## Layer Groups
 
@@ -121,64 +121,6 @@ The application will be available at `http://localhost:5173`
 | Access & Transit | Transportation | Transit stops, rail lines, parking |
 | Traffic Control | Traffic devices | Traffic signals |
 
----
-
-## For Developers
-
-### Tech Stack
-
-- **React 19** - UI framework
-- **TypeScript** - Type safety
-- **Vite** - Build tool and dev server
-- **deck.gl** - WebGL-powered map visualization
-- **MapLibre GL** - Base map rendering
-- **Turf.js** - Geospatial analysis
-- **Zustand** - State management
-- **dnd-kit** - Drag and drop functionality
-
-### Project Structure
-
-```
-src/
-├── components/           # React components
-│   ├── MapView.tsx       # Main map with deck.gl layers
-│   ├── ExtractedView.tsx # 3D extracted view
-│   ├── ControlPanel.tsx  # Layer controls
-│   ├── StatsPanel.tsx    # Statistics display
-│   ├── DataInputPanel.tsx# Custom data import
-│   └── ...
-├── data/
-│   └── layerManifest.ts  # Layer definitions
-├── hooks/                # Custom React hooks
-├── store/
-│   └── useStore.ts       # Zustand state management
-├── types/
-│   └── index.ts          # TypeScript definitions
-└── utils/
-    ├── osmFetcher.ts     # Overpass API client
-    ├── geometryUtils.ts  # Spatial operations
-    └── csvParser.ts      # CSV to GeoJSON converter
-```
-
-### Build for Production
-
-```bash
-npm run build
-npm run preview
-```
-
-### Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
----
-
 ## License
 
 This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
@@ -186,10 +128,8 @@ This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENS
 ## Acknowledgments
 
 - Map data from [OpenStreetMap](https://www.openstreetmap.org/) contributors
-- Base map tiles from [MapLibre](https://maplibre.org/)
-- Visualization powered by [deck.gl](https://deck.gl/)
-
----
+- Base map tiles from [CARTO](https://carto.com/) and [ESRI](https://www.esri.com/)
+- Visualization powered by [deck.gl](https://deck.gl/) and [MapLibre](https://maplibre.org/)
 
 <p align="center">
   Created by <a href="https://github.com/raynbowy23">Rei Tamaru</a>
