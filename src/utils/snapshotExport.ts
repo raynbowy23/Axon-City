@@ -3,6 +3,7 @@
  * Capture map view as PNG/JPEG image with overlays
  */
 
+import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { SnapshotOptions, ComparisonArea, LayerConfig } from '../types';
 import { layerManifest } from '../data/layerManifest';
 import { getMapInstance } from './mapRef';
@@ -50,7 +51,7 @@ interface OverlayConfig {
 /**
  * Wait for map to be idle (all tiles loaded)
  */
-function waitForMapIdle(map: any, timeout = 2000): Promise<void> {
+function waitForMapIdle(map: MaplibreMap, timeout = 2000): Promise<void> {
   return new Promise((resolve) => {
     if (map.loaded() && map.areTilesLoaded()) {
       resolve();
@@ -69,7 +70,7 @@ function waitForMapIdle(map: any, timeout = 2000): Promise<void> {
 /**
  * Capture maplibre canvas by rendering to image during animation frame
  */
-async function captureMaplibreCanvas(map: any): Promise<HTMLCanvasElement | null> {
+async function captureMaplibreCanvas(map: MaplibreMap): Promise<HTMLCanvasElement | null> {
   return new Promise((resolve) => {
     // Use requestAnimationFrame to capture during the render cycle
     const captureFrame = () => {
@@ -223,7 +224,7 @@ async function captureMapCanvases(): Promise<HTMLCanvasElement | null> {
  * Capture WebGL canvas using readPixels (works even without preserveDrawingBuffer)
  * This captures during the render frame
  */
-async function captureWebGLCanvas(map: any): Promise<HTMLCanvasElement | null> {
+async function captureWebGLCanvas(map: MaplibreMap): Promise<HTMLCanvasElement | null> {
   return new Promise((resolve) => {
     const capture = () => {
       try {

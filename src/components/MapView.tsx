@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState, useEffect, useRef } from 'react';
 import MapGL, { type MapRef } from 'react-map-gl/maplibre';
-import DeckGL from '@deck.gl/react';
+import DeckGL, { type DeckGLRef } from '@deck.gl/react';
 import { GeoJsonLayer, ScatterplotLayer, PathLayer, PolygonLayer } from '@deck.gl/layers';
 import { SimpleMeshLayer } from '@deck.gl/mesh-layers';
 import { SphereGeometry } from '@luma.gl/engine';
@@ -167,7 +167,7 @@ export function MapView() {
   const [hoveredVertexIndex, setHoveredVertexIndex] = useState<number | null>(null);
   const [hoveredMidpointIndex, setHoveredMidpointIndex] = useState<number | null>(null);
   const lastVertexClickRef = useRef<{ index: number; time: number } | null>(null);
-  const deckRef = useRef<any>(null);
+  const deckRef = useRef<DeckGLRef | null>(null);
   const mapRef = useRef<MapRef>(null);
 
   // Handler for when map loads
@@ -195,8 +195,9 @@ export function MapView() {
           setMapInstance(map);
         }
       }
-      if (deckRef.current) {
-        const deckCanvas = deckRef.current.deck?.canvas;
+      if (deckRef.current?.deck) {
+        // Access canvas via type assertion - canvas is protected but we need it for snapshots
+        const deckCanvas = (deckRef.current.deck as unknown as { canvas: HTMLCanvasElement | null }).canvas;
         if (deckCanvas) {
           setDeckCanvas(deckCanvas);
         }
@@ -899,6 +900,28 @@ export function MapView() {
     updatePolygonFromVertices(newVertices);
   }, [removeVertex, editableVertices, updatePolygonFromVertices, selectionPolygon]);
 
+  // Handle vertex click with double-click detection for removal
+  // Use ref-based pattern to store handleRemoveVertex and avoid ref access during render
+  const handleRemoveVertexRef = useRef(handleRemoveVertex);
+  useEffect(() => {
+    handleRemoveVertexRef.current = handleRemoveVertex;
+  }, [handleRemoveVertex]);
+
+  // Stable callback with empty deps - refs are only accessed when called (event handler), not during render
+  const handleVertexClick = useCallback((index: number, canRemove: boolean) => {
+    if (!canRemove) return;
+
+    const now = Date.now();
+    const lastClick = lastVertexClickRef.current;
+    // Detect double-click (within 300ms on same vertex)
+    if (lastClick && lastClick.index === index && now - lastClick.time < 300) {
+      handleRemoveVertexRef.current(index);
+      lastVertexClickRef.current = null;
+    } else {
+      lastVertexClickRef.current = { index, time: now };
+    }
+  }, []);
+
   // Create deck.gl layers
   const deckLayers = useMemo((): Layer[] => {
     const layers: Layer[] = [];
@@ -1247,6 +1270,7 @@ export function MapView() {
       }
 
       // Draggable vertex handles (double-click to remove)
+      /* eslint-disable react-hooks/refs -- ref access is in onClick handler, not during render */
       layers.push(
         new ScatterplotLayer({
           id: 'vertex-handles',
@@ -1280,16 +1304,8 @@ export function MapView() {
             // Don't allow removal while loading
             if (isLoading) return;
 
-            if (info.object && info.object.canRemove) {
-              const now = Date.now();
-              const lastClick = lastVertexClickRef.current;
-              // Detect double-click (within 300ms on same vertex)
-              if (lastClick && lastClick.index === info.object.index && now - lastClick.time < 300) {
-                handleRemoveVertex(info.object.index);
-                lastVertexClickRef.current = null;
-              } else {
-                lastVertexClickRef.current = { index: info.object.index, time: now };
-              }
+            if (info.object) {
+              handleVertexClick(info.object.index, info.object.canRemove);
             }
           },
           updateTriggers: {
@@ -1299,6 +1315,7 @@ export function MapView() {
           },
         })
       );
+      /* eslint-enable react-hooks/refs */
     }
 
     // Render selected features with distinct colors (on top of everything)
@@ -1556,19 +1573,18 @@ export function MapView() {
     }
 
     return layers;
-  }, [layerRenderInfo, selectionPolygon, hoveredLayerId, isolatedLayerId, explodedView, isDrawing, drawingPoints, editableVertices, draggingVertexIndex, hoveredVertexIndex, hoveredMidpointIndex, handleAddVertex, handleRemoveVertex, selectedFeatures, layerOrder, pinnedInfos, areasLayer, isLoading, globalOpacity, layerStyleOverrides]);
+  }, [layerRenderInfo, selectionPolygon, hoveredLayerId, isolatedLayerId, explodedView, isDrawing, drawingPoints, editableVertices, draggingVertexIndex, hoveredVertexIndex, hoveredMidpointIndex, handleAddVertex, handleVertexClick, selectedFeatures, pinnedInfos, areasLayer, isLoading, globalOpacity, layerStyleOverrides, activeAreaId, areas]);
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const onViewStateChange = useCallback(
-    (params: any) => {
+    (params: { viewState: Record<string, unknown> }) => {
       const newViewState = params.viewState;
       if (newViewState) {
         setViewState({
-          longitude: newViewState.longitude,
-          latitude: newViewState.latitude,
-          zoom: newViewState.zoom,
-          pitch: newViewState.pitch || 0,
-          bearing: newViewState.bearing || 0,
+          longitude: newViewState.longitude as number,
+          latitude: newViewState.latitude as number,
+          zoom: newViewState.zoom as number,
+          pitch: (newViewState.pitch as number) || 0,
+          bearing: (newViewState.bearing as number) || 0,
           maxPitch: 89,
           minPitch: 0,
         });

@@ -335,7 +335,7 @@ function App() {
         setIsLoading(false);
       }
     },
-    [activeLayers, clearManifestLayerData, setIsLoading, setLayerData, setLoadingMessage, addArea, updateAreaPolygon, updateAreaLayerData]
+    [activeLayers, setIsLoading, setLayerData, setLoadingMessage, addArea, updateAreaPolygon, updateAreaLayerData, setAreaFetchBbox]
   );
 
   // Track the last active area to detect area switches vs polygon edits

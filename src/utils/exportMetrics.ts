@@ -12,7 +12,7 @@ import {
   formatMetricValue,
 } from './externalIndices';
 
-interface ExportArea {
+export interface ExportArea {
   name: string;
   metrics: POIMetrics;
   derivedMetrics?: DerivedMetricValue[];

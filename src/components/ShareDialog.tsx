@@ -53,6 +53,7 @@ export function ShareDialog({ onClose, isMobile = false }: ShareDialogProps) {
         URL.revokeObjectURL(previewUrl);
       }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- previewUrl intentionally excluded to avoid infinite loop (effect sets previewUrl)
   }, [areas, activeLayers, preset]);
 
   // Handle copy link

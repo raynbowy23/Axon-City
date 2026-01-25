@@ -1073,8 +1073,8 @@ const DeckGLView = memo(function DeckGLView({
 
       {/* Pinned Info Cards with connector lines */}
       {pinnedInfos.map((pinned) => {
-        // Get initial position from ref or fallback
-        const initialPos = pinnedScreenPositionsRef.current[pinned.id] || pinned.initialScreenPos;
+        // Use initialScreenPos for first render; DOM manipulation handles updates
+        const initialPos = pinned.initialScreenPos;
         const cardX = initialPos.x + 20;
         const cardY = initialPos.y - 10;
 
@@ -1361,7 +1361,8 @@ export function ExtractedView({ isMobile = false }: ExtractedViewProps) {
         maxZoom: 5,
       });
     }
-  }, [isExtractedViewOpen, totalHeight]); // Only trigger on open/close
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally only trigger on open/close, not on selectionPolygon/viewBounds changes
+  }, [isExtractedViewOpen, totalHeight]);
 
   // Update view target height when layer spacing changes (while view is open)
   useEffect(() => {

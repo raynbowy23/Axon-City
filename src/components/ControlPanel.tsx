@@ -4,6 +4,7 @@ import { DraggableLayerList } from './DraggableLayerList';
 import { StorySelector } from './StorySelector';
 import { VisualControls } from './VisualControls';
 import type { CustomLayerConfig, FeatureCollection } from '../types';
+import type { Geometry } from 'geojson';
 
 interface ControlPanelProps {
   isMobile?: boolean;
@@ -558,7 +559,7 @@ function calculateBounds(features: FeatureCollection): { minLon: number; maxLon:
     }
   };
 
-  const processGeometry = (geometry: any) => {
+  const processGeometry = (geometry: Geometry | null | undefined) => {
     if (!geometry) return;
     switch (geometry.type) {
       case 'Point':

@@ -734,20 +734,20 @@ export function ExternalIndicesPanel({ isMobile = false }: ExternalIndicesPanelP
                                     </div>
 
                                     {/* Comparison to baseline (first area) */}
-                                    {values.length === 2 && baselineValue > 0 && (
+                                    {values.length === 2 && baselineValue > 0 && metricValues[1]?.metric?.value !== undefined && (
                                       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                                         <span>vs {baselineArea?.name}:</span>
                                         <span
                                           style={{
-                                            color: metricValues[1]?.metric?.value! > baselineValue
+                                            color: metricValues[1].metric.value > baselineValue
                                               ? '#4CAF50'
-                                              : metricValues[1]?.metric?.value! < baselineValue
+                                              : metricValues[1].metric.value < baselineValue
                                                 ? '#FF5722'
                                                 : 'rgba(255, 255, 255, 0.8)',
                                           }}
                                         >
-                                          {metricValues[1]?.metric?.value! > baselineValue ? '+' : ''}
-                                          {((metricValues[1]?.metric?.value! - baselineValue) / baselineValue * 100).toFixed(1)}%
+                                          {metricValues[1].metric.value > baselineValue ? '+' : ''}
+                                          {((metricValues[1].metric.value - baselineValue) / baselineValue * 100).toFixed(1)}%
                                         </span>
                                       </div>
                                     )}

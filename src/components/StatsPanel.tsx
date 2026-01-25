@@ -5,7 +5,7 @@ import { MetricsPanel } from './MetricsPanel';
 import { ComparisonTable } from './ComparisonTable';
 import { ComparisonGuidance } from './ComparisonGuidance';
 import { ExportDialog } from './ExportDialog';
-import { exportMetrics } from '../utils/exportMetrics';
+import { exportMetrics, type ExportArea } from '../utils/exportMetrics';
 import { calculatePOIMetrics } from '../utils/metricsCalculator';
 import { calculatePolygonArea } from '../utils/geometryUtils';
 import { calculateDerivedMetrics } from '../utils/externalIndices';
@@ -64,7 +64,10 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
 
   // Get the active area's layer data, falling back to global layerData
   const activeArea = areas.find((a: ComparisonArea) => a.id === activeAreaId);
-  const activeLayerData = activeArea?.layerData || layerData;
+  const activeLayerData = useMemo(
+    () => activeArea?.layerData || layerData,
+    [activeArea?.layerData, layerData]
+  );
 
   // Panel size state
   const [size, setSize] = useState<PanelSize>(loadSavedSize);
@@ -85,16 +88,15 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
   const [isLayerComparisonMode, setIsLayerComparisonMode] = useState(false);
   const canCompare = areas.length >= 2;
 
-  // Keep area order in sync with areas list
-  useEffect(() => {
-    setAreaOrder((prev) => {
-      const currentIds = areas.map((a: ComparisonArea) => a.id);
-      // Add any new areas that aren't in the order
-      const newOrder = [...prev.filter((id) => currentIds.includes(id))];
-      const missing = currentIds.filter((id: string) => !newOrder.includes(id));
-      return [...newOrder, ...missing];
-    });
-  }, [areas]);
+  // Compute effective area order (keeps existing order, adds new areas at end)
+  const effectiveAreaOrder = useMemo(() => {
+    const currentIds = areas.map((a: ComparisonArea) => a.id);
+    // Keep existing order for areas that still exist
+    const existingOrder = areaOrder.filter((id) => currentIds.includes(id));
+    // Add any new areas that aren't in the order
+    const missing = currentIds.filter((id: string) => !existingOrder.includes(id));
+    return [...existingOrder, ...missing];
+  }, [areas, areaOrder]);
 
   // Compute sorted areas based on strategy
   const sortedAreas = useMemo(() => {
@@ -109,24 +111,23 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
       );
     }
     // Manual order
-    return areaOrder
+    return effectiveAreaOrder
       .map((id) => areas.find((a: ComparisonArea) => a.id === id))
       .filter((a): a is ComparisonArea => a !== undefined);
-  }, [areas, sortStrategy, areaOrder]);
+  }, [areas, sortStrategy, effectiveAreaOrder]);
 
   // Move area up/down in manual order
   const moveArea = useCallback((areaId: string, direction: 'up' | 'down') => {
-    setAreaOrder((prev) => {
-      const idx = prev.indexOf(areaId);
-      if (idx === -1) return prev;
-      const newIdx = direction === 'up' ? idx - 1 : idx + 1;
-      if (newIdx < 0 || newIdx >= prev.length) return prev;
-      const newOrder = [...prev];
-      [newOrder[idx], newOrder[newIdx]] = [newOrder[newIdx], newOrder[idx]];
-      return newOrder;
-    });
+    // Use effectiveAreaOrder as the base for swapping
+    const currentOrder = [...effectiveAreaOrder];
+    const idx = currentOrder.indexOf(areaId);
+    if (idx === -1) return;
+    const newIdx = direction === 'up' ? idx - 1 : idx + 1;
+    if (newIdx < 0 || newIdx >= currentOrder.length) return;
+    [currentOrder[idx], currentOrder[newIdx]] = [currentOrder[newIdx], currentOrder[idx]];
+    setAreaOrder(currentOrder);
     setSortStrategy('manual');
-  }, []);
+  }, [effectiveAreaOrder]);
   const panelRef = useRef<HTMLDivElement>(null);
   const startPosRef = useRef<{ x: number; y: number; width: number; height: number }>({ x: 0, y: 0, width: 0, height: 0 });
 
@@ -850,7 +851,7 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
               {/* Export Button */}
               <button
                 onClick={() => {
-                  let exportAreas;
+                  let exportAreas: ExportArea[];
                   if (areas.length > 0) {
                     exportAreas = areas.map((area: ComparisonArea) => {
                       const areaKm2 = area.polygon.area / 1_000_000;

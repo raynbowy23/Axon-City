@@ -140,21 +140,6 @@ export function DrawingTool({ onComplete }: DrawingToolProps) {
   const onCompleteRef = useRef(onComplete);
   onCompleteRef.current = onComplete;
 
-  // Handle keyboard shortcuts
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        cancelDrawing();
-      }
-      if (e.key === 'Enter' && drawingMode === 'polygon' && drawingPoints.length >= 3) {
-        completeDrawing();
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [drawingPoints, drawingMode]);
-
   // Update preview polygon when drawing points change
   useEffect(() => {
     if (drawingPoints.length === 0) {
@@ -272,6 +257,21 @@ export function DrawingTool({ onComplete }: DrawingToolProps) {
   const undoLastPoint = useCallback(() => {
     setDrawingPoints(drawingPoints.slice(0, -1));
   }, [drawingPoints, setDrawingPoints]);
+
+  // Handle keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        cancelDrawing();
+      }
+      if (e.key === 'Enter' && drawingMode === 'polygon' && drawingPoints.length >= 3) {
+        completeDrawing();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [drawingPoints, drawingMode, cancelDrawing, completeDrawing]);
 
   const handleModeChange = useCallback((mode: DrawingMode) => {
     setDrawingMode(mode);
