@@ -4,11 +4,18 @@
  */
 
 import type { POIMetrics } from './metricsCalculator';
+import type { DerivedMetricValue } from '../types';
 import { dataSourceInfo } from '../data/metricDefinitions';
+import {
+  DERIVED_METRIC_DEFINITIONS,
+  getMetricInterpretation,
+  formatMetricValue,
+} from './externalIndices';
 
 interface ExportArea {
   name: string;
   metrics: POIMetrics;
+  derivedMetrics?: DerivedMetricValue[];
 }
 
 /**
@@ -25,7 +32,7 @@ export function generateMetricsCSV(areas: ExportArea[]): string {
 
   if (areas.length === 1) {
     // Single area format
-    const { name, metrics } = areas[0];
+    const { name, metrics, derivedMetrics } = areas[0];
 
     lines.push('# Summary Metrics');
     lines.push('Metric,Value,Unit');
@@ -44,6 +51,21 @@ export function generateMetricsCSV(areas: ExportArea[]): string {
     lines.push('Category,Count,Density (per km²),Share (%)');
     for (const cat of metrics.categoryBreakdown) {
       lines.push(`"${cat.name}",${cat.count},${cat.density.toFixed(2)},${cat.share.toFixed(2)}`);
+    }
+
+    // Add Urban Metrics section if available
+    if (derivedMetrics && derivedMetrics.length > 0) {
+      lines.push('');
+      lines.push('# Urban Metrics (Derived Indices)');
+      lines.push('Metric,Value,Level,Confidence,Formula');
+      for (const dm of derivedMetrics) {
+        const definition = DERIVED_METRIC_DEFINITIONS.find((d) => d.id === dm.metricId);
+        if (definition) {
+          const level = getMetricInterpretation(dm.value, dm.metricId);
+          const formattedValue = formatMetricValue(dm.value, dm.metricId);
+          lines.push(`"${definition.name}",${formattedValue},"${level}","${dm.confidence}","${definition.formula}"`);
+        }
+      }
     }
   } else {
     // Multi-area comparison format
@@ -75,6 +97,39 @@ export function generateMetricsCSV(areas: ExportArea[]): string {
       });
       lines.push(`"${cat.name}",${values.join(',')}`);
     }
+
+    // Add Urban Metrics section if any area has derived metrics
+    const hasAnyDerivedMetrics = areas.some((a) => a.derivedMetrics && a.derivedMetrics.length > 0);
+    if (hasAnyDerivedMetrics) {
+      lines.push('');
+      lines.push('# Urban Metrics (Derived Indices) by Area');
+
+      // Get all metric IDs from any area
+      const allMetricIds = new Set<string>();
+      areas.forEach((a) => {
+        a.derivedMetrics?.forEach((dm) => allMetricIds.add(dm.metricId));
+      });
+
+      // Header with area names and sub-columns
+      lines.push(`Metric,${areas.flatMap((a) => [`"${a.name} Value"`, `"${a.name} Level"`]).join(',')}`);
+
+      // Add each metric row
+      for (const metricId of allMetricIds) {
+        const definition = DERIVED_METRIC_DEFINITIONS.find((d) => d.id === metricId);
+        if (definition) {
+          const values = areas.flatMap((a) => {
+            const dm = a.derivedMetrics?.find((m) => m.metricId === metricId);
+            if (dm) {
+              const level = getMetricInterpretation(dm.value, dm.metricId);
+              const formattedValue = formatMetricValue(dm.value, dm.metricId);
+              return [formattedValue, `"${level}"`];
+            }
+            return ['-', '-'];
+          });
+          lines.push(`"${definition.name}",${values.join(',')}`);
+        }
+      }
+    }
   }
 
   lines.push('');
@@ -83,6 +138,14 @@ export function generateMetricsCSV(areas: ExportArea[]): string {
   lines.push('# Diversity Index = Shannon Entropy: H = -Σ(pᵢ × ln(pᵢ))');
   lines.push('# Category Share = (Category Count / Total Count) × 100%');
   lines.push('# Data Coverage = (Categories with data / Total categories) × 100%');
+  lines.push('# ');
+  lines.push('# Urban Metrics Methodology:');
+  lines.push('# Walk Score (Proxy) = Amenity density weighted by category importance (0-100 scale)');
+  lines.push('# Transit Score (Proxy) = Mode-weighted stop density with logarithmic normalization');
+  lines.push('# Bike Score (Proxy) = Infrastructure (50%) + Amenities (30%) + Connectivity (20%)');
+  lines.push('# Green Space Ratio = (Park Area / Total Area) × 100');
+  lines.push('# Building Density = (Building Footprint / Total Area) × 100');
+  lines.push('# Mixed-Use Score = 1 - |Residential% - Commercial%| normalized to 0-100');
 
   return lines.join('\n');
 }

@@ -4,11 +4,12 @@
  */
 
 import { useState, useMemo } from 'react';
-import type { ComparisonArea } from '../types';
+import type { ComparisonArea, Polygon } from '../types';
 import { exportPDFReport } from '../utils/pdfExport';
 import { exportMetrics } from '../utils/exportMetrics';
 import { exportSnapshot, defaultSnapshotOptions } from '../utils/snapshotExport';
 import { calculatePOIMetrics } from '../utils/metricsCalculator';
+import { calculateDerivedMetrics } from '../utils/externalIndices';
 import { downloadGeoJSON, downloadAreaBoundaries, getExportStats } from '../utils/geoJsonExport';
 
 interface ExportDialogProps {
@@ -76,16 +77,22 @@ export function ExportDialog({ isOpen, onClose, areas, activeLayers }: ExportDia
             }
           );
           break;
-        case 'csv':
+        case 'csv': {
           const metricsData = areas.map((area) => {
             const areaKm2 = area.polygon.area / 1_000_000;
             return {
               name: area.name,
               metrics: calculatePOIMetrics(area.layerData, areaKm2),
+              derivedMetrics: calculateDerivedMetrics(
+                area.layerData,
+                areaKm2,
+                area.polygon.geometry as Polygon
+              ),
             };
           });
           exportMetrics(metricsData);
           break;
+        }
         case 'geojson':
           downloadGeoJSON(areas, activeLayers, geoJsonOptions);
           break;

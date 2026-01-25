@@ -4,11 +4,17 @@
  */
 
 import { jsPDF } from 'jspdf';
-import type { ComparisonArea, Insight } from '../types';
+import type { ComparisonArea, Insight, Polygon, DerivedMetricValue } from '../types';
 import { calculatePOIMetrics, POI_CATEGORIES, type POIMetrics } from './metricsCalculator';
 import { generateInsights } from './insightsGenerator';
 import { captureSnapshot, defaultSnapshotOptions } from './snapshotExport';
 import { dataSourceInfo } from '../data/metricDefinitions';
+import {
+  calculateDerivedMetrics,
+  DERIVED_METRIC_DEFINITIONS,
+  getMetricInterpretation,
+  formatMetricValue,
+} from './externalIndices';
 
 // PDF dimensions (A4 in mm)
 const PAGE_WIDTH = 210;
@@ -38,6 +44,7 @@ interface ReportOptions {
 interface AreaWithMetrics {
   area: ComparisonArea;
   metrics: POIMetrics;
+  derivedMetrics: DerivedMetricValue[];
 }
 
 /**
@@ -63,7 +70,12 @@ export async function generatePDFReport(
   const areasWithMetrics: AreaWithMetrics[] = areas.map((area) => {
     const areaKm2 = area.polygon.area / 1_000_000;
     const metrics = calculatePOIMetrics(area.layerData, areaKm2);
-    return { area, metrics };
+    const derivedMetrics = calculateDerivedMetrics(
+      area.layerData,
+      areaKm2,
+      area.polygon.geometry as Polygon
+    );
+    return { area, metrics, derivedMetrics };
   });
 
   // Generate insights
@@ -87,6 +99,11 @@ export async function generatePDFReport(
   // Draw category breakdown
   if (options.includeMetrics) {
     yPos = drawCategoryBreakdown(pdf, areasWithMetrics, yPos);
+  }
+
+  // Draw urban metrics section (derived indices)
+  if (options.includeMetrics) {
+    yPos = drawUrbanMetricsSection(pdf, areasWithMetrics, yPos);
   }
 
   // Draw insights section
@@ -345,6 +362,103 @@ function drawCategoryBreakdown(
 }
 
 /**
+ * Draw urban metrics section (derived indices)
+ */
+function drawUrbanMetricsSection(
+  pdf: jsPDF,
+  areasWithMetrics: AreaWithMetrics[],
+  yPos: number
+): number {
+  // Check if any area has derived metrics
+  const hasAnyDerivedMetrics = areasWithMetrics.some((aw) => aw.derivedMetrics.length > 0);
+  if (!hasAnyDerivedMetrics) {
+    return yPos;
+  }
+
+  // Check if we need a new page
+  if (yPos > PAGE_HEIGHT - 70) {
+    pdf.addPage();
+    yPos = MARGIN;
+  }
+
+  // Section title
+  pdf.setFontSize(14);
+  pdf.setTextColor(...COLORS.text);
+  pdf.setFont('helvetica', 'bold');
+  pdf.text('Urban Metrics', MARGIN, yPos);
+  yPos += 8;
+
+  // Get all unique metric IDs
+  const allMetricIds = new Set<string>();
+  areasWithMetrics.forEach((aw) => {
+    aw.derivedMetrics.forEach((dm) => allMetricIds.add(dm.metricId));
+  });
+
+  const colWidth = CONTENT_WIDTH / (areasWithMetrics.length + 1);
+  const rowHeight = 8;
+
+  // Header row
+  pdf.setFillColor(...COLORS.background);
+  pdf.rect(MARGIN, yPos, CONTENT_WIDTH, rowHeight, 'F');
+
+  pdf.setFontSize(9);
+  pdf.setFont('helvetica', 'bold');
+  pdf.setTextColor(...COLORS.text);
+  pdf.text('Metric', MARGIN + 2, yPos + 5.5);
+
+  areasWithMetrics.forEach((aw, i) => {
+    const [r, g, b] = aw.area.color;
+    pdf.setTextColor(r, g, b);
+    pdf.text(aw.area.name, MARGIN + colWidth * (i + 1) + 2, yPos + 5.5);
+  });
+
+  yPos += rowHeight;
+
+  // Data rows
+  pdf.setFont('helvetica', 'normal');
+  let rowIndex = 0;
+
+  for (const metricId of allMetricIds) {
+    const definition = DERIVED_METRIC_DEFINITIONS.find((d) => d.id === metricId);
+    if (!definition) continue;
+
+    if (rowIndex % 2 === 0) {
+      pdf.setFillColor(255, 255, 255);
+    } else {
+      pdf.setFillColor(...COLORS.background);
+    }
+    pdf.rect(MARGIN, yPos, CONTENT_WIDTH, rowHeight, 'F');
+
+    // Metric name
+    pdf.setTextColor(...COLORS.textLight);
+    pdf.text(definition.name, MARGIN + 2, yPos + 5.5);
+
+    // Values for each area
+    pdf.setTextColor(...COLORS.text);
+    areasWithMetrics.forEach((aw, i) => {
+      const dm = aw.derivedMetrics.find((m) => m.metricId === metricId);
+      if (dm) {
+        const formattedValue = formatMetricValue(dm.value, dm.metricId);
+        const level = getMetricInterpretation(dm.value, dm.metricId);
+        pdf.text(`${formattedValue} (${level})`, MARGIN + colWidth * (i + 1) + 2, yPos + 5.5);
+      } else {
+        pdf.text('-', MARGIN + colWidth * (i + 1) + 2, yPos + 5.5);
+      }
+    });
+
+    yPos += rowHeight;
+    rowIndex++;
+  }
+
+  // Table border
+  pdf.setDrawColor(...COLORS.border);
+  pdf.setLineWidth(0.3);
+  pdf.rect(MARGIN, yPos - rowHeight * (rowIndex + 1), CONTENT_WIDTH, rowHeight * (rowIndex + 1));
+
+  return yPos + 10;
+}
+
+/**
  * Draw insights section
  */
 function drawInsightsSection(
@@ -432,6 +546,14 @@ function drawMethodologySection(pdf: jsPDF, yPos: number): number {
     '  - Range: 0 (single category) to ~2.5+ (highly diverse)',
     '',
     'Coverage Score = (Categories with data / Total categories) × 100%',
+    '',
+    'Urban Metrics (Derived Indices):',
+    '  • Walk Score: Amenity density weighted by category (0-100)',
+    '  • Transit Score: Mode-weighted stop density (0-100)',
+    '  • Bike Score: Infrastructure + Amenities + Connectivity (0-100)',
+    '  • Green Space Ratio: (Park Area / Total Area) × 100',
+    '  • Building Density: (Building Footprint / Total Area) × 100',
+    '  • Mixed-Use Score: 1 - |Residential% - Commercial%| (0-100)',
     '',
     'Caveats:',
     ...dataSourceInfo.caveats.map((c) => `  • ${c}`),

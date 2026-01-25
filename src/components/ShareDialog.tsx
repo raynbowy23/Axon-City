@@ -6,9 +6,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useStore } from '../store/useStore';
 import { useUrlState } from '../hooks/useUrlState';
+import type { Polygon } from '../types';
 import { exportSnapshot, generatePreview, copySnapshotToClipboard, captureSnapshot, defaultSnapshotOptions } from '../utils/snapshotExport';
 import { exportMetrics } from '../utils/exportMetrics';
 import { calculatePOIMetrics } from '../utils/metricsCalculator';
+import { calculateDerivedMetrics } from '../utils/externalIndices';
 import { getStoryById } from '../data/storyPresets';
 
 interface ShareDialogProps {
@@ -100,9 +102,17 @@ export function ShareDialog({ onClose, isMobile = false }: ShareDialogProps) {
       // Calculate POI metrics from layer data
       const metrics = calculatePOIMetrics(area.layerData, areaKm2);
 
+      // Calculate derived metrics (Urban Metrics)
+      const derivedMetrics = calculateDerivedMetrics(
+        area.layerData,
+        areaKm2,
+        area.polygon.geometry as Polygon
+      );
+
       return {
         name: area.name,
         metrics,
+        derivedMetrics,
       };
     });
 

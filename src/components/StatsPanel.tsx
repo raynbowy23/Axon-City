@@ -8,6 +8,7 @@ import { ExportDialog } from './ExportDialog';
 import { exportMetrics } from '../utils/exportMetrics';
 import { calculatePOIMetrics } from '../utils/metricsCalculator';
 import { calculatePolygonArea } from '../utils/geometryUtils';
+import { calculateDerivedMetrics } from '../utils/externalIndices';
 import type { LayerStats, LayerGroup, AnyLayerConfig, Polygon, ComparisonArea } from '../types';
 
 // Size constraints
@@ -823,13 +824,19 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
               <ComparisonTable
                 sortedAreas={sortedAreas}
                 onExport={() => {
-                  const exportAreas = areas.map((area: ComparisonArea) => ({
-                    name: area.name,
-                    metrics: calculatePOIMetrics(
-                      area.layerData.size > 0 ? area.layerData : layerData,
-                      area.polygon.area / 1_000_000
-                    ),
-                  }));
+                  const exportAreas = areas.map((area: ComparisonArea) => {
+                    const areaKm2 = area.polygon.area / 1_000_000;
+                    const areaLayerData = area.layerData.size > 0 ? area.layerData : layerData;
+                    return {
+                      name: area.name,
+                      metrics: calculatePOIMetrics(areaLayerData, areaKm2),
+                      derivedMetrics: calculateDerivedMetrics(
+                        areaLayerData,
+                        areaKm2,
+                        area.polygon.geometry as Polygon
+                      ),
+                    };
+                  });
                   if (exportAreas.length > 0) {
                     exportMetrics(exportAreas);
                   }
@@ -843,23 +850,35 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
               {/* Export Button */}
               <button
                 onClick={() => {
-                  const exportAreas = areas.length > 0
-                    ? areas.map((area: ComparisonArea) => ({
+                  let exportAreas;
+                  if (areas.length > 0) {
+                    exportAreas = areas.map((area: ComparisonArea) => {
+                      const areaKm2 = area.polygon.area / 1_000_000;
+                      const areaLayerData = area.layerData.size > 0 ? area.layerData : layerData;
+                      return {
                         name: area.name,
-                        metrics: calculatePOIMetrics(
-                          area.layerData.size > 0 ? area.layerData : layerData,
-                          area.polygon.area / 1_000_000
+                        metrics: calculatePOIMetrics(areaLayerData, areaKm2),
+                        derivedMetrics: calculateDerivedMetrics(
+                          areaLayerData,
+                          areaKm2,
+                          area.polygon.geometry as Polygon
                         ),
-                      }))
-                    : selectionPolygon
-                    ? [{
-                        name: 'Selected Area',
-                        metrics: calculatePOIMetrics(
-                          layerData,
-                          calculatePolygonArea(selectionPolygon.geometry as Polygon)
-                        ),
-                      }]
-                    : [];
+                      };
+                    });
+                  } else if (selectionPolygon) {
+                    const areaKm2 = calculatePolygonArea(selectionPolygon.geometry as Polygon);
+                    exportAreas = [{
+                      name: 'Selected Area',
+                      metrics: calculatePOIMetrics(layerData, areaKm2),
+                      derivedMetrics: calculateDerivedMetrics(
+                        layerData,
+                        areaKm2,
+                        selectionPolygon.geometry as Polygon
+                      ),
+                    }];
+                  } else {
+                    exportAreas = [];
+                  }
                   if (exportAreas.length > 0) {
                     exportMetrics(exportAreas);
                   }
