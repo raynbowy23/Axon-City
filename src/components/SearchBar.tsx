@@ -14,8 +14,87 @@ interface SearchBarProps {
   isMobile?: boolean;
 }
 
-// Nominatim API endpoint (free OpenStreetMap geocoding)
+// Photon geocoding API (free, OSM-based, built for search-as-you-type).
+// Nominatim's usage policy forbids autocomplete traffic, so it's only a
+// fallback for when Photon is unreachable.
+const PHOTON_API = 'https://photon.komoot.io/api/';
 const NOMINATIM_API = 'https://nominatim.openstreetmap.org/search';
+
+interface PhotonFeature {
+  geometry: { coordinates: [number, number] };
+  properties: {
+    osm_id: number;
+    osm_type: string;
+    name?: string;
+    housenumber?: string;
+    street?: string;
+    district?: string;
+    city?: string;
+    state?: string;
+    country?: string;
+    type?: string;
+  };
+}
+
+function photonToSearchResult(feature: PhotonFeature): SearchResult {
+  const p = feature.properties;
+  const [lon, lat] = feature.geometry.coordinates;
+
+  const displayName = [
+    p.name,
+    p.housenumber && p.street ? `${p.street} ${p.housenumber}` : p.street,
+    p.district,
+    p.city,
+    p.state,
+    p.country,
+  ]
+    .filter(Boolean)
+    .join(', ');
+
+  return {
+    place_id: p.osm_id,
+    display_name: displayName || `${lat}, ${lon}`,
+    lat: String(lat),
+    lon: String(lon),
+    type: p.type ?? '',
+    importance: 0,
+  };
+}
+
+async function searchPhoton(query: string, signal: AbortSignal): Promise<SearchResult[]> {
+  // Bias results toward the current map view
+  const { viewState } = useStore.getState();
+  const params = new URLSearchParams({
+    q: query,
+    limit: '5',
+    lat: viewState.latitude.toFixed(4),
+    lon: viewState.longitude.toFixed(4),
+  });
+
+  const response = await fetch(`${PHOTON_API}?${params}`, { signal });
+  if (!response.ok) {
+    throw new Error(`Photon error: ${response.status}`);
+  }
+
+  const data: { features: PhotonFeature[] } = await response.json();
+  return data.features.map(photonToSearchResult);
+}
+
+async function searchNominatim(query: string, signal: AbortSignal): Promise<SearchResult[]> {
+  const params = new URLSearchParams({
+    q: query,
+    format: 'json',
+    limit: '5',
+    addressdetails: '1',
+  });
+
+  const response = await fetch(`${NOMINATIM_API}?${params}`, { signal });
+  if (!response.ok) {
+    throw new Error(`Nominatim error: ${response.status}`);
+  }
+
+  return await response.json();
+}
 
 export function SearchBar({ isMobile = false }: SearchBarProps) {
   const [query, setQuery] = useState('');
@@ -28,44 +107,46 @@ export function SearchBar({ isMobile = false }: SearchBarProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const favContainerRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchAbortRef = useRef<AbortController | null>(null);
 
   const { setViewState, viewState, setSelectionLocationName, favoriteLocations, addFavoriteLocation, removeFavoriteLocation } = useStore();
 
   // Debounced search function
   const searchLocation = useCallback(async (searchQuery: string) => {
-    if (searchQuery.length < 3) {
+    const trimmed = searchQuery.trim();
+    if (trimmed.length < 3) {
       setResults([]);
       setIsOpen(false);
       return;
     }
 
+    // Cancel any in-flight search so a stale response can't overwrite
+    // results for newer input
+    searchAbortRef.current?.abort();
+    const controller = new AbortController();
+    searchAbortRef.current = controller;
+
     setIsLoading(true);
 
     try {
-      const params = new URLSearchParams({
-        q: searchQuery,
-        format: 'json',
-        limit: '5',
-        addressdetails: '1',
-      });
+      const data = await searchPhoton(trimmed, controller.signal).catch(() =>
+        searchNominatim(trimmed, controller.signal)
+      );
 
-      const response = await fetch(`${NOMINATIM_API}?${params}`, {
-        headers: {
-          'User-Agent': 'AxonCity/1.0', // Required by Nominatim usage policy
-        },
-      });
+      if (controller.signal.aborted) return;
 
-      if (response.ok) {
-        const data: SearchResult[] = await response.json();
-        setResults(data);
-        setIsOpen(data.length > 0);
-        setSelectedIndex(-1);
-      }
+      setResults(data);
+      setIsOpen(data.length > 0);
+      setSelectedIndex(-1);
     } catch (error) {
-      console.error('Geocoding error:', error);
-      setResults([]);
+      if (!controller.signal.aborted) {
+        console.error('Geocoding error:', error);
+        setResults([]);
+      }
     } finally {
-      setIsLoading(false);
+      if (searchAbortRef.current === controller) {
+        setIsLoading(false);
+      }
     }
   }, []);
 
@@ -163,12 +244,13 @@ export function SearchBar({ isMobile = false }: SearchBarProps) {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Cleanup debounce on unmount
+  // Cleanup debounce and in-flight search on unmount
   useEffect(() => {
     return () => {
       if (debounceRef.current) {
         clearTimeout(debounceRef.current);
       }
+      searchAbortRef.current?.abort();
     };
   }, []);
 
