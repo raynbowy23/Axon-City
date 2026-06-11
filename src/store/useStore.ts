@@ -554,6 +554,8 @@ export const useStore = create<AppState>((set) => ({
   setIsLoading: (isLoading) => set({ isLoading }),
   loadingMessage: '',
   setLoadingMessage: (message) => set({ loadingMessage: message }),
+  rateLimitWarning: false,
+  setRateLimitWarning: (rateLimitWarning) => set({ rateLimitWarning }),
 
   // Extracted view
   isExtractedViewOpen: false,

@@ -281,6 +281,8 @@ export interface AppState {
   setIsLoading: (isLoading: boolean) => void;
   loadingMessage: string;
   setLoadingMessage: (message: string) => void;
+  rateLimitWarning: boolean;
+  setRateLimitWarning: (active: boolean) => void;
 
   // Extracted view
   isExtractedViewOpen: boolean;

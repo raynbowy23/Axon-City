@@ -5,6 +5,7 @@ import { ControlPanel } from './components/ControlPanel';
 import { StatsPanel } from './components/StatsPanel';
 import { SearchBar } from './components/SearchBar';
 import { SelectionPanel } from './components/SelectionPanel';
+import { RateLimitWarning } from './components/RateLimitWarning';
 import { ExtractedView } from './components/ExtractedView';
 import { DataInputPanel } from './components/DataInputPanel';
 import { ExternalIndicesPanel } from './components/ExternalIndicesPanel';
@@ -1248,6 +1249,7 @@ function App() {
       )}
 
       {/* Shared Components (render on both mobile and desktop) */}
+      <RateLimitWarning />
       <SelectionPanel />
       <ExtractedView isMobile={isMobile} />
       <DataInputPanel />
