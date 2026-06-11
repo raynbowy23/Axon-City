@@ -5,6 +5,9 @@
 
 import { useState, useMemo } from 'react';
 import type { ComparisonArea, Polygon } from '../types';
+import { useStore } from '../store/useStore';
+import { createShareableState, generateShareUrl } from '../utils/urlState';
+import { copyTextToClipboard } from '../utils/clipboard';
 import { exportPDFReport } from '../utils/pdfExport';
 import { exportMetrics } from '../utils/exportMetrics';
 import { exportSnapshot, defaultSnapshotOptions } from '../utils/snapshotExport';
@@ -38,6 +41,7 @@ interface GeoJSONOptions {
 export function ExportDialog({ isOpen, onClose, areas, activeLayers }: ExportDialogProps) {
   const [format, setFormat] = useState<ExportFormat>('pdf');
   const [isExporting, setIsExporting] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
   const [options, setOptions] = useState<ExportOptions>({
     includeMap: true,
     includeMetrics: true,
@@ -107,6 +111,20 @@ export function ExportDialog({ isOpen, onClose, areas, activeLayers }: ExportDia
 
   const handleExportBoundariesOnly = () => {
     downloadAreaBoundaries(areas);
+  };
+
+  // Build the share URL from store state at click time (this dialog stays
+  // mounted while closed, so it must not run its own useUrlState instance)
+  const handleCopyLink = async () => {
+    const { viewState, activeStoryId, explodedView, mapStyle } = useStore.getState();
+    const url = generateShareUrl(
+      createShareableState(viewState, areas, activeStoryId, activeLayers, explodedView.enabled, mapStyle)
+    );
+    const success = await copyTextToClipboard(url);
+    if (success) {
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 2000);
+    }
   };
 
   const formatOptions: { value: ExportFormat; label: string; description: string; icon: string }[] = [
@@ -525,6 +543,52 @@ export function ExportDialog({ isOpen, onClose, areas, activeLayers }: ExportDia
           ) : (
             <>
               Export {format === 'geojson' ? 'GeoJSON' : format.toUpperCase()}
+            </>
+          )}
+        </button>
+
+        {/* Copy share link */}
+        <button
+          onClick={handleCopyLink}
+          onTouchEnd={(e) => {
+            e.preventDefault();
+            handleCopyLink();
+          }}
+          style={{
+            marginTop: '10px',
+            width: '100%',
+            padding: '12px',
+            backgroundColor: 'transparent',
+            border: linkCopied
+              ? '1px solid rgba(80, 200, 120, 0.6)'
+              : '1px solid rgba(255, 255, 255, 0.2)',
+            borderRadius: '8px',
+            color: linkCopied ? 'rgb(120, 220, 150)' : 'rgba(255, 255, 255, 0.8)',
+            fontSize: '13px',
+            fontWeight: '500',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '8px',
+            transition: 'all 0.15s ease',
+            touchAction: 'manipulation',
+          }}
+        >
+          {linkCopied ? (
+            <>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
+              </svg>
+              Link Copied!
+            </>
+          ) : (
+            <>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+              </svg>
+              Copy Share Link
             </>
           )}
         </button>

@@ -14,6 +14,7 @@ import {
   clearUrlState,
 } from '../utils/urlState';
 import { calculatePolygonArea } from '../utils/geometryUtils';
+import { copyTextToClipboard } from '../utils/clipboard';
 import type { Polygon, SelectionPolygon } from '../types';
 
 // Debounce delay for URL updates (ms)
@@ -200,27 +201,7 @@ export function useUrlState(onAreasRestored?: (polygons: { name: string; polygon
 
   // Copy share URL to clipboard
   const copyShareUrl = useCallback(async (): Promise<boolean> => {
-    const url = getShareUrl();
-    try {
-      await navigator.clipboard.writeText(url);
-      return true;
-    } catch {
-      // Fallback for older browsers
-      const textArea = document.createElement('textarea');
-      textArea.value = url;
-      textArea.style.position = 'fixed';
-      textArea.style.left = '-9999px';
-      document.body.appendChild(textArea);
-      textArea.select();
-      try {
-        document.execCommand('copy');
-        document.body.removeChild(textArea);
-        return true;
-      } catch {
-        document.body.removeChild(textArea);
-        return false;
-      }
-    }
+    return copyTextToClipboard(getShareUrl());
   }, [getShareUrl]);
 
   // Clear URL state
