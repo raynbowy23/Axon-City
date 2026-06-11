@@ -1,5 +1,6 @@
 import type { FeatureCollection, Feature, Polygon, Point, LineString } from 'geojson';
 import type { LayerConfig } from '../types';
+import { getCachedResponse, setCachedResponse, clearPersistentCache } from './osmCache';
 
 // Multiple Overpass API endpoints for failover
 const OVERPASS_ENDPOINTS = [
@@ -14,14 +15,16 @@ const QUERY_TIMEOUT = 90;
 // Fetch timeout in milliseconds
 const FETCH_TIMEOUT = 120000; // 2 minutes
 
-// Max concurrent requests
-const MAX_CONCURRENT = 3;
+// Layers combined into a single Overpass request. Fewer requests keeps us
+// under the per-IP rate limits of the public servers, while each query
+// stays within server time/size limits.
+const BATCH_SIZE = 8;
 
-// Cache for responses (bbox -> layer -> data)
-const responseCache = new Map<string, Map<string, FeatureCollection>>();
+// In-memory cache (L1); the persistent IndexedDB cache in osmCache.ts is L2
+const responseCache = new Map<string, FeatureCollection>();
 
 interface OverpassElement {
-  type: 'node' | 'way' | 'relation';
+  type: 'node' | 'way' | 'relation' | 'count';
   id: number;
   lat?: number;
   lon?: number;
@@ -100,34 +103,55 @@ function getBboxCacheKey(bbox: [number, number, number, number]): string {
 }
 
 /**
- * Fetch OSM data for a specific layer within a bounding box
- * Uses multiple endpoints with failover and retry logic
+ * Cache key for a layer's data within a bbox. Includes the query and
+ * geometry type so manifest edits invalidate stale persistent entries.
  */
-export async function fetchLayerData(
-  layer: LayerConfig,
-  bbox: [number, number, number, number],
-  maxRetries: number = 3,
-  signal?: AbortSignal
-): Promise<FeatureCollection> {
-  // Check if already cancelled
-  if (signal?.aborted) {
-    throw new Error('Cancelled');
-  }
+function getLayerCacheKey(layer: LayerConfig, bbox: [number, number, number, number]): string {
+  return `${layer.id}|${layer.osmQuery}|${layer.geometryType}|${getBboxCacheKey(bbox)}`;
+}
 
-  // Check cache first
-  const cacheKey = getBboxCacheKey(bbox);
-  const layerCache = responseCache.get(cacheKey);
-  if (layerCache?.has(layer.id)) {
-    console.log(`Cache hit for layer ${layer.id}`);
-    return layerCache.get(layer.id)!;
-  }
+/**
+ * Look up a layer's data in the in-memory cache, then IndexedDB
+ */
+async function getCachedLayer(cacheKey: string): Promise<FeatureCollection | null> {
+  const inMemory = responseCache.get(cacheKey);
+  if (inMemory) return inMemory;
 
+  const persisted = await getCachedResponse(cacheKey);
+  if (persisted) {
+    responseCache.set(cacheKey, persisted);
+    return persisted;
+  }
+  return null;
+}
+
+/**
+ * Store a layer's data in both cache levels
+ */
+function storeCachedLayer(cacheKey: string, data: FeatureCollection): void {
+  responseCache.set(cacheKey, data);
+  void setCachedResponse(cacheKey, data);
+}
+
+function bboxToOverpassString(bbox: [number, number, number, number]): string {
   const [minLon, minLat, maxLon, maxLat] = bbox;
-  const bboxStr = `${minLat},${minLon},${maxLat},${maxLon}`;
+  return `${minLat},${minLon},${maxLat},${maxLon}`;
+}
 
-  // Build Overpass query based on layer config
-  const query = buildOverpassQuery(layer, bboxStr);
+// Thrown on HTTP 400 so callers can tell "query is malformed" apart from
+// transient server errors (a malformed query will never succeed on retry)
+class BadQueryError extends Error {}
 
+/**
+ * Execute an Overpass query with endpoint failover, rate-limit handling,
+ * and exponential backoff. Throws if all attempts fail.
+ */
+async function executeOverpassQuery(
+  query: string,
+  maxRetries: number = 3,
+  signal?: AbortSignal,
+  label: string = 'query'
+): Promise<OverpassResponse> {
   let lastError: Error | null = null;
   let endpointIndex = 0;
 
@@ -140,7 +164,7 @@ export async function fetchLayerData(
     const endpoint = OVERPASS_ENDPOINTS[endpointIndex];
 
     try {
-      console.log(`Fetching ${layer.id} from ${endpoint} (attempt ${attempt + 1})`);
+      console.log(`Fetching ${label} from ${endpoint} (attempt ${attempt + 1})`);
 
       const response = await fetchWithTimeout(
         endpoint,
@@ -156,46 +180,43 @@ export async function fetchLayerData(
       );
 
       if (response.status === 429) {
-        // Rate limited - try next endpoint immediately
-        console.warn(`Rate limited at ${endpoint} for ${layer.id}, trying next endpoint...`);
+        // Rate limited - honor Retry-After (capped so failover stays fast),
+        // then try the next endpoint
+        const retryAfter = Number(response.headers.get('Retry-After'));
+        const waitMs = Number.isFinite(retryAfter) && retryAfter > 0
+          ? Math.min(retryAfter * 1000, 15000)
+          : 500;
+        console.warn(`Rate limited at ${endpoint} for ${label}, waiting ${waitMs}ms and trying next endpoint...`);
         endpointIndex = (endpointIndex + 1) % OVERPASS_ENDPOINTS.length;
-        await new Promise((resolve) => setTimeout(resolve, 500));
+        await new Promise((resolve) => setTimeout(resolve, waitMs));
         continue;
       }
 
       if (response.status === 504 || response.status === 503) {
         // Server overloaded - try next endpoint
-        console.warn(`Server error ${response.status} at ${endpoint} for ${layer.id}, trying next endpoint...`);
+        console.warn(`Server error ${response.status} at ${endpoint} for ${label}, trying next endpoint...`);
         endpointIndex = (endpointIndex + 1) % OVERPASS_ENDPOINTS.length;
         await new Promise((resolve) => setTimeout(resolve, 1000));
         continue;
       }
 
       if (response.status === 400) {
-        // Bad request - query might be malformed, log and skip
         const errorText = await response.text();
-        console.error(`Bad request for layer ${layer.id}: ${errorText.slice(0, 200)}`);
-        return { type: 'FeatureCollection', features: [] };
+        throw new BadQueryError(`Bad request for ${label}: ${errorText.slice(0, 200)}`);
       }
 
       if (!response.ok) {
         throw new Error(`Overpass API error: ${response.status}`);
       }
 
-      const data: OverpassResponse = await response.json();
-      const result = convertToGeoJSON(data, layer);
-
-      // Cache the result
-      if (!responseCache.has(cacheKey)) {
-        responseCache.set(cacheKey, new Map());
-      }
-      responseCache.get(cacheKey)!.set(layer.id, result);
-
-      console.log(`Successfully fetched ${result.features.length} features for ${layer.id}`);
-      return result;
+      return (await response.json()) as OverpassResponse;
     } catch (error) {
+      if (error instanceof Error && (error.message === 'Cancelled' || error instanceof BadQueryError)) {
+        throw error;
+      }
+
       lastError = error as Error;
-      console.error(`Attempt ${attempt + 1} failed for layer ${layer.id} at ${endpoint}:`, error);
+      console.error(`Attempt ${attempt + 1} failed for ${label} at ${endpoint}:`, error);
 
       // Rotate to next endpoint on network errors
       if (error instanceof Error && (error.message === 'Request timeout' || error.message.includes('fetch'))) {
@@ -208,8 +229,47 @@ export async function fetchLayerData(
     }
   }
 
-  console.error(`Failed to fetch layer ${layer.id} after all attempts:`, lastError);
-  return { type: 'FeatureCollection', features: [] };
+  throw lastError ?? new Error(`Overpass query failed for ${label}`);
+}
+
+/**
+ * Fetch OSM data for a specific layer within a bounding box
+ * Uses multiple endpoints with failover and retry logic
+ */
+export async function fetchLayerData(
+  layer: LayerConfig,
+  bbox: [number, number, number, number],
+  maxRetries: number = 3,
+  signal?: AbortSignal
+): Promise<FeatureCollection> {
+  // Check if already cancelled
+  if (signal?.aborted) {
+    throw new Error('Cancelled');
+  }
+
+  // Check caches first
+  const cacheKey = getLayerCacheKey(layer, bbox);
+  const cached = await getCachedLayer(cacheKey);
+  if (cached) {
+    console.log(`Cache hit for layer ${layer.id}`);
+    return cached;
+  }
+
+  const query = buildOverpassQuery(layer, bboxToOverpassString(bbox));
+
+  try {
+    const data = await executeOverpassQuery(query, maxRetries, signal, layer.id);
+    const result = convertToGeoJSON(data, layer);
+    storeCachedLayer(cacheKey, result);
+    console.log(`Successfully fetched ${result.features.length} features for ${layer.id}`);
+    return result;
+  } catch (error) {
+    if (error instanceof Error && error.message === 'Cancelled') {
+      throw error;
+    }
+    console.error(`Failed to fetch layer ${layer.id} after all attempts:`, error);
+    return { type: 'FeatureCollection', features: [] };
+  }
 }
 
 /**
@@ -243,6 +303,69 @@ function buildOverpassQuery(layer: LayerConfig, bboxStr: string): string {
   }
 
   return output;
+}
+
+/**
+ * Build a single Overpass query covering multiple layers. Each layer's
+ * union is followed by its own `out` statement plus an `out count;` marker,
+ * so the response can be split back into exact per-layer segments without
+ * re-implementing Overpass tag matching client-side.
+ */
+function buildBatchedQuery(layers: LayerConfig[], bboxStr: string): string {
+  // Larger maxsize than single-layer queries since one response carries
+  // several layers' data
+  let output = `[out:json][timeout:${QUERY_TIMEOUT}][maxsize:134217728];\n`;
+
+  for (const layer of layers) {
+    output += '(\n';
+    for (const part of splitQueryParts(layer.osmQuery)) {
+      const trimmed = part.trim();
+      if (trimmed.startsWith('node') || trimmed.startsWith('way') || trimmed.startsWith('relation')) {
+        output += `  ${trimmed}(${bboxStr});\n`;
+      }
+    }
+    output += ');\n';
+
+    if (layer.geometryType === 'polygon' || layer.geometryType === 'line') {
+      output += 'out body geom;\n';
+    } else {
+      output += 'out body;\n';
+    }
+    output += 'out count;\n';
+  }
+
+  return output;
+}
+
+/**
+ * Split a batched response into per-layer element segments using the
+ * `count` marker elements as separators
+ */
+function splitBatchedElements(elements: OverpassElement[]): OverpassElement[][] {
+  const segments: OverpassElement[][] = [];
+  let current: OverpassElement[] = [];
+
+  for (const element of elements) {
+    if (element.type === 'count') {
+      segments.push(current);
+      current = [];
+    } else {
+      current.push(element);
+    }
+  }
+
+  return segments;
+}
+
+/**
+ * A layer with no parseable query parts would produce an empty union and
+ * break segment alignment in a batched query
+ */
+function hasValidQueryParts(layer: LayerConfig): boolean {
+  return splitQueryParts(layer.osmQuery).some((part) => {
+    const trimmed = part.trim();
+    return trimmed.startsWith('node') || trimmed.startsWith('way') || trimmed.startsWith('relation');
+  });
 }
 
 /**
@@ -443,7 +566,9 @@ function elementToFeature(
 }
 
 /**
- * Fetch multiple layers with parallel execution and concurrency limit
+ * Fetch multiple layers, combining them into a few batched Overpass
+ * requests instead of one request per layer. Cached layers (memory or
+ * IndexedDB) are served without touching the network.
  */
 export async function fetchMultipleLayers(
   layers: LayerConfig[],
@@ -460,31 +585,70 @@ export async function fetchMultipleLayers(
     throw new Error('Cancelled');
   }
 
-  // Process layers in batches with limited concurrency
-  const processBatch = async (batch: LayerConfig[]) => {
-    const promises = batch.map(async (layer) => {
-      const data = await fetchLayerData(layer, bbox, 3, signal);
-      results.set(layer.id, data);
-      completed++;
-      onProgress?.(layer.id, completed, total);
-      return data;
-    });
-    await Promise.all(promises);
+  const reportDone = (layerId: string) => {
+    completed++;
+    onProgress?.(layerId, completed, total);
   };
 
-  // Split into batches
-  for (let i = 0; i < layers.length; i += MAX_CONCURRENT) {
-    // Check if cancelled before each batch
+  // Serve everything we can from cache first
+  const uncached: LayerConfig[] = [];
+  for (const layer of layers) {
+    if (!hasValidQueryParts(layer)) {
+      results.set(layer.id, { type: 'FeatureCollection', features: [] });
+      reportDone(layer.id);
+      continue;
+    }
+
+    const cached = await getCachedLayer(getLayerCacheKey(layer, bbox));
+    if (cached) {
+      console.log(`Cache hit for layer ${layer.id}`);
+      results.set(layer.id, cached);
+      reportDone(layer.id);
+    } else {
+      uncached.push(layer);
+    }
+  }
+
+  const bboxStr = bboxToOverpassString(bbox);
+
+  // Fetch remaining layers in combined requests, sequentially to stay
+  // within the public servers' per-IP slot limits
+  for (let i = 0; i < uncached.length; i += BATCH_SIZE) {
     if (signal?.aborted) {
       throw new Error('Cancelled');
     }
 
-    const batch = layers.slice(i, i + MAX_CONCURRENT);
-    await processBatch(batch);
+    const batch = uncached.slice(i, i + BATCH_SIZE);
 
-    // Small delay between batches to avoid overwhelming servers
-    if (i + MAX_CONCURRENT < layers.length) {
-      await new Promise((resolve) => setTimeout(resolve, 500));
+    try {
+      const label = `batch [${batch.map((l) => l.id).join(', ')}]`;
+      const data = await executeOverpassQuery(buildBatchedQuery(batch, bboxStr), 3, signal, label);
+
+      const segments = splitBatchedElements(data.elements);
+      if (segments.length !== batch.length) {
+        throw new Error(`Batched response had ${segments.length} segments for ${batch.length} layers`);
+      }
+
+      batch.forEach((layer, index) => {
+        const result = convertToGeoJSON({ ...data, elements: segments[index] }, layer);
+        storeCachedLayer(getLayerCacheKey(layer, bbox), result);
+        results.set(layer.id, result);
+        console.log(`Successfully fetched ${result.features.length} features for ${layer.id}`);
+        reportDone(layer.id);
+      });
+    } catch (error) {
+      if (error instanceof Error && error.message === 'Cancelled') {
+        throw error;
+      }
+
+      // Batch failed (e.g. one malformed sub-query poisoning the whole
+      // request) - fall back to per-layer requests so the rest still load
+      console.warn('Batched fetch failed, falling back to per-layer requests:', error);
+      for (const layer of batch) {
+        const data = await fetchLayerData(layer, bbox, 2, signal);
+        results.set(layer.id, data);
+        reportDone(layer.id);
+      }
     }
   }
 
@@ -521,8 +685,9 @@ export function getBboxFromPolygon(
 }
 
 /**
- * Clear the response cache (useful when selection changes)
+ * Clear both cache levels (useful when fresh data is explicitly wanted)
  */
 export function clearCache(): void {
   responseCache.clear();
+  void clearPersistentCache();
 }
