@@ -9,6 +9,7 @@ import type { Feature, FeatureCollection, Polygon, MultiPolygon, LineString, Poi
 
 import { useStore } from '../store/useStore';
 import { getLayersByCustomOrder, layerManifest } from '../data/layerManifest';
+import { posterThemes, getPosterTheme, themeGroupStyle, themeLayerConfig, type PosterTheme } from '../data/posterThemes';
 import type { LayerData, LayerOrderConfig, CustomLayerConfig, AnyLayerConfig } from '../types';
 
 // OrbitView viewState type
@@ -95,6 +96,7 @@ interface DeckGLViewProps {
   showPlatforms: boolean; // whether to show transparent group platforms
   customLayers: CustomLayerConfig[]; // user-uploaded custom layers
   customGroupEnabled: boolean; // whether custom layers group is visible
+  posterTheme: PosterTheme | null; // restyle all layers for poster mode
 }
 
 const DeckGLView = memo(function DeckGLView({
@@ -111,6 +113,7 @@ const DeckGLView = memo(function DeckGLView({
   showPlatforms,
   customLayers,
   customGroupEnabled,
+  posterTheme,
 }: DeckGLViewProps) {
   const [isReady, setIsReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -725,8 +728,12 @@ const DeckGLView = memo(function DeckGLView({
         data: [{ polygon: localPolygon }],
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         getPolygon: (d: any) => d.polygon,
-        getFillColor: [40, 40, 50, 200],
-        getLineColor: [100, 150, 255, 255],
+        getFillColor: posterTheme
+          ? ([...posterTheme.frame, 12] as [number, number, number, number])
+          : [40, 40, 50, 200],
+        getLineColor: posterTheme
+          ? ([...posterTheme.frame, 220] as [number, number, number, number])
+          : [100, 150, 255, 255],
         getLineWidth: 3,
         lineWidthUnits: 'pixels',
         filled: true,
@@ -747,14 +754,21 @@ const DeckGLView = memo(function DeckGLView({
           ring.map((c: number[]) => [c[0], c[1], zOffset - 5])
         );
 
+        const platformColor = posterTheme
+          ? (themeGroupStyle(posterTheme, group.id).stroke.slice(0, 3) as [number, number, number])
+          : group.color;
+        const platformAlphas = posterTheme
+          ? posterTheme.platform
+          : { fillAlpha: 40, strokeAlpha: 150 };
+
         layers.push(
           new PolygonLayer({
             id: `extracted-platform-${group.id}`,
             data: [{ polygon: elevatedPolygon }],
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             getPolygon: (d: any) => d.polygon,
-            getFillColor: [...group.color, 40] as [number, number, number, number],
-            getLineColor: [...group.color, 150] as [number, number, number, number],
+            getFillColor: [...platformColor, platformAlphas.fillAlpha] as [number, number, number, number],
+            getLineColor: [...platformColor, platformAlphas.strokeAlpha] as [number, number, number, number],
             getLineWidth: 2,
             lineWidthUnits: 'pixels',
             filled: true,
@@ -777,16 +791,17 @@ const DeckGLView = memo(function DeckGLView({
 
       const zOffset = groupBaseHeight + layerIndexInGroup * intraGroupSpacing;
       const features = data.clippedFeatures;
+      const renderConfig = posterTheme ? themeLayerConfig(config, posterTheme) : config;
 
       switch (config.geometryType) {
         case 'polygon':
-          layers.push(createExtractedPolygonLayer(config, features, zOffset, center));
+          layers.push(createExtractedPolygonLayer(renderConfig, features, zOffset, center));
           break;
         case 'line':
-          layers.push(createExtractedLineLayer(config, features, zOffset, center));
+          layers.push(createExtractedLineLayer(renderConfig, features, zOffset, center));
           break;
         case 'point':
-          layers.push(createExtractedPointLayer(config, features, zOffset, center));
+          layers.push(createExtractedPointLayer(renderConfig, features, zOffset, center));
           break;
       }
     }
@@ -809,16 +824,17 @@ const DeckGLView = memo(function DeckGLView({
       if (!features?.features.length) return;
 
       const zOffset = customLayerBaseHeight + index * intraGroupSpacing;
+      const renderConfig = posterTheme ? themeLayerConfig(config, posterTheme) : config;
 
       switch (config.geometryType) {
         case 'polygon':
-          layers.push(createExtractedPolygonLayer(config, features, zOffset, center));
+          layers.push(createExtractedPolygonLayer(renderConfig, features, zOffset, center));
           break;
         case 'line':
-          layers.push(createExtractedLineLayer(config, features, zOffset, center));
+          layers.push(createExtractedLineLayer(renderConfig, features, zOffset, center));
           break;
         case 'point':
-          layers.push(createExtractedPointLayer(config, features, zOffset, center));
+          layers.push(createExtractedPointLayer(renderConfig, features, zOffset, center));
           break;
       }
     });
@@ -835,8 +851,12 @@ const DeckGLView = memo(function DeckGLView({
           data: [{ polygon: elevatedPolygon }],
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           getPolygon: (d: any) => d.polygon,
-          getFillColor: [255, 165, 0, 40] as [number, number, number, number], // Orange for custom
-          getLineColor: [255, 165, 0, 150] as [number, number, number, number],
+          getFillColor: posterTheme
+            ? ([...themeGroupStyle(posterTheme, 'custom').stroke.slice(0, 3), posterTheme.platform.fillAlpha] as [number, number, number, number])
+            : ([255, 165, 0, 40] as [number, number, number, number]), // Orange for custom
+          getLineColor: posterTheme
+            ? ([...themeGroupStyle(posterTheme, 'custom').stroke.slice(0, 3), posterTheme.platform.strokeAlpha] as [number, number, number, number])
+            : ([255, 165, 0, 150] as [number, number, number, number]),
           getLineWidth: 2,
           lineWidthUnits: 'pixels',
           filled: true,
@@ -954,7 +974,7 @@ const DeckGLView = memo(function DeckGLView({
     }
 
     return layers;
-  }, [selectionPolygon, layerData, activeLayers, layerOrder, layerSpacing, intraGroupRatio, pinnedInfos, enabledGroups, center, showPlatforms, highlightedObject, customLayers, customGroupEnabled]);
+  }, [selectionPolygon, layerData, activeLayers, layerOrder, layerSpacing, intraGroupRatio, pinnedInfos, enabledGroups, center, showPlatforms, highlightedObject, customLayers, customGroupEnabled, posterTheme]);
 
   if (error) {
     return (
@@ -967,7 +987,7 @@ const DeckGLView = memo(function DeckGLView({
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        backgroundColor: '#1a1a2e',
+        backgroundColor: posterTheme?.background ?? '#1a1a2e',
         color: 'rgba(255,100,100,0.9)',
         fontSize: '12px',
         padding: '20px',
@@ -990,7 +1010,7 @@ const DeckGLView = memo(function DeckGLView({
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          backgroundColor: '#1a1a2e',
+          backgroundColor: posterTheme?.background ?? '#1a1a2e',
           color: 'rgba(255,255,255,0.6)',
           fontSize: '12px',
           zIndex: 1,
@@ -1191,7 +1211,11 @@ export function ExtractedView({ isMobile = false }: ExtractedViewProps) {
     setSelectionLocationName,
     areas,
     activeAreaId,
+    posterThemeId,
+    setPosterThemeId,
   } = useStore();
+
+  const posterTheme = getPosterTheme(posterThemeId);
 
   // Get the active area's layer data, falling back to global layerData
   const activeArea = areas.find((a) => a.id === activeAreaId);
@@ -2156,10 +2180,42 @@ export function ExtractedView({ isMobile = false }: ExtractedViewProps) {
         >
           Platforms
         </button>
+
+        {/* Separator */}
+        <div style={{ width: '1px', height: '20px', backgroundColor: 'rgba(255,255,255,0.2)', margin: '0 4px' }} />
+
+        {/* Poster theme selector */}
+        <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: '10px' }}>🎨</span>
+        {posterThemes.map((theme) => {
+          const isActive = posterThemeId === theme.id;
+          return (
+            <button
+              key={theme.id}
+              onClick={() => setPosterThemeId(isActive ? null : theme.id)}
+              title={theme.description}
+              style={{
+                padding: '4px 10px',
+                backgroundColor: isActive ? theme.background : 'rgba(60,60,60,0.8)',
+                color: isActive
+                  ? `rgb(${themeGroupStyle(theme, 'usage').stroke.slice(0, 3).join(',')})`
+                  : 'rgba(255,255,255,0.4)',
+                border: `1px solid ${isActive ? `rgb(${theme.frame.join(',')})` : 'rgba(100,100,100,0.5)'}`,
+                borderRadius: '12px',
+                cursor: 'pointer',
+                fontSize: '10px',
+                fontWeight: isActive ? '600' : '400',
+                transition: 'all 0.15s ease',
+                opacity: isActive ? 1 : 0.6,
+              }}
+            >
+              {theme.name}
+            </button>
+          );
+        })}
       </div>
 
       {/* 3D View - Single or Comparison Mode */}
-      <div ref={viewContainerRef} style={{ flex: 1, position: 'relative', backgroundColor: '#1a1a2e' }}>
+      <div ref={viewContainerRef} style={{ flex: 1, position: 'relative', backgroundColor: posterTheme?.background ?? '#1a1a2e' }}>
         {/* Single area view */}
         {!isComparisonMode && selectionPolygon && (
           <>
@@ -2178,6 +2234,7 @@ export function ExtractedView({ isMobile = false }: ExtractedViewProps) {
               showPlatforms={showPlatforms}
               customLayers={customLayers}
               customGroupEnabled={customGroupEnabled}
+              posterTheme={posterTheme}
             />
 
             {/* Location name overlay for screenshots - editable */}
@@ -2262,7 +2319,7 @@ export function ExtractedView({ isMobile = false }: ExtractedViewProps) {
                   key={`area-view-${area.id}`}
                   style={{
                     position: 'relative',
-                    backgroundColor: '#1a1a2e',
+                    backgroundColor: posterTheme?.background ?? '#1a1a2e',
                     overflow: 'hidden',
                   }}
                 >
@@ -2281,6 +2338,7 @@ export function ExtractedView({ isMobile = false }: ExtractedViewProps) {
                     showPlatforms={showPlatforms}
                     customLayers={customLayers}
                     customGroupEnabled={customGroupEnabled}
+                    posterTheme={posterTheme}
                   />
                   {/* Area label */}
                   <div

@@ -287,6 +287,8 @@ export interface AppState {
   // Extracted view
   isExtractedViewOpen: boolean;
   setExtractedViewOpen: (isOpen: boolean) => void;
+  posterThemeId: string | null;
+  setPosterThemeId: (id: string | null) => void;
   selectionLocationName: string | null;
   setSelectionLocationName: (name: string | null) => void;
 
