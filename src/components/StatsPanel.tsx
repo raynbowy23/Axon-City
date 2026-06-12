@@ -4,6 +4,7 @@ import { getLayerById, getGroupById } from '../data/layerManifest';
 import { MetricsPanel } from './MetricsPanel';
 import { ComparisonTable } from './ComparisonTable';
 import { ComparisonGuidance } from './ComparisonGuidance';
+import { DataQualityIndicator } from './DataQualityIndicator';
 import { ExportDialog } from './ExportDialog';
 import { exportMetrics, type ExportArea } from '../utils/exportMetrics';
 import { calculatePOIMetrics } from '../utils/metricsCalculator';
@@ -535,6 +536,7 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
             ) : (
               <MetricsPanel />
             )}
+            <DataQualityIndicator compact />
           </div>
         )}
 
@@ -970,10 +972,12 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
                 }}
               />
               <ComparisonGuidance collapsed />
+              <DataQualityIndicator />
             </>
           ) : (
             <>
               <MetricsPanel />
+              <DataQualityIndicator />
               {/* Export Button */}
               <button
                 onClick={() => {
