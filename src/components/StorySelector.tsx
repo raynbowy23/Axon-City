@@ -1,5 +1,6 @@
 import { useStore } from '../store/useStore';
 import { storyPresets } from '../data/storyPresets';
+import { trackEvent } from '../utils/analytics';
 
 interface StorySelectorProps {
   isMobile?: boolean;
@@ -22,7 +23,10 @@ export function StorySelector({ isMobile = false }: StorySelectorProps) {
         return (
           <button
             key={story.id}
-            onClick={() => applyStory(story.id)}
+            onClick={() => {
+              trackEvent('preset_selected', { preset: story.id });
+              applyStory(story.id);
+            }}
             disabled={isLoading}
             title={story.description}
             style={{

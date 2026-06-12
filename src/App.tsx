@@ -22,6 +22,7 @@ import { usePolygonDrawing } from './hooks/usePolygonDrawing';
 import { useIsMobile, useIsTablet } from './hooks/useMediaQuery';
 import { useUrlState } from './hooks/useUrlState';
 import { useStore } from './store/useStore';
+import { trackEvent } from './utils/analytics';
 import { layerManifest } from './data/layerManifest';
 import { fetchMultipleLayers, getBboxFromPolygon } from './utils/osmFetcher';
 import {
@@ -252,6 +253,12 @@ function App() {
           setLoadingMessage(`Maximum ${MAX_COMPARISON_AREAS} areas allowed`);
           fetchAbortControllerRef.current = null;
           return;
+        }
+
+        const areaCount = useStore.getState().areas.length;
+        trackEvent('area_drawn', { shape: shapeType ?? 'polygon', areaCount });
+        if (areaCount === 2) {
+          trackEvent('comparison_started');
         }
       } else {
         // Update existing area polygon and clear its cached layer data

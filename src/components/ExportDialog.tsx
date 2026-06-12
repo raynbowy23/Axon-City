@@ -8,6 +8,7 @@ import type { ComparisonArea, Polygon } from '../types';
 import { useStore } from '../store/useStore';
 import { createShareableState, generateShareUrl } from '../utils/urlState';
 import { copyTextToClipboard } from '../utils/clipboard';
+import { trackEvent } from '../utils/analytics';
 import { exportPDFReport } from '../utils/pdfExport';
 import { exportMetrics } from '../utils/exportMetrics';
 import { exportSnapshot, defaultSnapshotOptions } from '../utils/snapshotExport';
@@ -101,6 +102,7 @@ export function ExportDialog({ isOpen, onClose, areas, activeLayers }: ExportDia
           downloadGeoJSON(areas, activeLayers, geoJsonOptions);
           break;
       }
+      trackEvent('export', { format });
       onClose();
     } catch (error) {
       console.error('Export failed:', error);
@@ -111,6 +113,7 @@ export function ExportDialog({ isOpen, onClose, areas, activeLayers }: ExportDia
 
   const handleExportBoundariesOnly = () => {
     downloadAreaBoundaries(areas);
+    trackEvent('export', { format: 'boundaries' });
   };
 
   // Build the share URL from store state at click time (this dialog stays
@@ -122,6 +125,7 @@ export function ExportDialog({ isOpen, onClose, areas, activeLayers }: ExportDia
     );
     const success = await copyTextToClipboard(url);
     if (success) {
+      trackEvent('share_link_copied', { source: 'export_dialog' });
       setLinkCopied(true);
       setTimeout(() => setLinkCopied(false), 2000);
     }

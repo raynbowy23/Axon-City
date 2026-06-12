@@ -2,6 +2,7 @@ import type { FeatureCollection, Feature, Polygon, Point, LineString } from 'geo
 import type { LayerConfig } from '../types';
 import { getCachedResponse, setCachedResponse, clearPersistentCache } from './osmCache';
 import { useStore } from '../store/useStore';
+import { trackEvent } from './analytics';
 
 // Multiple Overpass API endpoints for failover
 const OVERPASS_ENDPOINTS = [
@@ -189,6 +190,7 @@ async function executeOverpassQuery(
           : 500;
         console.warn(`Rate limited at ${endpoint} for ${label}, waiting ${waitMs}ms and trying next endpoint...`);
         useStore.getState().setRateLimitWarning(true);
+        trackEvent('rate_limited', { endpoint: new URL(endpoint).hostname });
         endpointIndex = (endpointIndex + 1) % OVERPASS_ENDPOINTS.length;
         await new Promise((resolve) => setTimeout(resolve, waitMs));
         continue;
