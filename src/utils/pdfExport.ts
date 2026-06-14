@@ -3,7 +3,10 @@
  * Generate professional PDF reports with map snapshots and metrics
  */
 
-import { jsPDF } from 'jspdf';
+// Type-only import — the value is loaded lazily (see generatePDFReport) so
+// jsPDF + its html2canvas/dompurify chunks (~380 KB) stay out of the initial
+// bundle and load only when a PDF is actually exported.
+import type { jsPDF } from 'jspdf';
 import type { ComparisonArea, Insight, Polygon, DerivedMetricValue } from '../types';
 import { calculatePOIMetrics, POI_CATEGORIES, type POIMetrics } from './metricsCalculator';
 import { generateInsights } from './insightsGenerator';
@@ -60,6 +63,7 @@ export async function generatePDFReport(
     includeMethodology: true,
   }
 ): Promise<Blob> {
+  const { jsPDF } = await import('jspdf');
   const pdf = new jsPDF({
     orientation: 'portrait',
     unit: 'mm',

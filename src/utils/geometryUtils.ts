@@ -1,4 +1,20 @@
-import * as turf from '@turf/turf';
+// Aliased named imports (not `import * as turf`) so Rollup tree-shakes
+// @turf/turf to just these functions. Aliased to avoid colliding with local
+// identifiers named `feature`, `centroid`, `bbox`.
+import {
+  area as turfArea,
+  bbox as turfBbox,
+  booleanIntersects as turfBooleanIntersects,
+  booleanPointInPolygon as turfBooleanPointInPolygon,
+  booleanWithin as turfBooleanWithin,
+  centroid as turfCentroid,
+  feature as turfFeature,
+  featureCollection as turfFeatureCollection,
+  intersect as turfIntersect,
+  length as turfLength,
+  lineSplit as turfLineSplit,
+  simplify as turfSimplify,
+} from '@turf/turf';
 import type {
   FeatureCollection,
   Feature,
@@ -47,13 +63,13 @@ function clipFeature(
 ): Feature | null {
   if (!feature.geometry) return null;
 
-  const clipFeatureObj = turf.feature(clipPolygon);
+  const clipFeatureObj = turfFeature(clipPolygon);
 
   switch (geometryType) {
     case 'polygon': {
       const poly = feature as Feature<Polygon | MultiPolygon>;
-      const intersection = turf.intersect(
-        turf.featureCollection([poly, clipFeatureObj as Feature<Polygon>])
+      const intersection = turfIntersect(
+        turfFeatureCollection([poly, clipFeatureObj as Feature<Polygon>])
       );
       if (intersection) {
         return {
@@ -67,25 +83,25 @@ function clipFeature(
     case 'line': {
       const line = feature as Feature<LineString>;
       // Check if line intersects the polygon first
-      if (!turf.booleanIntersects(line, clipFeatureObj)) {
+      if (!turfBooleanIntersects(line, clipFeatureObj)) {
         return null;
       }
       // Split the line by the polygon boundary
-      const clipped = turf.lineSplit(line, clipFeatureObj);
+      const clipped = turfLineSplit(line, clipFeatureObj);
       if (clipped.features.length === 0) {
         // Line is entirely within polygon
-        if (turf.booleanWithin(line, clipFeatureObj)) {
+        if (turfBooleanWithin(line, clipFeatureObj)) {
           return feature;
         }
         return null;
       }
       // Return segments that are within the polygon
       const withinSegments = clipped.features.filter((segment) =>
-        turf.booleanWithin(turf.centroid(segment), clipFeatureObj)
+        turfBooleanWithin(turfCentroid(segment), clipFeatureObj)
       );
       if (withinSegments.length === 0) {
         // Original line might be within, check that
-        if (turf.booleanWithin(turf.centroid(line), clipFeatureObj)) {
+        if (turfBooleanWithin(turfCentroid(line), clipFeatureObj)) {
           return feature;
         }
         return null;
@@ -108,7 +124,7 @@ function clipFeature(
 
     case 'point': {
       const point = feature as Feature<Point>;
-      if (turf.booleanPointInPolygon(point, clipFeatureObj)) {
+      if (turfBooleanPointInPolygon(point, clipFeatureObj)) {
         return feature;
       }
       return null;
@@ -141,7 +157,7 @@ export function calculateLayerStats(
     let totalLength = 0;
     for (const feature of features.features) {
       try {
-        totalLength += turf.length(feature as Feature<LineString>, {
+        totalLength += turfLength(feature as Feature<LineString>, {
           units: 'meters',
         });
       } catch {
@@ -158,7 +174,7 @@ export function calculateLayerStats(
     let totalArea = 0;
     for (const feature of features.features) {
       try {
-        totalArea += turf.area(feature as Feature<Polygon>);
+        totalArea += turfArea(feature as Feature<Polygon>);
       } catch {
         // Skip invalid geometries
       }
@@ -178,7 +194,7 @@ export function calculateLayerStats(
  * Calculate the area of a polygon in km²
  */
 export function calculatePolygonArea(polygon: Polygon | MultiPolygon): number {
-  const areaM2 = turf.area(turf.feature(polygon));
+  const areaM2 = turfArea(turfFeature(polygon));
   return areaM2 / 1_000_000; // Convert to km²
 }
 
@@ -188,7 +204,7 @@ export function calculatePolygonArea(polygon: Polygon | MultiPolygon): number {
 export function getPolygonCentroid(
   polygon: Polygon | MultiPolygon
 ): [number, number] {
-  const centroid = turf.centroid(turf.feature(polygon));
+  const centroid = turfCentroid(turfFeature(polygon));
   return centroid.geometry.coordinates as [number, number];
 }
 
@@ -224,7 +240,7 @@ export function simplifyFeatures(
     type: 'FeatureCollection',
     features: features.features.map((feature) => {
       try {
-        return turf.simplify(feature, {
+        return turfSimplify(feature, {
           tolerance,
           highQuality: true,
         });
@@ -241,7 +257,7 @@ export function simplifyFeatures(
 export function getPolygonBbox(
   polygon: Polygon | MultiPolygon
 ): [number, number, number, number] {
-  const bbox = turf.bbox(turf.feature(polygon));
+  const bbox = turfBbox(turfFeature(polygon));
   return bbox as [number, number, number, number];
 }
 
