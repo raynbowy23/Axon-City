@@ -14,6 +14,20 @@ export interface PosterThemeStyle {
   stroke: [number, number, number, number];
 }
 
+/**
+ * Typography colors for the poster composer (CSS color strings). Posters
+ * are typeset on a 2D canvas; these decide how the title, subtitle, metric
+ * strip, and accent rules read against the theme background.
+ */
+export interface PosterTypography {
+  title: string;
+  subtitle: string;
+  metricValue: string;
+  metricLabel: string;
+  /** Thin rules / dividers between the view and the type. */
+  accent: string;
+}
+
 export interface PosterTheme {
   id: string;
   name: string;
@@ -27,6 +41,8 @@ export interface PosterTheme {
   defaultStyle: PosterThemeStyle;
   /** Group platform plates: alphas applied to the group's themed stroke */
   platform: { fillAlpha: number; strokeAlpha: number };
+  /** Type colors used when composing the exported poster. */
+  typography: PosterTypography;
 }
 
 const blueprintInk: [number, number, number] = [232, 242, 255];
@@ -45,6 +61,13 @@ export const posterThemes: PosterTheme[] = [
       stroke: [...blueprintInk, 255],
     },
     platform: { fillAlpha: 14, strokeAlpha: 120 },
+    typography: {
+      title: 'rgb(232, 242, 255)',
+      subtitle: 'rgba(232, 242, 255, 0.62)',
+      metricValue: 'rgb(232, 242, 255)',
+      metricLabel: 'rgba(232, 242, 255, 0.55)',
+      accent: 'rgba(232, 242, 255, 0.38)',
+    },
   },
   {
     id: 'neon-noir',
@@ -66,6 +89,13 @@ export const posterThemes: PosterTheme[] = [
       stroke: [190, 110, 255, 255],
     },
     platform: { fillAlpha: 18, strokeAlpha: 110 },
+    typography: {
+      title: 'rgb(236, 240, 255)',
+      subtitle: 'rgba(236, 240, 255, 0.58)',
+      metricValue: 'rgb(64, 220, 255)',
+      metricLabel: 'rgba(236, 240, 255, 0.5)',
+      accent: 'rgba(255, 64, 160, 0.7)',
+    },
   },
   {
     id: 'mono',
@@ -79,6 +109,13 @@ export const posterThemes: PosterTheme[] = [
       stroke: [...monoInk, 255],
     },
     platform: { fillAlpha: 10, strokeAlpha: 80 },
+    typography: {
+      title: 'rgb(32, 29, 26)',
+      subtitle: 'rgba(32, 29, 26, 0.6)',
+      metricValue: 'rgb(32, 29, 26)',
+      metricLabel: 'rgba(32, 29, 26, 0.55)',
+      accent: 'rgba(32, 29, 26, 0.32)',
+    },
   },
 ];
 

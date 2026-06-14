@@ -10,6 +10,9 @@ import type { Feature, FeatureCollection, Polygon, MultiPolygon, LineString, Poi
 import { useStore } from '../store/useStore';
 import { getLayersByCustomOrder, layerManifest } from '../data/layerManifest';
 import { posterThemes, getPosterTheme, themeGroupStyle, themeLayerConfig, type PosterTheme } from '../data/posterThemes';
+import { calculatePOIMetrics } from '../utils/metricsCalculator';
+import type { PosterMetric } from '../utils/posterComposer';
+import { PosterDialog } from './PosterDialog';
 import type { LayerData, LayerOrderConfig, CustomLayerConfig, AnyLayerConfig } from '../types';
 
 // OrbitView viewState type
@@ -1284,6 +1287,8 @@ export function ExtractedView({ isMobile = false }: ExtractedViewProps) {
 
   // Save state and toast notification
   const [isSaving, setIsSaving] = useState(false);
+  // Poster export dialog
+  const [isPosterOpen, setIsPosterOpen] = useState(false);
   const [saveToast, setSaveToast] = useState<{ show: boolean; message: string; type: 'success' | 'error' }>({
     show: false,
     message: '',
@@ -1325,6 +1330,50 @@ export function ExtractedView({ isMobile = false }: ExtractedViewProps) {
     }
     return getCentroid(selectionPolygon.geometry);
   }, [selectionPolygon]);
+
+  // --- Poster export inputs ------------------------------------------------
+  // Three headline metrics from the active area's POI data.
+  const posterMetrics = useMemo((): PosterMetric[] => {
+    const areaM2 = activeArea?.polygon.area ?? selectionPolygon?.area ?? 0;
+    const areaKm2 = areaM2 / 1_000_000;
+    const m = calculatePOIMetrics(activeLayerData, areaKm2);
+    return [
+      { value: m.totalCount.toLocaleString(), label: 'POIs' },
+      { value: Math.round(m.density).toLocaleString(), label: 'per km²' },
+      { value: m.diversityIndex.toFixed(1), label: 'Diversity' },
+    ];
+  }, [activeArea, selectionPolygon, activeLayerData]);
+
+  // Subtitle: centroid coordinates + today's date.
+  const posterSubtitle = useMemo(() => {
+    const [lon, lat] = center;
+    const date = new Date().toLocaleDateString(undefined, {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    });
+    return `${lat.toFixed(4)}°, ${lon.toFixed(4)}°  ·  ${date}`;
+  }, [center]);
+
+  // Capture the live (themed) exploded-view canvas for the poster composer.
+  const captureSourceCanvas = useCallback((): HTMLCanvasElement | null => {
+    if (!viewContainerRef.current) return null;
+    const canvases = viewContainerRef.current.querySelectorAll('canvas');
+    if (canvases.length === 0) return null;
+    const deckCanvas = canvases[0] as HTMLCanvasElement;
+    if (deckCanvas.width === 0 || deckCanvas.height === 0) return null;
+    const out = document.createElement('canvas');
+    out.width = deckCanvas.width;
+    out.height = deckCanvas.height;
+    const ctx = out.getContext('2d');
+    if (!ctx) return null;
+    try {
+      ctx.drawImage(deckCanvas, 0, 0);
+    } catch {
+      return null;
+    }
+    return out;
+  }, []);
 
   // Exploded view config (always on)
   const [layerSpacing, setLayerSpacing] = useState(80);
@@ -1908,6 +1957,27 @@ export function ExtractedView({ isMobile = false }: ExtractedViewProps) {
               />
             )}
             {isSaving ? 'Saving' : 'Save'}
+          </button>
+
+          <button
+            onClick={() => setIsPosterOpen(true)}
+            style={{
+              padding: isMobile ? '10px 16px' : '4px 8px',
+              backgroundColor: 'rgba(168, 85, 247, 0.8)',
+              color: 'white',
+              border: 'none',
+              borderRadius: isMobile ? '8px' : '4px',
+              cursor: 'pointer',
+              fontSize: isMobile ? '14px' : '11px',
+              minHeight: isMobile ? '44px' : 'auto',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              whiteSpace: 'nowrap',
+            }}
+            title="Create a shareable poster"
+          >
+            🖼️ Poster
           </button>
 
           <button
@@ -2513,6 +2583,16 @@ export function ExtractedView({ isMobile = false }: ExtractedViewProps) {
           </div>
         </>
       )}
+
+      {/* Poster export dialog */}
+      <PosterDialog
+        isOpen={isPosterOpen}
+        onClose={() => setIsPosterOpen(false)}
+        captureSourceCanvas={captureSourceCanvas}
+        defaultTitle={localLocationName || selectionLocationName || ''}
+        subtitle={posterSubtitle}
+        metrics={posterMetrics}
+      />
     </div>
   );
 }
