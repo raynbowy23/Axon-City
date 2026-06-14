@@ -7,7 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useStore } from '../store/useStore';
 import { useUrlState } from '../hooks/useUrlState';
 import type { Polygon } from '../types';
-import { exportSnapshot, generatePreview, copySnapshotToClipboard, captureSnapshot, defaultSnapshotOptions } from '../utils/snapshotExport';
+import { exportSnapshot, generatePreview, copySnapshotToClipboard, captureSnapshot, defaultSnapshotOptions, snapshotDimsForQuality, exportQualityLongEdge, exportQualityMeta, type ExportQuality } from '../utils/snapshotExport';
 import { exportMetrics } from '../utils/exportMetrics';
 import { calculatePOIMetrics } from '../utils/metricsCalculator';
 import { calculateDerivedMetrics } from '../utils/externalIndices';
@@ -20,6 +20,9 @@ interface ShareDialogProps {
 
 type ExportFormat = 'png-square' | 'png-portrait' | 'png-story' | 'csv';
 
+// Aspect ratios (width / height) for the three social formats.
+const formatAspect = { square: 1, portrait: 4 / 5, story: 9 / 16 } as const;
+
 export function ShareDialog({ onClose, isMobile = false }: ShareDialogProps) {
   const { areas, activeLayers, activeStoryId, setPosterRequested } = useStore();
   const { getShareUrl, copyShareUrl } = useUrlState();
@@ -28,6 +31,7 @@ export function ShareDialog({ onClose, isMobile = false }: ShareDialogProps) {
   const [isGeneratingPreview, setIsGeneratingPreview] = useState(true);
   const [copySuccess, setCopySuccess] = useState<'link' | 'image' | null>(null);
   const [exportingFormat, setExportingFormat] = useState<ExportFormat | null>(null);
+  const [imageQuality, setImageQuality] = useState<ExportQuality>('hd');
 
   const shareUrl = getShareUrl();
   const preset = activeStoryId ? getStoryById(activeStoryId) : null;
@@ -70,26 +74,24 @@ export function ShareDialog({ onClose, isMobile = false }: ShareDialogProps) {
     const formatKey = `png-${format}` as ExportFormat;
     setExportingFormat(formatKey);
 
-    const resolutions = {
-      square: { width: 1080, height: 1080 },    // Square (1:1)
-      portrait: { width: 1080, height: 1350 },  // Portrait (4:5)
-      story: { width: 1080, height: 1920 },     // Story (9:16)
-    };
+    const dims = snapshotDimsForQuality(formatAspect[format], imageQuality);
 
     const success = await exportSnapshot(
-      resolutions[format],
+      dims,
       {
         presetName: preset?.name,
         areas,
         activeLayers,
         timestamp: new Date().toLocaleString(),
-      }
+      },
+      undefined,
+      { targetLongEdge: exportQualityLongEdge[imageQuality] }
     );
     setExportingFormat(null);
     if (success) {
       // Brief success indication
     }
-  }, [areas, activeLayers, preset]);
+  }, [areas, activeLayers, preset, imageQuality]);
 
   // Handle CSV export
   const handleExportCSV = useCallback(() => {
@@ -326,20 +328,56 @@ export function ShareDialog({ onClose, isMobile = false }: ShareDialogProps) {
         >
           <div
             style={{
-              fontSize: '12px',
-              color: 'rgba(255, 255, 255, 0.6)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
               marginBottom: '12px',
-              textTransform: 'uppercase',
-              letterSpacing: '0.5px',
+              gap: '8px',
             }}
           >
-            Download Image
+            <div
+              style={{
+                fontSize: '12px',
+                color: 'rgba(255, 255, 255, 0.6)',
+                textTransform: 'uppercase',
+                letterSpacing: '0.5px',
+              }}
+            >
+              Download Image
+            </div>
+            {/* Quality selector */}
+            <div style={{ display: 'flex', gap: '4px' }}>
+              {(['standard', 'hd', 'max'] as ExportQuality[]).map((q) => {
+                const active = imageQuality === q;
+                return (
+                  <button
+                    key={q}
+                    onClick={() => setImageQuality(q)}
+                    title={`${exportQualityMeta[q].label} · ${exportQualityLongEdge[q]}px`}
+                    style={{
+                      padding: '4px 8px',
+                      backgroundColor: active ? 'rgba(74,144,217,0.25)' : 'rgba(255,255,255,0.06)',
+                      border: active
+                        ? '1px solid rgba(74,144,217,0.6)'
+                        : '1px solid rgba(255,255,255,0.12)',
+                      borderRadius: '6px',
+                      color: active ? 'white' : 'rgba(255,255,255,0.6)',
+                      fontSize: '11px',
+                      fontWeight: active ? 600 : 400,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {exportQualityMeta[q].hint}
+                  </button>
+                );
+              })}
+            </div>
           </div>
           <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '12px' }}>
             <DownloadButton
               icon="image"
               label="Square"
-              sublabel="1080×1080"
+              sublabel={`${snapshotDimsForQuality(formatAspect.square, imageQuality).width}×${snapshotDimsForQuality(formatAspect.square, imageQuality).height}`}
               onClick={() => handleExportPNG('square')}
               loading={exportingFormat === 'png-square'}
               recommended
@@ -347,14 +385,14 @@ export function ShareDialog({ onClose, isMobile = false }: ShareDialogProps) {
             <DownloadButton
               icon="image"
               label="Portrait"
-              sublabel="1080×1350"
+              sublabel={`${snapshotDimsForQuality(formatAspect.portrait, imageQuality).width}×${snapshotDimsForQuality(formatAspect.portrait, imageQuality).height}`}
               onClick={() => handleExportPNG('portrait')}
               loading={exportingFormat === 'png-portrait'}
             />
             <DownloadButton
               icon="image"
               label="Story"
-              sublabel="1080×1920"
+              sublabel={`${snapshotDimsForQuality(formatAspect.story, imageQuality).width}×${snapshotDimsForQuality(formatAspect.story, imageQuality).height}`}
               onClick={() => handleExportPNG('story')}
               loading={exportingFormat === 'png-story'}
             />

@@ -6,13 +6,52 @@
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { SnapshotOptions, ComparisonArea, LayerConfig } from '../types';
 import { layerManifest } from '../data/layerManifest';
-import { getMapInstance } from './mapRef';
+import { getMapInstance, prepareHiResMapCapture } from './mapRef';
 
-// Default export options - Square (1:1). 1080px matches social platform
-// native resolution and downscales cleanly from a retina map capture.
+// HD export target: the captured map's longer edge is supersampled to at
+// least this many pixels (clamped to the GPU limit). ~2K.
+export const HD_TARGET_LONG_EDGE = 2160;
+
+// --- Export quality ----------------------------------------------------------
+// User-selectable resolution. The number is the output's longer edge in px and
+// the supersample target; Standard usually no-ops (downscales the on-screen
+// capture), HD/Max raise both map layers' pixel ratio. All clamped to the GPU
+// renderbuffer limit inside prepareHiResMapCapture.
+export type ExportQuality = 'standard' | 'hd' | 'max';
+
+export const exportQualityLongEdge: Record<ExportQuality, number> = {
+  standard: 1080,
+  hd: 2160,
+  max: 4096,
+};
+
+export const exportQualityMeta: Record<ExportQuality, { label: string; hint: string }> = {
+  standard: { label: 'Standard', hint: '1080p' },
+  hd: { label: 'HD', hint: '2K' },
+  max: { label: 'Max', hint: '4K' },
+};
+
+/**
+ * Output dimensions for an aspect ratio (width / height) at a quality level,
+ * with the longer edge set to the quality's target.
+ */
+export function snapshotDimsForQuality(
+  aspectRatio: number,
+  quality: ExportQuality
+): { width: number; height: number } {
+  const longEdge = exportQualityLongEdge[quality];
+  if (aspectRatio >= 1) {
+    return { width: longEdge, height: Math.round(longEdge / aspectRatio) };
+  }
+  return { width: Math.round(longEdge * aspectRatio), height: longEdge };
+}
+
+// Default export options - Square (1:1). 2160px long edge = HD; the export
+// supersamples the live map (prepareHiResMapCapture) so this is real detail,
+// not an upscale, and downscales cleanly with high-quality smoothing.
 export const defaultSnapshotOptions: SnapshotOptions = {
-  width: 1080,
-  height: 1080,
+  width: 2160,
+  height: 2160,
   includeLegend: true,
   includeMetrics: false,
   includeAttribution: true,
@@ -20,10 +59,10 @@ export const defaultSnapshotOptions: SnapshotOptions = {
   quality: 1.0,
 };
 
-// Portrait (4:5)
+// Portrait (4:5) — 2160 long edge
 export const instagramPortraitOptions: SnapshotOptions = {
-  width: 1080,
-  height: 1350,
+  width: 1728,
+  height: 2160,
   includeLegend: true,
   includeMetrics: false,
   includeAttribution: true,
@@ -31,10 +70,10 @@ export const instagramPortraitOptions: SnapshotOptions = {
   quality: 1.0,
 };
 
-// Story (9:16)
+// Story (9:16) — 2160 long edge
 export const instagramStoryOptions: SnapshotOptions = {
-  width: 1080,
-  height: 1920,
+  width: 1215,
+  height: 2160,
   includeLegend: true,
   includeMetrics: false,
   includeAttribution: true,
@@ -150,11 +189,21 @@ async function captureMapCanvases(): Promise<HTMLCanvasElement | null> {
     return null;
   }
 
-  // Get container dimensions
+  // Size the intermediate canvas to the ACTUAL backing resolution of the
+  // source canvases — which is supersampled during an HD capture. Using
+  // container × devicePixelRatio here would silently downsample a
+  // supersampled canvas straight back to screen resolution (so a "4K" export
+  // would be a screen-res image upscaled — bigger file, no extra detail).
   const containerRect = mapContainer.getBoundingClientRect();
   const dpr = window.devicePixelRatio || 1;
-  const width = Math.round(containerRect.width * dpr);
-  const height = Math.round(containerRect.height * dpr);
+  let width = Math.round(containerRect.width * dpr);
+  let height = Math.round(containerRect.height * dpr);
+  const sourceCanvasEls = Array.from(mapContainer.querySelectorAll('canvas'));
+  if (mapInstance) sourceCanvasEls.push(mapInstance.getCanvas());
+  for (const c of sourceCanvasEls) {
+    if (c.width > width) width = c.width;
+    if (c.height > height) height = c.height;
+  }
 
   // Create output canvas
   const outputCanvas = document.createElement('canvas');
@@ -551,6 +600,21 @@ function roundRect(
  */
 export async function captureSnapshot(
   options: SnapshotOptions,
+  overlay: OverlayConfig,
+  hiRes?: { targetLongEdge: number }
+): Promise<Blob | null> {
+  // For HD, supersample both map layers in place before reading the canvases,
+  // and restore afterwards no matter what.
+  const restore = hiRes ? await prepareHiResMapCapture(hiRes.targetLongEdge) : null;
+  try {
+    return await composeSnapshotBlob(options, overlay);
+  } finally {
+    restore?.();
+  }
+}
+
+async function composeSnapshotBlob(
+  options: SnapshotOptions,
   overlay: OverlayConfig
 ): Promise<Blob | null> {
   // Try to capture the map canvases
@@ -695,11 +759,12 @@ export async function copySnapshotToClipboard(blob: Blob): Promise<boolean> {
 export async function exportSnapshot(
   options: Partial<SnapshotOptions>,
   overlay: OverlayConfig,
-  filename?: string
+  filename?: string,
+  hiRes?: { targetLongEdge: number }
 ): Promise<boolean> {
   const fullOptions = { ...defaultSnapshotOptions, ...options };
 
-  const blob = await captureSnapshot(fullOptions, overlay);
+  const blob = await captureSnapshot(fullOptions, overlay, hiRes);
   if (!blob) return false;
 
   const defaultFilename = `axoncity-${overlay.areas.map((a) => a.name.toLowerCase().replace(/\s+/g, '-')).join('-vs-')}-${new Date().toISOString().split('T')[0]}.${fullOptions.format}`;

@@ -10,7 +10,7 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 
 import { useStore } from '../store/useStore';
 import { layerManifest, getLayersByCustomOrder } from '../data/layerManifest';
-import { setMapInstance, setDeckCanvas } from '../utils/mapRef';
+import { setMapInstance, setDeckCanvas, registerDeckPixelRatioSetter } from '../utils/mapRef';
 import {
   resizeRectangle,
   resizeCircle,
@@ -169,6 +169,16 @@ export function MapView() {
   const lastVertexClickRef = useRef<{ index: number; time: number } | null>(null);
   const deckRef = useRef<DeckGLRef | null>(null);
   const mapRef = useRef<MapRef>(null);
+
+  // Temporarily raised deck pixel ratio while capturing an HD export (driven by
+  // prepareHiResMapCapture via the registered setter below).
+  const [exportPixelRatio, setExportPixelRatio] = useState<number | undefined>(undefined);
+
+  // Let the HD capture orchestrator drive the deck's useDevicePixels prop.
+  useEffect(() => {
+    registerDeckPixelRatioSetter(setExportPixelRatio);
+    return () => registerDeckPixelRatioSetter(null);
+  }, []);
 
   // Handler for when map loads
   const handleMapLoad = useCallback(() => {
@@ -1636,6 +1646,7 @@ export function MapView() {
         viewState={viewState}
         onViewStateChange={onViewStateChange}
         controller={controller}
+        useDevicePixels={exportPixelRatio ?? true}
         layers={deckLayers}
         onHover={onHover}
         onClick={onClick}

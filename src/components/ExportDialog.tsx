@@ -11,7 +11,14 @@ import { copyTextToClipboard } from '../utils/clipboard';
 import { trackEvent } from '../utils/analytics';
 import { exportPDFReport } from '../utils/pdfExport';
 import { exportMetrics } from '../utils/exportMetrics';
-import { exportSnapshot, defaultSnapshotOptions } from '../utils/snapshotExport';
+import {
+  exportSnapshot,
+  defaultSnapshotOptions,
+  snapshotDimsForQuality,
+  exportQualityLongEdge,
+  exportQualityMeta,
+  type ExportQuality,
+} from '../utils/snapshotExport';
 import { calculatePOIMetrics } from '../utils/metricsCalculator';
 import { calculateDerivedMetrics } from '../utils/externalIndices';
 import { downloadGeoJSON, downloadAreaBoundaries, getExportStats } from '../utils/geoJsonExport';
@@ -41,6 +48,7 @@ interface GeoJSONOptions {
 
 export function ExportDialog({ isOpen, onClose, areas, activeLayers }: ExportDialogProps) {
   const [format, setFormat] = useState<ExportFormat>('pdf');
+  const [imageQuality, setImageQuality] = useState<ExportQuality>('hd');
   const [isExporting, setIsExporting] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
   const [options, setOptions] = useState<ExportOptions>({
@@ -80,16 +88,21 @@ export function ExportDialog({ isOpen, onClose, areas, activeLayers }: ExportDia
           trackEvent('export', { format: 'poster_requested' });
           onClose();
           return;
-        case 'image':
+        case 'image': {
+          // Square (1:1) map image at the chosen quality.
+          const dims = snapshotDimsForQuality(1, imageQuality);
           await exportSnapshot(
-            defaultSnapshotOptions,
+            { ...defaultSnapshotOptions, ...dims },
             {
               areas,
               activeLayers,
               timestamp: new Date().toLocaleString(),
-            }
+            },
+            undefined,
+            { targetLongEdge: exportQualityLongEdge[imageQuality] }
           );
           break;
+        }
         case 'csv': {
           const metricsData = areas.map((area) => {
             const areaKm2 = area.polygon.area / 1_000_000;
@@ -149,7 +162,7 @@ export function ExportDialog({ isOpen, onClose, areas, activeLayers }: ExportDia
     {
       value: 'image',
       label: 'Map Image',
-      description: 'PNG snapshot of the current map view',
+      description: 'HD PNG snapshot of the current map view',
       icon: '🖼️',
     },
     {
@@ -353,6 +366,59 @@ export function ExportDialog({ isOpen, onClose, areas, activeLayers }: ExportDia
             ))}
           </div>
         </div>
+
+        {/* Image quality selector */}
+        {format === 'image' && (
+          <div style={{ marginBottom: '20px' }}>
+            <div
+              style={{
+                fontSize: '13px',
+                fontWeight: '500',
+                color: 'rgba(255, 255, 255, 0.7)',
+                marginBottom: '10px',
+              }}
+            >
+              Quality
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px' }}>
+              {(['standard', 'hd', 'max'] as ExportQuality[]).map((q) => {
+                const active = imageQuality === q;
+                const dims = snapshotDimsForQuality(1, q);
+                return (
+                  <button
+                    key={q}
+                    onClick={() => setImageQuality(q)}
+                    style={{
+                      padding: '10px 6px',
+                      backgroundColor: active ? 'rgba(74,144,217,0.2)' : 'rgba(255,255,255,0.05)',
+                      border: active
+                        ? '1px solid rgba(74,144,217,0.5)'
+                        : '1px solid rgba(255,255,255,0.1)',
+                      borderRadius: '8px',
+                      cursor: 'pointer',
+                      color: 'white',
+                      fontSize: '13px',
+                      fontWeight: 600,
+                      textAlign: 'center',
+                    }}
+                  >
+                    {exportQualityMeta[q].label}
+                    <div
+                      style={{
+                        color: 'rgba(255,255,255,0.45)',
+                        fontSize: '10px',
+                        fontWeight: 400,
+                        marginTop: '2px',
+                      }}
+                    >
+                      {exportQualityMeta[q].hint} · {dims.width}²
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Poster note */}
         {format === 'poster' && (
