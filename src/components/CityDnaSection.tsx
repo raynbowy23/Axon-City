@@ -32,6 +32,7 @@ export function CityDnaSection({ isMobile = false }: CityDnaSectionProps) {
   const { areas, layerData, selectionPolygon } = useStore();
   const updateAreaLayerData = useStore((s) => s.updateAreaLayerData);
   const [loadingLayers, setLoadingLayers] = useState(false);
+  const [expanded, setExpanded] = useState(false);
 
   // DNA layers missing across the comparison areas (legacy single-area mode
   // back-fills via the app's own auto-fetch, so we only offer this for areas).
@@ -115,7 +116,10 @@ export function CityDnaSection({ isMobile = false }: CityDnaSectionProps) {
       </div>
 
       <div style={{ display: 'flex', justifyContent: 'center' }}>
-        <DnaGlyph vectors={vectors} size={glyphSize} showLabels />
+        <DnaGlyph vectors={vectors} size={glyphSize} showLabels interactive onExpand={() => setExpanded(true)} />
+      </div>
+      <div style={{ textAlign: 'center', fontSize: '10px', color: 'rgba(255,255,255,0.35)' }}>
+        hover a spoke for values · click to expand
       </div>
 
       {/* Legend / traits */}
@@ -207,6 +211,83 @@ export function CityDnaSection({ isMobile = false }: CityDnaSectionProps) {
             </div>
           ))}
         </details>
+      )}
+
+      {/* Expanded popup: large glyph + per-dimension breakdown */}
+      {expanded && (
+        <div
+          onClick={() => setExpanded(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0,0,0,0.7)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 2200,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              backgroundColor: '#1a1a2e',
+              borderRadius: '12px',
+              padding: '24px',
+              width: '560px',
+              maxWidth: '94vw',
+              maxHeight: '92vh',
+              overflowY: 'auto',
+              border: '1px solid rgba(255,255,255,0.12)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '16px',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: '18px', fontWeight: 600, color: 'white' }}>City DNA</span>
+              <button
+                onClick={() => setExpanded(false)}
+                style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.6)', fontSize: '20px', cursor: 'pointer', padding: '4px 8px' }}
+              >
+                ×
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'center' }}>
+              <DnaGlyph vectors={vectors} size={360} showLabels interactive />
+            </div>
+
+            {/* Per-dimension breakdown */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {DNA_DIMENSIONS.map((dim, i) => (
+                <div key={dim.id}>
+                  <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.85)', marginBottom: '4px' }}>
+                    {dim.label}
+                  </div>
+                  {areaDnas.map((a) => {
+                    const val = a.dna.vector[i] ?? 0;
+                    const unavailable = !a.dna.available[i];
+                    return (
+                      <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '3px' }}>
+                        <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.6)', width: '90px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flexShrink: 0 }}>
+                          {a.name}
+                        </span>
+                        <div style={{ flex: 1, height: '8px', backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: '4px', overflow: 'hidden' }}>
+                          {!unavailable && (
+                            <div style={{ width: `${Math.round(val * 100)}%`, height: '100%', backgroundColor: `rgb(${a.color.join(',')})`, borderRadius: '4px' }} />
+                          )}
+                        </div>
+                        <span style={{ fontSize: '11px', color: unavailable ? 'rgba(255,200,100,0.7)' : 'white', width: '38px', textAlign: 'right', flexShrink: 0 }}>
+                          {unavailable ? 'n/a' : Math.round(val * 100)}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
