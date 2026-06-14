@@ -1,6 +1,24 @@
 import { useState, useRef, useEffect } from 'react';
 import { useStore } from '../store/useStore';
 import { MAX_COMPARISON_AREAS, type ComparisonArea } from '../types';
+import type { Polygon, MultiPolygon } from 'geojson';
+
+/** Bounding box [west, south, east, north] of a polygon/multipolygon. */
+function geometryBbox(geometry: Polygon | MultiPolygon): [number, number, number, number] | null {
+  const positions: number[][] =
+    geometry.type === 'Polygon' ? geometry.coordinates.flat() : geometry.coordinates.flat(2);
+  let minLon = Infinity;
+  let minLat = Infinity;
+  let maxLon = -Infinity;
+  let maxLat = -Infinity;
+  for (const [lon, lat] of positions) {
+    if (lon < minLon) minLon = lon;
+    if (lat < minLat) minLat = lat;
+    if (lon > maxLon) maxLon = lon;
+    if (lat > maxLat) maxLat = lat;
+  }
+  return Number.isFinite(minLon) ? [minLon, minLat, maxLon, maxLat] : null;
+}
 
 interface AreaSelectorProps {
   onAddArea?: () => void;
@@ -44,6 +62,17 @@ export function AreaSelector({ onAddArea, disabled, isLoading, isMobile = false 
     setEditValue('');
   };
 
+  // Recenter the map on an area's bounds.
+  const flyToArea = (area: ComparisonArea) => {
+    const bbox = geometryBbox(area.polygon.geometry);
+    if (!bbox) return;
+    const [w, s, e, n] = bbox;
+    const span = Math.max(e - w, n - s) || 0.01;
+    const zoom = Math.max(11, Math.min(17, Math.log2(360 / span) - 1.2));
+    const cur = useStore.getState().viewState;
+    useStore.getState().setViewState({ ...cur, longitude: (w + e) / 2, latitude: (s + n) / 2, zoom });
+  };
+
   if (areas.length === 0) {
     return null;
   }
@@ -74,7 +103,11 @@ export function AreaSelector({ onAddArea, disabled, isLoading, isMobile = false 
             }}
           >
             <button
-              onClick={() => canSwitch && setActiveAreaId(area.id)}
+              onClick={() => {
+                if (!canSwitch) return;
+                setActiveAreaId(area.id);
+                flyToArea(area);
+              }}
               disabled={isLoading && !isActive}
               style={{
                 display: 'flex',
