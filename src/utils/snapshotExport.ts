@@ -8,10 +8,11 @@ import type { SnapshotOptions, ComparisonArea, LayerConfig } from '../types';
 import { layerManifest } from '../data/layerManifest';
 import { getMapInstance } from './mapRef';
 
-// Default export options - Square (1:1)
+// Default export options - Square (1:1). 1080px matches social platform
+// native resolution and downscales cleanly from a retina map capture.
 export const defaultSnapshotOptions: SnapshotOptions = {
-  width: 540,
-  height: 540,
+  width: 1080,
+  height: 1080,
   includeLegend: true,
   includeMetrics: false,
   includeAttribution: true,
@@ -21,8 +22,8 @@ export const defaultSnapshotOptions: SnapshotOptions = {
 
 // Portrait (4:5)
 export const instagramPortraitOptions: SnapshotOptions = {
-  width: 540,
-  height: 675,
+  width: 1080,
+  height: 1350,
   includeLegend: true,
   includeMetrics: false,
   includeAttribution: true,
@@ -32,8 +33,8 @@ export const instagramPortraitOptions: SnapshotOptions = {
 
 // Story (9:16)
 export const instagramStoryOptions: SnapshotOptions = {
-  width: 540,
-  height: 960,
+  width: 1080,
+  height: 1920,
   includeLegend: true,
   includeMetrics: false,
   includeAttribution: true,
@@ -573,8 +574,12 @@ export async function captureSnapshot(
   const ctx = canvas.getContext('2d');
   if (!ctx) return null;
 
-  // Disable image smoothing for crisp pixels (no blur from interpolation)
-  ctx.imageSmoothingEnabled = false;
+  // The source map canvas is captured at device resolution and is almost
+  // always larger than the output, so we downscale. High-quality smoothing
+  // gives a clean anti-aliased result; nearest-neighbor (smoothing off)
+  // aliases the raster basemap and labels badly.
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
 
   // Draw black background
   ctx.fillStyle = '#0d1117';

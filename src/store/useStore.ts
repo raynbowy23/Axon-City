@@ -562,6 +562,8 @@ export const useStore = create<AppState>((set) => ({
   setExtractedViewOpen: (isOpen) => set({ isExtractedViewOpen: isOpen }),
   posterThemeId: null,
   setPosterThemeId: (posterThemeId) => set({ posterThemeId }),
+  posterRequested: false,
+  setPosterRequested: (posterRequested) => set({ posterRequested }),
   selectionLocationName: null,
   setSelectionLocationName: (name) => set({ selectionLocationName: name }),
 

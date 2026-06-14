@@ -23,7 +23,7 @@ interface ExportDialogProps {
   activeLayers: string[];
 }
 
-type ExportFormat = 'pdf' | 'image' | 'csv' | 'geojson';
+type ExportFormat = 'pdf' | 'image' | 'poster' | 'csv' | 'geojson';
 
 interface ExportOptions {
   includeMap: boolean;
@@ -72,6 +72,14 @@ export function ExportDialog({ isOpen, onClose, areas, activeLayers }: ExportDia
         case 'pdf':
           await exportPDFReport(areas, activeLayers, options);
           break;
+        case 'poster':
+          // The poster needs the live 3D view + capture pipeline, which live
+          // in ExtractedView. Hand off via the store; it opens the 3D view
+          // (if needed) then the poster studio.
+          useStore.getState().setPosterRequested(true);
+          trackEvent('export', { format: 'poster_requested' });
+          onClose();
+          return;
         case 'image':
           await exportSnapshot(
             defaultSnapshotOptions,
@@ -143,6 +151,12 @@ export function ExportDialog({ isOpen, onClose, areas, activeLayers }: ExportDia
       label: 'Map Image',
       description: 'PNG snapshot of the current map view',
       icon: '🖼️',
+    },
+    {
+      value: 'poster',
+      label: 'Poster',
+      description: 'Stylized art print of the exploded 3D view',
+      icon: '🎨',
     },
     {
       value: 'csv',
@@ -339,6 +353,24 @@ export function ExportDialog({ isOpen, onClose, areas, activeLayers }: ExportDia
             ))}
           </div>
         </div>
+
+        {/* Poster note */}
+        {format === 'poster' && (
+          <div
+            style={{
+              marginBottom: '20px',
+              padding: '12px',
+              backgroundColor: 'rgba(168, 85, 247, 0.12)',
+              borderRadius: '8px',
+              fontSize: '12px',
+              color: 'rgba(255, 255, 255, 0.75)',
+              lineHeight: 1.5,
+            }}
+          >
+            Opens the exploded 3D view's <strong style={{ color: 'white' }}>Poster Studio</strong>, where you
+            pick a theme and aspect and download a high-res art print. Best with a single area selected.
+          </div>
+        )}
 
         {/* PDF Options */}
         {format === 'pdf' && (
@@ -544,6 +576,8 @@ export function ExportDialog({ isOpen, onClose, areas, activeLayers }: ExportDia
               />
               Generating...
             </>
+          ) : format === 'poster' ? (
+            <>Open Poster Studio →</>
           ) : (
             <>
               Export {format === 'geojson' ? 'GeoJSON' : format.toUpperCase()}

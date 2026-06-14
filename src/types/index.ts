@@ -289,6 +289,10 @@ export interface AppState {
   setExtractedViewOpen: (isOpen: boolean) => void;
   posterThemeId: string | null;
   setPosterThemeId: (id: string | null) => void;
+  // Cross-component request to open the poster dialog (set by Export/Share
+  // dialogs; consumed by ExtractedView, which owns the 3D view + capture).
+  posterRequested: boolean;
+  setPosterRequested: (requested: boolean) => void;
   selectionLocationName: string | null;
   setSelectionLocationName: (name: string | null) => void;
 

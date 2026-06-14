@@ -100,6 +100,7 @@ interface DeckGLViewProps {
   customLayers: CustomLayerConfig[]; // user-uploaded custom layers
   customGroupEnabled: boolean; // whether custom layers group is visible
   posterTheme: PosterTheme | null; // restyle all layers for poster mode
+  captureDevicePixels?: number; // override deck pixel ratio for hi-res poster capture
 }
 
 const DeckGLView = memo(function DeckGLView({
@@ -117,6 +118,7 @@ const DeckGLView = memo(function DeckGLView({
   customLayers,
   customGroupEnabled,
   posterTheme,
+  captureDevicePixels,
 }: DeckGLViewProps) {
   const [isReady, setIsReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1048,6 +1050,7 @@ const DeckGLView = memo(function DeckGLView({
           onClick={onClick}
           controller={false}
           layers={extractedLayers}
+          useDevicePixels={captureDevicePixels ?? true}
           getCursor={({ isHovering }) => isHovering ? 'pointer' : 'grab'}
           style={{ position: 'absolute', top: '0', left: '0', width: '100%', height: '100%' }}
         />
@@ -1216,6 +1219,8 @@ export function ExtractedView({ isMobile = false }: ExtractedViewProps) {
     activeAreaId,
     posterThemeId,
     setPosterThemeId,
+    posterRequested,
+    setPosterRequested,
   } = useStore();
 
   const posterTheme = getPosterTheme(posterThemeId);
@@ -1289,6 +1294,8 @@ export function ExtractedView({ isMobile = false }: ExtractedViewProps) {
   const [isSaving, setIsSaving] = useState(false);
   // Poster export dialog
   const [isPosterOpen, setIsPosterOpen] = useState(false);
+  // Temporarily raised deck pixel ratio while capturing a hi-res poster.
+  const [captureDevicePixels, setCaptureDevicePixels] = useState<number | undefined>(undefined);
   const [saveToast, setSaveToast] = useState<{ show: boolean; message: string; type: 'success' | 'error' }>({
     show: false,
     message: '',
@@ -1374,6 +1381,57 @@ export function ExtractedView({ isMobile = false }: ExtractedViewProps) {
     }
     return out;
   }, []);
+
+  // High-res capture for poster *download*: temporarily supersample the deck
+  // canvas (cap backing store at 4096px), let it redraw, capture, then restore.
+  // The CSS size is unchanged, so there's no visible reflow — only the drawing
+  // buffer grows. Falls back to the normal capture if supersampling isn't
+  // worthwhile (e.g. devicePixelRatio already high).
+  const captureHiResSourceCanvas = useCallback(async (): Promise<HTMLCanvasElement | null> => {
+    const container = viewContainerRef.current;
+    if (!container) return null;
+    const deckCanvas = container.querySelector('canvas') as HTMLCanvasElement | null;
+    if (!deckCanvas) return null;
+
+    const rect = deckCanvas.getBoundingClientRect();
+    const cssMax = Math.max(rect.width, rect.height) || 1;
+    const baseDpr = window.devicePixelRatio || 1;
+    const maxRatio = 4096 / cssMax;
+    const targetRatio = Math.max(baseDpr, Math.min(baseDpr * 3, maxRatio));
+
+    const raf = () => new Promise<void>((r) => requestAnimationFrame(() => r()));
+
+    try {
+      if (targetRatio > baseDpr + 0.01) {
+        setCaptureDevicePixels(targetRatio);
+        // Wait for React → deck to resize the drawing buffer and redraw.
+        await raf();
+        await raf();
+        await new Promise((r) => setTimeout(r, 120));
+        await raf();
+      }
+      return captureSourceCanvas();
+    } finally {
+      setCaptureDevicePixels(undefined);
+    }
+  }, [captureSourceCanvas]);
+
+  // Consume a poster request raised by the Export/Share dialogs: make sure the
+  // exploded view is open, then open the poster dialog once a selection exists.
+  useEffect(() => {
+    if (!posterRequested) return;
+    if (!selectionPolygon) {
+      // Nothing to render a poster from — drop the request.
+      setPosterRequested(false);
+      return;
+    }
+    if (!isExtractedViewOpen) {
+      setExtractedViewOpen(true);
+      return; // re-run once the view is open
+    }
+    setIsPosterOpen(true);
+    setPosterRequested(false);
+  }, [posterRequested, isExtractedViewOpen, selectionPolygon, setExtractedViewOpen, setPosterRequested]);
 
   // Exploded view config (always on)
   const [layerSpacing, setLayerSpacing] = useState(80);
@@ -2305,6 +2363,7 @@ export function ExtractedView({ isMobile = false }: ExtractedViewProps) {
               customLayers={customLayers}
               customGroupEnabled={customGroupEnabled}
               posterTheme={posterTheme}
+              captureDevicePixels={captureDevicePixels}
             />
 
             {/* Location name overlay for screenshots - editable */}
@@ -2589,6 +2648,7 @@ export function ExtractedView({ isMobile = false }: ExtractedViewProps) {
         isOpen={isPosterOpen}
         onClose={() => setIsPosterOpen(false)}
         captureSourceCanvas={captureSourceCanvas}
+        captureHiResSourceCanvas={captureHiResSourceCanvas}
         defaultTitle={localLocationName || selectionLocationName || ''}
         subtitle={posterSubtitle}
         metrics={posterMetrics}

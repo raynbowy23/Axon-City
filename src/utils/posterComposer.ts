@@ -60,13 +60,13 @@ export interface ComposePosterParams {
 }
 
 /**
- * Font stack for posters. NOTE (N1 follow-up): bundle an OFL display font
- * (Archivo / Space Grotesk) so posters look byte-identical across machines.
- * Until then a strong geometric-leaning system stack keeps them respectable.
+ * Font stack for posters. Space Grotesk (OFL) is bundled and loaded into
+ * `document.fonts` by `loadPosterFonts()` before composing, so posters look
+ * identical everywhere; the system stack is only a fallback if it fails.
  */
-const TITLE_FONT =
-  '"Avenir Next", "Helvetica Neue", "Segoe UI", system-ui, -apple-system, sans-serif';
-const BODY_FONT = '"Helvetica Neue", "Segoe UI", system-ui, -apple-system, sans-serif';
+const FONT_FALLBACK = '"Helvetica Neue", "Segoe UI", system-ui, -apple-system, sans-serif';
+const TITLE_FONT = `"Space Grotesk", ${FONT_FALLBACK}`;
+const BODY_FONT = `"Space Grotesk", ${FONT_FALLBACK}`;
 
 const ATTRIBUTION = '© OpenStreetMap contributors';
 

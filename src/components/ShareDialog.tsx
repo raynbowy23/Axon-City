@@ -21,7 +21,7 @@ interface ShareDialogProps {
 type ExportFormat = 'png-square' | 'png-portrait' | 'png-story' | 'csv';
 
 export function ShareDialog({ onClose, isMobile = false }: ShareDialogProps) {
-  const { areas, activeLayers, activeStoryId } = useStore();
+  const { areas, activeLayers, activeStoryId, setPosterRequested } = useStore();
   const { getShareUrl, copyShareUrl } = useUrlState();
 
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -71,9 +71,9 @@ export function ShareDialog({ onClose, isMobile = false }: ShareDialogProps) {
     setExportingFormat(formatKey);
 
     const resolutions = {
-      square: { width: 540, height: 540 },      // Square (1:1)
-      portrait: { width: 540, height: 675 },    // Portrait (4:5)
-      story: { width: 540, height: 960 },       // Story (9:16)
+      square: { width: 1080, height: 1080 },    // Square (1:1)
+      portrait: { width: 1080, height: 1350 },  // Portrait (4:5)
+      story: { width: 1080, height: 1920 },     // Story (9:16)
     };
 
     const success = await exportSnapshot(
@@ -339,7 +339,7 @@ export function ShareDialog({ onClose, isMobile = false }: ShareDialogProps) {
             <DownloadButton
               icon="image"
               label="Square"
-              sublabel="540×540"
+              sublabel="1080×1080"
               onClick={() => handleExportPNG('square')}
               loading={exportingFormat === 'png-square'}
               recommended
@@ -347,14 +347,14 @@ export function ShareDialog({ onClose, isMobile = false }: ShareDialogProps) {
             <DownloadButton
               icon="image"
               label="Portrait"
-              sublabel="540×675"
+              sublabel="1080×1350"
               onClick={() => handleExportPNG('portrait')}
               loading={exportingFormat === 'png-portrait'}
             />
             <DownloadButton
               icon="image"
               label="Story"
-              sublabel="540×960"
+              sublabel="1080×1920"
               onClick={() => handleExportPNG('story')}
               loading={exportingFormat === 'png-story'}
             />
@@ -384,6 +384,16 @@ export function ShareDialog({ onClose, isMobile = false }: ShareDialogProps) {
               sublabel="Metrics"
               onClick={handleExportCSV}
               loading={exportingFormat === 'csv'}
+              disabled={areas.length === 0}
+            />
+            <DownloadButton
+              icon="image"
+              label="Poster"
+              sublabel="Art print"
+              onClick={() => {
+                setPosterRequested(true);
+                onClose();
+              }}
               disabled={areas.length === 0}
             />
           </div>

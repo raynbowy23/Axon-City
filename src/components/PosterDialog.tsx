@@ -19,6 +19,7 @@ import {
   downloadPoster,
   type PosterMetric,
 } from '../utils/posterComposer';
+import { loadPosterFonts } from '../utils/posterFonts';
 import { trackEvent } from '../utils/analytics';
 
 interface PosterDialogProps {
@@ -26,6 +27,8 @@ interface PosterDialogProps {
   onClose: () => void;
   /** Grabs the current exploded-view canvas (themed). Returns null if not ready. */
   captureSourceCanvas: () => HTMLCanvasElement | null;
+  /** Hi-res capture (supersampled) used for the final download. */
+  captureHiResSourceCanvas: () => Promise<HTMLCanvasElement | null>;
   /** Default headline (location name). */
   defaultTitle: string;
   /** Secondary line — coordinates + date. */
@@ -41,6 +44,7 @@ export function PosterDialog({
   isOpen,
   onClose,
   captureSourceCanvas,
+  captureHiResSourceCanvas,
   defaultTitle,
   subtitle,
   metrics,
@@ -54,6 +58,7 @@ export function PosterDialog({
   const [isRendering, setIsRendering] = useState(false);
   const [captureFailed, setCaptureFailed] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [fontsReady, setFontsReady] = useState(false);
 
   // Remember the theme that was active before the dialog opened, so closing
   // without exporting can restore the user's analysis view if they prefer.
@@ -72,6 +77,19 @@ export function PosterDialog({
       setPosterThemeId(posterThemes[0].id);
     }
   }, [isOpen, setPosterThemeId]);
+
+  // Load the bundled display font on open; recompose once it's ready so the
+  // preview shows the real typeface, not the system fallback.
+  useEffect(() => {
+    if (!isOpen) return;
+    let cancelled = false;
+    loadPosterFonts().then(() => {
+      if (!cancelled) setFontsReady(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen]);
 
   // Recompose the preview whenever the theme, aspect, or title changes.
   const renderTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -108,15 +126,16 @@ export function PosterDialog({
       if (renderTimer.current) clearTimeout(renderTimer.current);
     };
     // posterThemeId is read inside recompose via the store; include it so a
-    // theme change re-triggers the capture.
-  }, [isOpen, posterThemeId, recompose]);
+    // theme change re-triggers the capture. fontsReady re-renders once the
+    // bundled typeface finishes loading.
+  }, [isOpen, posterThemeId, fontsReady, recompose]);
 
   const handleDownload = useCallback(async () => {
     const theme = getPosterTheme(useStore.getState().posterThemeId);
     if (!theme) return;
     setIsExporting(true);
     try {
-      const source = captureSourceCanvas();
+      const source = await captureHiResSourceCanvas();
       if (!source) {
         setCaptureFailed(true);
         return;
@@ -139,7 +158,7 @@ export function PosterDialog({
     } finally {
       setIsExporting(false);
     }
-  }, [aspectId, title, subtitle, metrics, captureSourceCanvas]);
+  }, [aspectId, title, subtitle, metrics, captureHiResSourceCanvas]);
 
   if (!isOpen) return null;
 
