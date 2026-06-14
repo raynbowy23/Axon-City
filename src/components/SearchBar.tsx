@@ -62,13 +62,12 @@ function photonToSearchResult(feature: PhotonFeature): SearchResult {
 }
 
 async function searchPhoton(query: string, signal: AbortSignal): Promise<SearchResult[]> {
-  // Bias results toward the current map view
-  const { viewState } = useStore.getState();
+  // Global search — rank by relevance/importance, not proximity to the current
+  // map view, so a place anywhere in the world surfaces regardless of where the
+  // map is currently looking.
   const params = new URLSearchParams({
     q: query,
-    limit: '5',
-    lat: viewState.latitude.toFixed(4),
-    lon: viewState.longitude.toFixed(4),
+    limit: '8',
   });
 
   const response = await fetch(`${PHOTON_API}?${params}`, { signal });
