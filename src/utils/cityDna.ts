@@ -205,10 +205,11 @@ export function extractRawDna(
   return { raw, available, debug };
 }
 
-/** Map a raw DNA vector to 0–1 using the provisional scales. */
-export function normalizeRawDna(raw: number[]): number[] {
-  return raw.map((v, i) => norm(v, DNA_SCALES[i]));
-}
+/** A function mapping a raw DNA vector to a 0–1 vector. */
+export type DnaNormalizer = (raw: number[]) => number[];
+
+/** Map a raw DNA vector to 0–1 using the provisional fixed scales. */
+export const normalizeRawDna: DnaNormalizer = (raw) => raw.map((v, i) => norm(v, DNA_SCALES[i]));
 
 /**
  * Compute the City DNA vector for an area's layer data.
@@ -216,10 +217,11 @@ export function normalizeRawDna(raw: number[]): number[] {
 export function computeCityDna(
   layerData: Map<string, LayerData>,
   areaKm2: number,
-  polygon?: Polygon
+  polygon?: Polygon,
+  normalize: DnaNormalizer = normalizeRawDna
 ): CityDna {
   const { raw, available, debug } = extractRawDna(layerData, areaKm2, polygon);
-  const vector = normalizeRawDna(raw);
+  const vector = normalize(raw);
   // Surface the normalized value next to each raw input for calibration.
   DNA_DIMENSIONS.forEach((d, i) => {
     debug[`${d.short}.norm`] = round(vector[i]);
@@ -230,9 +232,9 @@ export function computeCityDna(
 const round = (v: number): number => Math.round(v * 100) / 100;
 
 /** Convenience: compute DNA directly from a ComparisonArea. */
-export function computeAreaDna(area: ComparisonArea): CityDna {
+export function computeAreaDna(area: ComparisonArea, normalize?: DnaNormalizer): CityDna {
   const areaKm2 = area.polygon.area / 1_000_000;
-  return computeCityDna(area.layerData, areaKm2, area.polygon.geometry as Polygon);
+  return computeCityDna(area.layerData, areaKm2, area.polygon.geometry as Polygon, normalize);
 }
 
 /**

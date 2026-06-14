@@ -11,6 +11,11 @@ import { useStore } from '../store/useStore';
 import { calculatePolygonArea } from '../utils/geometryUtils';
 import { computeCityDna, DNA_DIMENSIONS, type CityDna } from '../utils/cityDna';
 import { missingDnaLayers, fetchAreaLayers } from '../utils/cityDnaFetch';
+import { normalizeDnaPercentile, corpusReady, mostSimilar, type SimilarityMatch } from '../utils/dnaNormalize';
+import { composeDnaCard, type DnaCardVector } from '../utils/dnaCardComposer';
+import { loadPosterFonts } from '../utils/posterFonts';
+import { posterToBlob, downloadPoster } from '../utils/posterComposer';
+import { trackEvent } from '../utils/analytics';
 import { DnaGlyph, type DnaGlyphVector } from './DnaGlyph';
 import type { Polygon } from 'geojson';
 import type { ComparisonArea } from '../types';
@@ -24,6 +29,7 @@ interface AreaDna {
   name: string;
   color: [number, number, number];
   dna: CityDna;
+  similar: SimilarityMatch[];
 }
 
 const DEFAULT_COLOR: [number, number, number] = [74, 144, 217];
@@ -33,6 +39,17 @@ export function CityDnaSection({ isMobile = false }: CityDnaSectionProps) {
   const updateAreaLayerData = useStore((s) => s.updateAreaLayerData);
   const [loadingLayers, setLoadingLayers] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const [exportingCard, setExportingCard] = useState(false);
+
+  // Fly the map to a corpus neighborhood's bbox (the similarity curiosity loop).
+  const flyTo = useCallback((bbox: [number, number, number, number]) => {
+    const [w, s, e, n] = bbox;
+    const span = Math.max(e - w, n - s) || 0.01;
+    const zoom = Math.max(11, Math.min(16, Math.log2(360 / span) - 1.2));
+    const cur = useStore.getState().viewState;
+    useStore.getState().setViewState({ ...cur, longitude: (w + e) / 2, latitude: (s + n) / 2, zoom });
+    setExpanded(false);
+  }, []);
 
   // DNA layers missing across the comparison areas (legacy single-area mode
   // back-fills via the app's own auto-fetch, so we only offer this for areas).
@@ -61,30 +78,65 @@ export function CityDnaSection({ isMobile = false }: CityDnaSectionProps) {
   }, [areas, updateAreaLayerData]);
 
   const areaDnas = useMemo<AreaDna[]>(() => {
+    // Use corpus percentile normalization once the corpus is populated; else
+    // fall back to the provisional fixed scales.
+    const normalize = corpusReady ? normalizeDnaPercentile : undefined;
+    const withSimilarity = (dna: CityDna): SimilarityMatch[] =>
+      corpusReady ? mostSimilar(dna.vector, 3) : [];
+
     // Legacy single-area mode (no comparison areas yet).
     if (areas.length === 0 && selectionPolygon) {
       const areaKm2 = calculatePolygonArea(selectionPolygon.geometry as Polygon);
-      return [
-        {
-          id: 'single',
-          name: 'Selected Area',
-          color: DEFAULT_COLOR,
-          dna: computeCityDna(layerData, areaKm2, selectionPolygon.geometry as Polygon),
-        },
-      ];
+      const dna = computeCityDna(layerData, areaKm2, selectionPolygon.geometry as Polygon, normalize);
+      return [{ id: 'single', name: 'Selected Area', color: DEFAULT_COLOR, dna, similar: withSimilarity(dna) }];
     }
 
     return areas.map((area: ComparisonArea) => {
       const areaKm2 = area.polygon.area / 1_000_000;
       const ld = area.layerData.size > 0 ? area.layerData : layerData;
+      const dna = computeCityDna(ld, areaKm2, area.polygon.geometry as Polygon, normalize);
       return {
         id: area.id,
         name: area.name,
         color: area.color.slice(0, 3) as [number, number, number],
-        dna: computeCityDna(ld, areaKm2, area.polygon.geometry as Polygon),
+        dna,
+        similar: withSimilarity(dna),
       };
     });
   }, [areas, layerData, selectionPolygon]);
+
+  // Compose + download a square DNA share card.
+  const handleDownloadCard = useCallback(async () => {
+    if (areaDnas.length === 0) return;
+    setExportingCard(true);
+    try {
+      await loadPosterFonts();
+      const cardVectors: DnaCardVector[] = areaDnas.map((a) => ({
+        values: a.dna.vector,
+        color: a.color,
+        label: a.name,
+      }));
+      const primary = areaDnas[0];
+      const top = primary.similar[0];
+      const canvas = composeDnaCard({
+        title: areaDnas.length === 1 ? primary.name : 'City DNA',
+        vectors: cardVectors,
+        traitLine: primary.dna.traits.join(' · ') || undefined,
+        similarLine: top ? `Most like ${top.entry.name}, ${top.entry.city} (${Math.round(top.similarity * 100)}%)` : undefined,
+      });
+      const blob = await posterToBlob(canvas);
+      if (blob) {
+        const slug = (areaDnas.length === 1 ? primary.name : 'city-dna')
+          .replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '').toLowerCase() || 'city-dna';
+        downloadPoster(blob, `axoncity-dna-${slug}.png`);
+        trackEvent('export', { format: 'dna_card', areas: areaDnas.length });
+      }
+    } catch (err) {
+      console.error('DNA card export failed:', err);
+    } finally {
+      setExportingCard(false);
+    }
+  }, [areaDnas]);
 
   // Nothing meaningful to show yet.
   if (areaDnas.length === 0) return null;
@@ -145,6 +197,28 @@ export function CityDnaSection({ isMobile = false }: CityDnaSectionProps) {
                   </span>
                 )}
               </div>
+              {a.similar.length > 0 && (
+                <button
+                  onClick={() => flyTo(a.similar[0].entry.bbox)}
+                  title={`Fly to ${a.similar[0].entry.name}`}
+                  style={{
+                    alignSelf: 'flex-start',
+                    marginLeft: '18px',
+                    padding: 0,
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    fontSize: '11px',
+                    color: 'rgba(120,180,255,0.85)',
+                    textAlign: 'left',
+                  }}
+                >
+                  ≈ {a.similar[0].entry.name}, {a.similar[0].entry.city}{' '}
+                  <span style={{ color: 'rgba(255,255,255,0.4)' }}>
+                    ({Math.round(a.similar[0].similarity * 100)}%) ↗
+                  </span>
+                </button>
+              )}
               {missing.length > 0 && (
                 <span style={{ fontSize: '10px', color: 'rgba(255,200,100,0.7)', paddingLeft: '18px' }}>
                   ⚠ not loaded: {missing.join(', ')}
@@ -257,6 +331,39 @@ export function CityDnaSection({ isMobile = false }: CityDnaSectionProps) {
               <DnaGlyph vectors={vectors} size={360} showLabels interactive />
             </div>
 
+            {/* Most similar corpus neighborhoods */}
+            {areaDnas.some((a) => a.similar.length > 0) && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                {areaDnas.map((a) =>
+                  a.similar.length === 0 ? null : (
+                    <div key={a.id} style={{ fontSize: '12px', color: 'rgba(255,255,255,0.8)' }}>
+                      <span style={{ color: `rgb(${a.color.join(',')})`, fontWeight: 600 }}>{a.name}</span>
+                      <span style={{ color: 'rgba(255,255,255,0.5)' }}> is most like: </span>
+                      {a.similar.map((m, mi) => (
+                        <span key={m.entry.name}>
+                          {mi > 0 && ', '}
+                          <button
+                            onClick={() => flyTo(m.entry.bbox)}
+                            title={`Fly to ${m.entry.name}, ${m.entry.city}`}
+                            style={{
+                              padding: 0,
+                              background: 'none',
+                              border: 'none',
+                              cursor: 'pointer',
+                              fontSize: '12px',
+                              color: 'rgba(120,180,255,0.9)',
+                            }}
+                          >
+                            {m.entry.name} ({Math.round(m.similarity * 100)}%)
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )
+                )}
+              </div>
+            )}
+
             {/* Per-dimension breakdown */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               {DNA_DIMENSIONS.map((dim, i) => (
@@ -286,6 +393,32 @@ export function CityDnaSection({ isMobile = false }: CityDnaSectionProps) {
                 </div>
               ))}
             </div>
+
+            {/* Share card */}
+            <button
+              onClick={handleDownloadCard}
+              disabled={exportingCard}
+              style={{
+                width: '100%',
+                padding: '12px',
+                backgroundColor: exportingCard ? 'rgba(74,144,217,0.3)' : 'rgba(74,144,217,0.85)',
+                color: 'white',
+                border: 'none',
+                borderRadius: '8px',
+                fontSize: '13px',
+                fontWeight: 600,
+                cursor: exportingCard ? 'wait' : 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px',
+              }}
+            >
+              {exportingCard && (
+                <span style={{ width: '14px', height: '14px', border: '2px solid rgba(255,255,255,0.3)', borderTopColor: 'white', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+              )}
+              {exportingCard ? 'Exporting…' : '🧬 Download DNA Card (PNG)'}
+            </button>
           </div>
         </div>
       )}
