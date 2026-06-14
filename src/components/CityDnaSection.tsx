@@ -9,16 +9,16 @@
 import { useMemo, useState, useCallback } from 'react';
 import { useStore } from '../store/useStore';
 import { calculatePolygonArea } from '../utils/geometryUtils';
-import { computeCityDna, DNA_DIMENSIONS, type CityDna } from '../utils/cityDna';
+import { computeCityDna, DNA_DIMENSIONS, DNA_LAYER_IDS, type CityDna } from '../utils/cityDna';
 import { missingDnaLayers, fetchAreaLayers } from '../utils/cityDnaFetch';
-import { normalizeDnaPercentile, corpusReady, mostSimilar, type SimilarityMatch } from '../utils/dnaNormalize';
+import { normalizeDnaPercentile, corpusReady, mostSimilar, type SimilarityMatch, type CorpusEntry } from '../utils/dnaNormalize';
 import { composeDnaCard, type DnaCardVector } from '../utils/dnaCardComposer';
 import { loadPosterFonts } from '../utils/posterFonts';
 import { posterToBlob, downloadPoster } from '../utils/posterComposer';
 import { trackEvent } from '../utils/analytics';
 import { DnaGlyph, type DnaGlyphVector } from './DnaGlyph';
 import type { Polygon } from 'geojson';
-import type { ComparisonArea } from '../types';
+import { MAX_COMPARISON_AREAS, type ComparisonArea, type SelectionPolygon } from '../types';
 
 interface CityDnaSectionProps {
   isMobile?: boolean;
@@ -40,6 +40,8 @@ export function CityDnaSection({ isMobile = false }: CityDnaSectionProps) {
   const [loadingLayers, setLoadingLayers] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [exportingCard, setExportingCard] = useState(false);
+  const [comparingName, setComparingName] = useState<string | null>(null);
+  const [compareNote, setCompareNote] = useState<string | null>(null);
 
   // Fly the map to a corpus neighborhood's bbox (the similarity curiosity loop).
   const flyTo = useCallback((bbox: [number, number, number, number]) => {
@@ -50,6 +52,45 @@ export function CityDnaSection({ isMobile = false }: CityDnaSectionProps) {
     useStore.getState().setViewState({ ...cur, longitude: (w + e) / 2, latitude: (s + n) / 2, zoom });
     setExpanded(false);
   }, []);
+
+  // Fly to a corpus neighborhood AND add it as a named comparison area, then
+  // fetch its DNA layers (one batched request, often cached) so it joins the
+  // glyph + metrics side by side.
+  const compareWith = useCallback(async (entry: CorpusEntry) => {
+    flyTo(entry.bbox);
+    const store = useStore.getState();
+    if (store.areas.length >= MAX_COMPARISON_AREAS) {
+      setCompareNote(`Max ${MAX_COMPARISON_AREAS} areas — remove one to compare with ${entry.name}.`);
+      setTimeout(() => setCompareNote(null), 4000);
+      return;
+    }
+
+    const [w, s, e, n] = entry.bbox;
+    const geometry: Polygon = { type: 'Polygon', coordinates: [[[w, s], [e, s], [e, n], [w, n], [w, s]]] };
+    const polygon: SelectionPolygon = {
+      id: `corpus-${entry.name}-${Date.now()}`,
+      geometry,
+      area: calculatePolygonArea(geometry) * 1_000_000, // m²
+      shapeType: 'rectangle',
+    };
+
+    const newId = store.addArea(polygon);
+    if (!newId) return;
+    store.renameArea(newId, `${entry.name}, ${entry.city}`);
+
+    setComparingName(entry.name);
+    try {
+      const area = useStore.getState().areas.find((a) => a.id === newId);
+      if (area) {
+        const fetched = await fetchAreaLayers(area, DNA_LAYER_IDS);
+        for (const [layerId, data] of fetched) useStore.getState().updateAreaLayerData(newId, layerId, data);
+      }
+    } catch (err) {
+      console.error('Failed to load comparison area:', err);
+    } finally {
+      setComparingName(null);
+    }
+  }, [flyTo]);
 
   // DNA layers missing across the comparison areas (legacy single-area mode
   // back-fills via the app's own auto-fetch, so we only offer this for areas).
@@ -173,6 +214,15 @@ export function CityDnaSection({ isMobile = false }: CityDnaSectionProps) {
       <div style={{ textAlign: 'center', fontSize: '10px', color: 'rgba(255,255,255,0.35)' }}>
         hover a spoke for values · click to expand
       </div>
+      {comparingName && (
+        <div style={{ textAlign: 'center', fontSize: '11px', color: 'rgba(120,180,255,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+          <span style={{ width: '10px', height: '10px', border: '2px solid rgba(255,255,255,0.3)', borderTopColor: 'white', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+          Loading {comparingName}…
+        </div>
+      )}
+      {compareNote && (
+        <div style={{ textAlign: 'center', fontSize: '11px', color: 'rgba(255,200,100,0.8)' }}>{compareNote}</div>
+      )}
 
       {/* Legend / traits */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -199,15 +249,16 @@ export function CityDnaSection({ isMobile = false }: CityDnaSectionProps) {
               </div>
               {a.similar.length > 0 && (
                 <button
-                  onClick={() => flyTo(a.similar[0].entry.bbox)}
-                  title={`Fly to ${a.similar[0].entry.name}`}
+                  onClick={() => compareWith(a.similar[0].entry)}
+                  disabled={comparingName !== null}
+                  title={`Fly to ${a.similar[0].entry.name} and add as comparison`}
                   style={{
                     alignSelf: 'flex-start',
                     marginLeft: '18px',
                     padding: 0,
                     background: 'none',
                     border: 'none',
-                    cursor: 'pointer',
+                    cursor: comparingName ? 'wait' : 'pointer',
                     fontSize: '11px',
                     color: 'rgba(120,180,255,0.85)',
                     textAlign: 'left',
@@ -215,7 +266,7 @@ export function CityDnaSection({ isMobile = false }: CityDnaSectionProps) {
                 >
                   ≈ {a.similar[0].entry.name}, {a.similar[0].entry.city}{' '}
                   <span style={{ color: 'rgba(255,255,255,0.4)' }}>
-                    ({Math.round(a.similar[0].similarity * 100)}%) ↗
+                    ({Math.round(a.similar[0].similarity * 100)}%) · compare +
                   </span>
                 </button>
               )}
@@ -343,13 +394,14 @@ export function CityDnaSection({ isMobile = false }: CityDnaSectionProps) {
                         <span key={m.entry.name}>
                           {mi > 0 && ', '}
                           <button
-                            onClick={() => flyTo(m.entry.bbox)}
-                            title={`Fly to ${m.entry.name}, ${m.entry.city}`}
+                            onClick={() => compareWith(m.entry)}
+                            disabled={comparingName !== null}
+                            title={`Fly to ${m.entry.name}, ${m.entry.city} and add as comparison`}
                             style={{
                               padding: 0,
                               background: 'none',
                               border: 'none',
-                              cursor: 'pointer',
+                              cursor: comparingName ? 'wait' : 'pointer',
                               fontSize: '12px',
                               color: 'rgba(120,180,255,0.9)',
                             }}
