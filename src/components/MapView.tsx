@@ -13,6 +13,7 @@ import { useStore } from '../store/useStore';
 import { layerManifest, getLayersByCustomOrder } from '../data/layerManifest';
 import { setMapInstance, setDeckCanvas, registerDeckPixelRatioSetter } from '../utils/mapRef';
 import { fetchWalkGraph, computeWalkshed, computeReachablePois } from '../utils/walkshed';
+import { fetchBuildingHistory, buildingsAtYear, TIME_MACHINE_MAX_KM2, type BuildingHistory } from '../utils/ohsomeHistory';
 import {
   resizeRectangle,
   resizeCircle,
@@ -191,6 +192,63 @@ export function MapView() {
   const walkshedRequest = useStore((s) => s.walkshedRequest);
   const setWalkshedRequest = useStore((s) => s.setWalkshedRequest);
   const walkshedAbort = useRef<AbortController | null>(null);
+
+  // --- Time Machine (N4 v1): historical building footprints by year ---------
+  const timeMachineMode = useStore((s) => s.timeMachineMode);
+  const timeMachineYear = useStore((s) => s.timeMachineYear);
+  const [buildingHistory, setBuildingHistory] = useState<BuildingHistory | null>(null);
+  const tmAbort = useRef<AbortController | null>(null);
+
+  // Fetch the selection's building history when Time Machine turns on.
+  useEffect(() => {
+    if (!timeMachineMode) {
+      setBuildingHistory(null);
+      return;
+    }
+    const geom = selectionPolygon?.geometry;
+    if (!geom) return;
+    const areaKm2 = (selectionPolygon?.area ?? 0) / 1_000_000;
+    if (areaKm2 > TIME_MACHINE_MAX_KM2) return; // capped by the panel UI too
+    const pos = geom.type === 'Polygon' ? geom.coordinates.flat() : geom.coordinates.flat(2);
+    let w = Infinity, s = Infinity, e = -Infinity, n = -Infinity;
+    for (const [lon, lat] of pos as number[][]) {
+      if (lon < w) w = lon;
+      if (lat < s) s = lat;
+      if (lon > e) e = lon;
+      if (lat > n) n = lat;
+    }
+    if (!Number.isFinite(w)) return;
+    tmAbort.current?.abort();
+    const ac = new AbortController();
+    tmAbort.current = ac;
+    fetchBuildingHistory([w, s, e, n], ac.signal)
+      .then((h) => {
+        if (!ac.signal.aborted) setBuildingHistory(h);
+      })
+      .catch((err) => {
+        if (!ac.signal.aborted) console.error('Time Machine history failed:', err);
+      });
+    return () => ac.abort();
+  }, [timeMachineMode, selectionPolygon]);
+
+  // Extruded footprints for the scrubbed year.
+  const timeMachineLayers = useMemo((): Layer[] => {
+    if (!timeMachineMode || !buildingHistory) return [];
+    const fc = buildingsAtYear(buildingHistory, timeMachineYear);
+    return [
+      new GeoJsonLayer({
+        id: 'time-machine-buildings',
+        data: fc,
+        extruded: true,
+        getElevation: 14,
+        getFillColor: [120, 180, 255, 210],
+        getLineColor: [170, 215, 255, 255],
+        lineWidthMinPixels: 1,
+        material: false,
+        transitions: { getElevation: 400 }, // grow-in when new footprints appear
+      }),
+    ];
+  }, [timeMachineMode, buildingHistory, timeMachineYear]);
 
   // Tap → fetch the walk network around the point → compute the 15-min walkshed.
   const handleWalkshedClick = useCallback(async (lon: number, lat: number) => {
@@ -1154,6 +1212,11 @@ export function MapView() {
         continue;
       }
 
+      // Time Machine renders historical buildings instead — hide the current ones.
+      if (timeMachineMode && config.id.startsWith('buildings-')) {
+        continue;
+      }
+
       // Check if this is a custom layer
       const isCustom = 'isCustom' in config && config.isCustom;
 
@@ -1703,7 +1766,7 @@ export function MapView() {
     }
 
     return layers;
-  }, [layerRenderInfo, selectionPolygon, hoveredLayerId, isolatedLayerId, explodedView, isDrawing, drawingPoints, editableVertices, draggingVertexIndex, hoveredVertexIndex, hoveredMidpointIndex, handleAddVertex, handleVertexClick, selectedFeatures, pinnedInfos, areasLayer, isLoading, globalOpacity, layerStyleOverrides, activeAreaId, areas]);
+  }, [layerRenderInfo, selectionPolygon, hoveredLayerId, isolatedLayerId, explodedView, isDrawing, drawingPoints, editableVertices, draggingVertexIndex, hoveredVertexIndex, hoveredMidpointIndex, handleAddVertex, handleVertexClick, selectedFeatures, pinnedInfos, areasLayer, isLoading, globalOpacity, layerStyleOverrides, activeAreaId, areas, timeMachineMode]);
 
   const onViewStateChange = useCallback(
     (params: { viewState: Record<string, unknown> }) => {
@@ -1767,7 +1830,7 @@ export function MapView() {
         onViewStateChange={onViewStateChange}
         controller={controller}
         useDevicePixels={exportPixelRatio ?? true}
-        layers={[...deckLayers, ...walkshedLayers]}
+        layers={[...deckLayers, ...timeMachineLayers, ...walkshedLayers]}
         onHover={onHover}
         onClick={onClick}
         onDragStart={onDragStart}

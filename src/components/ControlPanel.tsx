@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useStore } from '../store/useStore';
+import { TIME_MACHINE_START_YEAR, TIME_MACHINE_END_YEAR, TIME_MACHINE_MAX_KM2 } from '../utils/ohsomeHistory';
 import { layerManifest } from '../data/layerManifest';
 import { DraggableLayerList } from './DraggableLayerList';
 import { StorySelector } from './StorySelector';
@@ -43,7 +44,27 @@ export function ControlPanel({ isMobile = false }: ControlPanelProps) {
     setWalkshed,
     walkshed,
     walkshedLoading,
+    timeMachineMode,
+    setTimeMachineMode,
+    timeMachineYear,
+    setTimeMachineYear,
+    selectionPolygon,
   } = useStore();
+
+  // Time Machine play loop: advance the year, stopping at the end.
+  const [tmPlaying, setTmPlaying] = useState(false);
+  useEffect(() => {
+    if (!tmPlaying || !timeMachineMode) return;
+    const id = setInterval(() => {
+      const y = useStore.getState().timeMachineYear;
+      if (y >= TIME_MACHINE_END_YEAR) setTmPlaying(false);
+      else setTimeMachineYear(y + 1);
+    }, 650);
+    return () => clearInterval(id);
+  }, [tmPlaying, timeMachineMode, setTimeMachineYear]);
+
+  const tmAreaKm2 = (selectionPolygon?.area ?? 0) / 1_000_000;
+  const tmAvailable = !!selectionPolygon && tmAreaKm2 <= TIME_MACHINE_MAX_KM2;
 
   // Calculate bounding box from features and zoom to it
   const zoomToLayer = (layerId: string) => {
@@ -356,6 +377,67 @@ export function ControlPanel({ isMobile = false }: ControlPanelProps) {
               </>
             ) : (
               <span style={{ color: 'rgba(255,255,255,0.6)' }}>Tap the map to drop a start point.</span>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Time Machine (N4) */}
+      <div style={{ marginBottom: '20px' }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontWeight: 600 }}>
+          <input
+            type="checkbox"
+            checked={timeMachineMode}
+            onChange={(e) => {
+              setTimeMachineMode(e.target.checked);
+              if (!e.target.checked) setTmPlaying(false);
+            }}
+            style={{ cursor: 'pointer' }}
+          />
+          ⏳ Time Machine
+        </label>
+        {timeMachineMode && (
+          <div style={{ marginTop: '8px', padding: '8px 10px', backgroundColor: 'rgba(120,180,255,0.1)', border: '1px solid rgba(120,180,255,0.3)', borderRadius: '6px', fontSize: '12px' }}>
+            {!tmAvailable ? (
+              <span style={{ color: 'rgba(255,200,100,0.85)' }}>
+                {selectionPolygon
+                  ? `Area too large (${tmAreaKm2.toFixed(2)} km²). Draw a smaller area (≤ ${TIME_MACHINE_MAX_KM2} km²).`
+                  : 'Draw or select an area first.'}
+              </span>
+            ) : (
+              <>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <button
+                    onClick={() => {
+                      if (tmPlaying) {
+                        setTmPlaying(false);
+                      } else {
+                        if (timeMachineYear >= TIME_MACHINE_END_YEAR) setTimeMachineYear(TIME_MACHINE_START_YEAR);
+                        setTmPlaying(true);
+                      }
+                    }}
+                    style={{ padding: '4px 8px', border: 'none', borderRadius: '4px', cursor: 'pointer', backgroundColor: 'rgba(120,180,255,0.3)', color: 'white', fontSize: '13px' }}
+                    title={tmPlaying ? 'Pause' : 'Play'}
+                  >
+                    {tmPlaying ? '⏸' : '▶'}
+                  </button>
+                  <span style={{ fontWeight: 600, color: 'rgb(150,210,255)', minWidth: '34px' }}>{timeMachineYear}</span>
+                  <input
+                    type="range"
+                    min={TIME_MACHINE_START_YEAR}
+                    max={TIME_MACHINE_END_YEAR}
+                    value={timeMachineYear}
+                    onChange={(e) => {
+                      setTmPlaying(false);
+                      setTimeMachineYear(Number(e.target.value));
+                    }}
+                    style={{ flex: 1, cursor: 'pointer' }}
+                  />
+                </div>
+                <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.45)', marginTop: '6px', lineHeight: 1.4 }}>
+                  Buildings as <em>mapped in OSM</em> by {timeMachineYear} — reflects mapping activity, not only construction.
+                </div>
+              </>
             )}
           </div>
         )}

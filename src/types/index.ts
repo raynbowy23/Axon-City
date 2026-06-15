@@ -298,6 +298,11 @@ export interface AppState {
   // A shared-link origin to replay (consumed by MapView, which owns the compute)
   walkshedRequest: [number, number] | null;
   setWalkshedRequest: (origin: [number, number] | null) => void;
+  // Time Machine (N4 v1): scrub OSM building history by year
+  timeMachineMode: boolean;
+  setTimeMachineMode: (on: boolean) => void;
+  timeMachineYear: number;
+  setTimeMachineYear: (year: number) => void;
   posterThemeId: string | null;
   setPosterThemeId: (id: string | null) => void;
   // Cross-component request to open the poster dialog (set by Export/Share
