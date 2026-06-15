@@ -30,11 +30,11 @@
 
 AxonCity is a web-based urban analysis tool that transforms OpenStreetMap data into interactive 3D exploded axonometric visualizations. Simply draw an area on the map, and AxonCity fetches real-time urban data, such as buildings, roads, parks, transit stops, and more. Then displays them as separated vertical layers for easy exploration.
 
-Compare multiple neighborhoods side-by-side, analyze urban metrics like Walk Score and building density, and export your findings as PDF reports, CSV data, or shareable images. Whether you're an urban planner, researcher, or curious explorer, AxonCity helps you understand the spatial composition of any city in the world.
+Compare multiple neighborhoods side-by-side, analyze urban metrics like Walk Score and building density, read a place's **City DNA** signature, and export your findings as PDF reports, CSV data, HD images, **frameable posters**, or **DNA cards**. Whether you're an urban planner, researcher, or curious explorer, AxonCity helps you understand the spatial composition of any city in the world.
 
 ## Features
 
-**🗺️ Interactive Map Selection**: Draw custom areas using polygon, rectangle, or circle tools with editable vertices, location search, and multiple map styles.
+**🗺️ Interactive Map Selection**: Draw custom areas using polygon, rectangle, or circle tools with editable vertices, global location search, and multiple map styles.
 
 **🏙️ Multi-Area Comparison**: Select and compare multiple neighborhoods simultaneously with side-by-side statistics and easy area switching.
 
@@ -42,7 +42,11 @@ Compare multiple neighborhoods side-by-side, analyze urban metrics like Walk Sco
 
 **🎮 3D Exploded View**: Explore urban layers in a vertically separated axonometric view with orbit controls and pinnable feature info cards.
 
-**📤 Export & Sharing**: Export your analysis as PDF reports, CSV/JSON data, or PNG screenshots, and generate shareable URLs.
+**🧬 City DNA**: Compress an area's spatial composition into a 10-dimension radial glyph, normalized against a corpus of famous neighborhoods — see how your area compares ("≈ SoHo, New York"), tap a match to fly there and add it as a comparison, and export a shareable DNA card.
+
+**🖼️ Neighborhood Posters**: Turn the exploded 3D view into a frameable, high-resolution art poster — pick a theme (Blueprint / Neon Noir / Mono) and aspect, then export a print-ready PNG.
+
+**📤 Export & Sharing**: Export your analysis as PDF reports, CSV/JSON data, or HD images (up to 4K), generate posters and DNA cards, and create shareable URLs.
 
 **📡 Real-time Data**: Fetch live OpenStreetMap data via Overpass API with automatic clipping, layer statistics, and optimized caching.
 
@@ -85,8 +89,8 @@ The application will be available at `http://localhost:5173`
    - Toggle layer visibility
    - Adjust exploded view settings
    - Reorder layers via drag-and-drop
-7. **View Metrics** in the Stats panel for urban analysis
-8. **Export** your analysis as PDF, CSV, or PNG
+7. **View Metrics** in the Stats panel for urban analysis — including the **City DNA** glyph and its closest-neighborhood match
+8. **Export** your analysis as a PDF, CSV, HD image, **poster**, or **DNA card**
 
 ### Multi-Area Comparison
 
