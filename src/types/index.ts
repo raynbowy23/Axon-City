@@ -303,6 +303,8 @@ export interface AppState {
   setTimeMachineMode: (on: boolean) => void;
   timeMachineYear: number;
   setTimeMachineYear: (year: number) => void;
+  timeMachineLoaded: string[]; // layer ids whose history has loaded
+  setTimeMachineLoaded: (ids: string[]) => void;
   posterThemeId: string | null;
   setPosterThemeId: (id: string | null) => void;
   // Cross-component request to open the poster dialog (set by Export/Share

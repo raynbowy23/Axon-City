@@ -572,6 +572,8 @@ export const useStore = create<AppState>((set) => ({
   setTimeMachineMode: (timeMachineMode) => set({ timeMachineMode }),
   timeMachineYear: 2026,
   setTimeMachineYear: (timeMachineYear) => set({ timeMachineYear }),
+  timeMachineLoaded: [],
+  setTimeMachineLoaded: (timeMachineLoaded) => set({ timeMachineLoaded }),
   posterThemeId: null,
   setPosterThemeId: (posterThemeId) => set({ posterThemeId }),
   posterRequested: false,

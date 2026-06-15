@@ -48,6 +48,7 @@ export function ControlPanel({ isMobile = false }: ControlPanelProps) {
     setTimeMachineMode,
     timeMachineYear,
     setTimeMachineYear,
+    timeMachineLoaded,
     selectionPolygon,
   } = useStore();
 
@@ -394,7 +395,10 @@ export function ControlPanel({ isMobile = false }: ControlPanelProps) {
             }}
             style={{ cursor: 'pointer' }}
           />
-          ⏳ Time Machine
+          ⏳ Time Machine{' '}
+          <span style={{ fontSize: '10px', fontWeight: 500, color: 'rgba(150,210,255,0.9)', backgroundColor: 'rgba(120,180,255,0.18)', border: '1px solid rgba(120,180,255,0.35)', borderRadius: '4px', padding: '1px 5px' }}>
+            beta
+          </span>
         </label>
         {timeMachineMode && (
           <div style={{ marginTop: '8px', padding: '8px 10px', backgroundColor: 'rgba(120,180,255,0.1)', border: '1px solid rgba(120,180,255,0.3)', borderRadius: '6px', fontSize: '12px' }}>
@@ -434,8 +438,13 @@ export function ControlPanel({ isMobile = false }: ControlPanelProps) {
                     style={{ flex: 1, cursor: 'pointer' }}
                   />
                 </div>
-                <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.45)', marginTop: '6px', lineHeight: 1.4 }}>
-                  Buildings as <em>mapped in OSM</em> by {timeMachineYear} — reflects mapping activity, not only construction.
+                <div style={{ fontSize: '10px', color: 'rgba(150,210,255,0.7)', marginTop: '6px' }}>
+                  {timeMachineLoaded.length < 5
+                    ? `Loading layers… ${timeMachineLoaded.length}/5`
+                    : '5/5 layers loaded'}
+                </div>
+                <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.45)', marginTop: '4px', lineHeight: 1.4 }}>
+                  Buildings, roads, parks, water &amp; amenities as <em>mapped in OSM</em> by {timeMachineYear} — reflects mapping activity, not only real-world change.
                 </div>
               </>
             )}

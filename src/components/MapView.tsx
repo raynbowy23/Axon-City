@@ -13,7 +13,7 @@ import { useStore } from '../store/useStore';
 import { layerManifest, getLayersByCustomOrder } from '../data/layerManifest';
 import { setMapInstance, setDeckCanvas, registerDeckPixelRatioSetter } from '../utils/mapRef';
 import { fetchWalkGraph, computeWalkshed, computeReachablePois } from '../utils/walkshed';
-import { fetchBuildingHistory, buildingsAtYear, TIME_MACHINE_MAX_KM2, type BuildingHistory } from '../utils/ohsomeHistory';
+import { fetchLayerHistory, featuresAtYear, TIME_MACHINE_LAYERS, TIME_MACHINE_MAX_KM2, type LayerHistory } from '../utils/ohsomeHistory';
 import {
   resizeRectangle,
   resizeCircle,
@@ -196,13 +196,20 @@ export function MapView() {
   // --- Time Machine (N4 v1): historical building footprints by year ---------
   const timeMachineMode = useStore((s) => s.timeMachineMode);
   const timeMachineYear = useStore((s) => s.timeMachineYear);
-  const [buildingHistory, setBuildingHistory] = useState<BuildingHistory | null>(null);
+  const setTimeMachineLoaded = useStore((s) => s.setTimeMachineLoaded);
+  // layerId → version history, filled as each layer's request resolves.
+  const [tmHistories, setTmHistories] = useState<Record<string, LayerHistory>>({});
   const tmAbort = useRef<AbortController | null>(null);
 
-  // Fetch the selection's building history when Time Machine turns on.
+  // Mirror which layers have loaded into the store, for the panel's indicator.
+  useEffect(() => {
+    setTimeMachineLoaded(Object.keys(tmHistories));
+  }, [tmHistories, setTimeMachineLoaded]);
+
+  // Fetch every time-machine layer's history (in parallel) when mode turns on.
   useEffect(() => {
     if (!timeMachineMode) {
-      setBuildingHistory(null);
+      setTmHistories({});
       return;
     }
     const geom = selectionPolygon?.geometry;
@@ -221,34 +228,81 @@ export function MapView() {
     tmAbort.current?.abort();
     const ac = new AbortController();
     tmAbort.current = ac;
-    fetchBuildingHistory([w, s, e, n], ac.signal)
-      .then((h) => {
-        if (!ac.signal.aborted) setBuildingHistory(h);
-      })
-      .catch((err) => {
-        if (!ac.signal.aborted) console.error('Time Machine history failed:', err);
-      });
+    setTmHistories({});
+    for (const cfg of TIME_MACHINE_LAYERS) {
+      fetchLayerHistory([w, s, e, n], cfg.filter, ac.signal)
+        .then((h) => {
+          if (!ac.signal.aborted) setTmHistories((prev) => ({ ...prev, [cfg.id]: h }));
+        })
+        .catch((err) => {
+          if (!ac.signal.aborted) console.error(`Time Machine ${cfg.id} failed:`, err);
+        });
+    }
     return () => ac.abort();
   }, [timeMachineMode, selectionPolygon]);
 
-  // Extruded footprints for the scrubbed year.
+  // One deck layer per time-machine layer, sliced to the scrubbed year.
+  // Geometry-specific configs (mixing fill/stroke/point props on one layer was
+  // why polygons/points didn't render while lines did).
   const timeMachineLayers = useMemo((): Layer[] => {
-    if (!timeMachineMode || !buildingHistory) return [];
-    const fc = buildingsAtYear(buildingHistory, timeMachineYear);
-    return [
-      new GeoJsonLayer({
-        id: 'time-machine-buildings',
-        data: fc,
-        extruded: true,
-        getElevation: 14,
-        getFillColor: [120, 180, 255, 210],
-        getLineColor: [170, 215, 255, 255],
-        lineWidthMinPixels: 1,
-        material: false,
-        transitions: { getElevation: 400 }, // grow-in when new footprints appear
-      }),
-    ];
-  }, [timeMachineMode, buildingHistory, timeMachineYear]);
+    if (!timeMachineMode) return [];
+    const out: Layer[] = [];
+    for (const cfg of TIME_MACHINE_LAYERS) {
+      const history = tmHistories[cfg.id];
+      if (!history) continue;
+      const data = featuresAtYear(history, timeMachineYear);
+      const [r, g, b] = cfg.color;
+
+      if (cfg.geometryType === 'point') {
+        out.push(
+          new GeoJsonLayer({
+            id: `tm-${cfg.id}`,
+            data,
+            pointType: 'circle',
+            filled: true,
+            stroked: false,
+            getFillColor: [r, g, b, 235],
+            getPointRadius: 4,
+            pointRadiusUnits: 'pixels',
+            pointRadiusMinPixels: 3,
+            pickable: false,
+          })
+        );
+      } else if (cfg.geometryType === 'line') {
+        out.push(
+          new GeoJsonLayer({
+            id: `tm-${cfg.id}`,
+            data,
+            filled: false,
+            stroked: true,
+            getLineColor: [r, g, b, 255],
+            lineWidthUnits: 'pixels',
+            getLineWidth: 2,
+            lineWidthMinPixels: 2,
+            pickable: false,
+          })
+        );
+      } else {
+        out.push(
+          new GeoJsonLayer({
+            id: `tm-${cfg.id}`,
+            data,
+            filled: true,
+            stroked: true,
+            extruded: !!cfg.extruded,
+            getElevation: cfg.elevation ?? 0,
+            getFillColor: [r, g, b, 200],
+            getLineColor: [r, g, b, 255],
+            lineWidthUnits: 'pixels',
+            getLineWidth: 1,
+            lineWidthMinPixels: 1,
+            pickable: false,
+          })
+        );
+      }
+    }
+    return out;
+  }, [timeMachineMode, tmHistories, timeMachineYear]);
 
   // Tap → fetch the walk network around the point → compute the 15-min walkshed.
   const handleWalkshedClick = useCallback(async (lon: number, lat: number) => {
@@ -1212,8 +1266,8 @@ export function MapView() {
         continue;
       }
 
-      // Time Machine renders historical buildings instead — hide the current ones.
-      if (timeMachineMode && config.id.startsWith('buildings-')) {
+      // Time Machine renders the historical state instead — hide current data layers.
+      if (timeMachineMode) {
         continue;
       }
 
