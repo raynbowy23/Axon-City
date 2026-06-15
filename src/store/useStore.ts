@@ -560,6 +560,12 @@ export const useStore = create<AppState>((set) => ({
   // Extracted view
   isExtractedViewOpen: false,
   setExtractedViewOpen: (isOpen) => set({ isExtractedViewOpen: isOpen }),
+  walkshedMode: false,
+  setWalkshedMode: (walkshedMode) => set({ walkshedMode }),
+  walkshed: null,
+  setWalkshed: (walkshed) => set({ walkshed }),
+  walkshedLoading: false,
+  setWalkshedLoading: (walkshedLoading) => set({ walkshedLoading }),
   posterThemeId: null,
   setPosterThemeId: (posterThemeId) => set({ posterThemeId }),
   posterRequested: false,

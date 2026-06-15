@@ -38,6 +38,11 @@ export function ControlPanel({ isMobile = false }: ControlPanelProps) {
     toggleLayer,
     activeLayers,
     layerData,
+    walkshedMode,
+    setWalkshedMode,
+    setWalkshed,
+    walkshed,
+    walkshedLoading,
   } = useStore();
 
   // Calculate bounding box from features and zoom to it
@@ -311,6 +316,38 @@ export function ControlPanel({ isMobile = false }: ControlPanelProps) {
               Tip: Use higher spacing + horizontal view for best layer separation
             </div>
           </>
+        )}
+      </div>
+
+      {/* Walkshed (N3) */}
+      <div style={{ marginBottom: '20px' }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontWeight: 600 }}>
+          <input
+            type="checkbox"
+            checked={walkshedMode}
+            onChange={(e) => {
+              setWalkshedMode(e.target.checked);
+              if (!e.target.checked) setWalkshed(null);
+            }}
+            style={{ cursor: 'pointer' }}
+          />
+          🚶 Walkshed (15-min walk)
+        </label>
+        {walkshedMode && (
+          <div style={{ marginTop: '8px', padding: '8px 10px', backgroundColor: 'rgba(90,200,255,0.1)', border: '1px solid rgba(90,200,255,0.3)', borderRadius: '6px', fontSize: '12px' }}>
+            {walkshedLoading ? (
+              <span style={{ color: 'rgba(255,255,255,0.7)' }}>Computing walk network…</span>
+            ) : walkshed ? (
+              <>
+                <div style={{ fontWeight: 600, color: 'rgb(120,220,255)' }}>15-minute walk</div>
+                <div style={{ color: 'rgba(255,255,255,0.85)', marginTop: '2px' }}>
+                  {(walkshed.reachableLengthM / 1000).toFixed(1)} km of streets · {walkshed.reachedNodeCount.toLocaleString()} junctions reachable
+                </div>
+              </>
+            ) : (
+              <span style={{ color: 'rgba(255,255,255,0.6)' }}>Tap the map to drop a start point.</span>
+            )}
+          </div>
         )}
       </div>
 

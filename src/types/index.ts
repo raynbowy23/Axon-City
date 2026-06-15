@@ -1,4 +1,5 @@
 import type { Feature, FeatureCollection, Polygon, MultiPolygon, LineString, MultiLineString, Point, Geometry } from 'geojson';
+import type { Walkshed } from '../utils/walkshed';
 
 // Map style options
 export type MapStyleType = 'dark' | 'light' | 'satellite';
@@ -287,6 +288,13 @@ export interface AppState {
   // Extracted view
   isExtractedViewOpen: boolean;
   setExtractedViewOpen: (isOpen: boolean) => void;
+  // Walkshed (N3): tap-to-reveal a 15-minute walk
+  walkshedMode: boolean;
+  setWalkshedMode: (on: boolean) => void;
+  walkshed: Walkshed | null;
+  setWalkshed: (w: Walkshed | null) => void;
+  walkshedLoading: boolean;
+  setWalkshedLoading: (loading: boolean) => void;
   posterThemeId: string | null;
   setPosterThemeId: (id: string | null) => void;
   // Cross-component request to open the poster dialog (set by Export/Share

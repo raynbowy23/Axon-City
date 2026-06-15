@@ -11,6 +11,7 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import { useStore } from '../store/useStore';
 import { layerManifest, getLayersByCustomOrder } from '../data/layerManifest';
 import { setMapInstance, setDeckCanvas, registerDeckPixelRatioSetter } from '../utils/mapRef';
+import { fetchWalkGraph, computeWalkshed } from '../utils/walkshed';
 import {
   resizeRectangle,
   resizeCircle,
@@ -179,6 +180,60 @@ export function MapView() {
     registerDeckPixelRatioSetter(setExportPixelRatio);
     return () => registerDeckPixelRatioSetter(null);
   }, []);
+
+  // --- Walkshed (N3, static v1) — state in the store so the toggle/readout
+  // can live in the Layer Controls panel; MapView owns the fetch + rendering.
+  const walkshedMode = useStore((s) => s.walkshedMode);
+  const walkshed = useStore((s) => s.walkshed);
+  const setWalkshed = useStore((s) => s.setWalkshed);
+  const setWalkshedLoading = useStore((s) => s.setWalkshedLoading);
+  const walkshedAbort = useRef<AbortController | null>(null);
+
+  // Tap → fetch the walk network around the point → compute the 15-min walkshed.
+  const handleWalkshedClick = useCallback(async (lon: number, lat: number) => {
+    walkshedAbort.current?.abort();
+    const ac = new AbortController();
+    walkshedAbort.current = ac;
+    setWalkshedLoading(true);
+    try {
+      // ~2 km half-box so the 1.2 km walkshed fits with margin.
+      const d = 0.02;
+      const graph = await fetchWalkGraph([lon - d, lat - d, lon + d, lat + d], ac.signal);
+      if (ac.signal.aborted) return;
+      setWalkshed(computeWalkshed(graph, lon, lat));
+    } catch (err) {
+      if (!ac.signal.aborted) console.error('Walkshed failed:', err);
+    } finally {
+      if (walkshedAbort.current === ac) setWalkshedLoading(false);
+    }
+  }, [setWalkshed, setWalkshedLoading]);
+
+  // Deck layers for the walkshed (composed alongside deckLayers below).
+  const walkshedLayers = useMemo((): Layer[] => {
+    if (!walkshed) return [];
+    return [
+      new PathLayer<[[number, number], [number, number]]>({
+        id: 'walkshed-edges',
+        data: walkshed.reachableEdges,
+        getPath: (d) => d,
+        getColor: [90, 200, 255, 210],
+        getWidth: 3,
+        widthUnits: 'pixels',
+        widthMinPixels: 2,
+      }),
+      new ScatterplotLayer<[number, number]>({
+        id: 'walkshed-origin',
+        data: [walkshed.origin],
+        getPosition: (d) => d,
+        getRadius: 9,
+        radiusUnits: 'pixels',
+        getFillColor: [255, 255, 255, 255],
+        getLineColor: [90, 200, 255, 255],
+        lineWidthMinPixels: 3,
+        stroked: true,
+      }),
+    ];
+  }, [walkshed]);
 
   // Handler for when map loads
   const handleMapLoad = useCallback(() => {
@@ -621,6 +676,12 @@ export function MapView() {
       // Don't handle if in drawing mode or dragging vertices
       if (isDrawing || draggingVertexIndex !== null) return;
 
+      // Walkshed mode: a tap anywhere sets the ripple origin.
+      if (walkshedMode && info.coordinate) {
+        handleWalkshedClick(info.coordinate[0], info.coordinate[1]);
+        return;
+      }
+
       // Don't handle vertex handles, midpoint handles, or comparison area polygons
       // (comparison areas have their own onClick handler for switching areas)
       if (
@@ -731,7 +792,7 @@ export function MapView() {
         }
       }
     },
-    [isDrawing, draggingVertexIndex, pinnedInfos, getFeatureCentroid]
+    [isDrawing, draggingVertexIndex, pinnedInfos, getFeatureCentroid, walkshedMode, handleWalkshedClick]
   );
 
   // Sync editable vertices when selection polygon changes
@@ -1647,7 +1708,7 @@ export function MapView() {
         onViewStateChange={onViewStateChange}
         controller={controller}
         useDevicePixels={exportPixelRatio ?? true}
-        layers={deckLayers}
+        layers={[...deckLayers, ...walkshedLayers]}
         onHover={onHover}
         onClick={onClick}
         onDragStart={onDragStart}
