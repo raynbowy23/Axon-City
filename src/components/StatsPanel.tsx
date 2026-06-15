@@ -6,6 +6,7 @@ import { ComparisonTable } from './ComparisonTable';
 import { ComparisonGuidance } from './ComparisonGuidance';
 import { DataQualityIndicator } from './DataQualityIndicator';
 import { CityDnaSection } from './CityDnaSection';
+import { GrowthPanel } from './GrowthPanel';
 import { ExportDialog } from './ExportDialog';
 import { exportMetrics, type ExportArea } from '../utils/exportMetrics';
 import { calculatePOIMetrics } from '../utils/metricsCalculator';
@@ -538,6 +539,7 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
               <MetricsPanel />
             )}
             <CityDnaSection isMobile />
+            <GrowthPanel isMobile />
             <DataQualityIndicator compact />
           </div>
         )}
@@ -974,6 +976,7 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
                 }}
               />
               <CityDnaSection />
+              <GrowthPanel />
               <ComparisonGuidance collapsed />
               <DataQualityIndicator />
             </>
@@ -981,6 +984,7 @@ export function StatsPanel({ isMobile = false }: StatsPanelProps) {
             <>
               <MetricsPanel />
               <CityDnaSection />
+              <GrowthPanel />
               <DataQualityIndicator />
               {/* Export Button */}
               <button
