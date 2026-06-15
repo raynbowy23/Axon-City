@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState, useEffect, useRef } from 'react';
 import MapGL, { type MapRef } from 'react-map-gl/maplibre';
 import DeckGL, { type DeckGLRef } from '@deck.gl/react';
 import { GeoJsonLayer, ScatterplotLayer, PathLayer, PolygonLayer } from '@deck.gl/layers';
+import { DataFilterExtension, type DataFilterExtensionProps } from '@deck.gl/extensions';
 import { SimpleMeshLayer } from '@deck.gl/mesh-layers';
 import { SphereGeometry } from '@luma.gl/engine';
 import type { PickingInfo, Layer } from '@deck.gl/core';
@@ -211,18 +212,64 @@ export function MapView() {
     }
   }, [setWalkshed, setWalkshedLoading]);
 
+  // Ripple animation: a wavefront (meters from origin) sweeps outward, then
+  // holds as the full static walkshed. Driven by requestAnimationFrame; only a
+  // uniform (filterRange) changes per frame — no per-frame data re-upload.
+  const RIPPLE_DURATION_MS = 3500;
+  const RIPPLE_BAND_M = 130; // glow band width at the wavefront
+  const [rippleWavefront, setRippleWavefront] = useState(0);
+  const filterExt = useMemo(() => new DataFilterExtension({ filterSize: 1 }), []);
+
+  useEffect(() => {
+    if (!walkshed || walkshed.reachableEdges.length === 0) return;
+    const maxTarget = walkshed.cutoffM + RIPPLE_BAND_M; // finite — avoids Infinity uniforms
+    const start = performance.now();
+    let raf = 0;
+    const tick = (now: number) => {
+      const p = Math.min(1, (now - start) / RIPPLE_DURATION_MS);
+      const eased = 1 - Math.pow(1 - p, 2); // ease-out
+      setRippleWavefront(eased * maxTarget);
+      if (p < 1) raf = requestAnimationFrame(tick);
+    };
+    setRippleWavefront(0);
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [walkshed]);
+
   // Deck layers for the walkshed (composed alongside deckLayers below).
   const walkshedLayers = useMemo((): Layer[] => {
     if (!walkshed) return [];
+    const edgeDist = walkshed.edgeDistances;
+    type Edge = [[number, number], [number, number]];
+    const getFilterValue = (_d: unknown, info: { index: number }) => edgeDist[info.index];
     return [
-      new PathLayer<[[number, number], [number, number]]>({
-        id: 'walkshed-edges',
+      // Settled streets — revealed as the wavefront passes.
+      new PathLayer<Edge, DataFilterExtensionProps<Edge>>({
+        id: 'walkshed-settled',
         data: walkshed.reachableEdges,
         getPath: (d) => d,
-        getColor: [90, 200, 255, 210],
-        getWidth: 3,
+        getColor: [70, 160, 220, 150],
+        getWidth: 2.5,
         widthUnits: 'pixels',
         widthMinPixels: 2,
+        getFilterValue,
+        filterRange: [0, rippleWavefront],
+        extensions: [filterExt],
+        updateTriggers: { getFilterValue: walkshed },
+      }),
+      // Bright glow band right at the wavefront.
+      new PathLayer<Edge, DataFilterExtensionProps<Edge>>({
+        id: 'walkshed-glow',
+        data: walkshed.reachableEdges,
+        getPath: (d) => d,
+        getColor: [190, 245, 255, 255],
+        getWidth: 5,
+        widthUnits: 'pixels',
+        widthMinPixels: 3,
+        getFilterValue,
+        filterRange: [rippleWavefront - RIPPLE_BAND_M, rippleWavefront],
+        extensions: [filterExt],
+        updateTriggers: { getFilterValue: walkshed },
       }),
       new ScatterplotLayer<[number, number]>({
         id: 'walkshed-origin',
@@ -236,7 +283,7 @@ export function MapView() {
         stroked: true,
       }),
     ];
-  }, [walkshed]);
+  }, [walkshed, rippleWavefront, filterExt]);
 
   // Handler for when map loads
   const handleMapLoad = useCallback(() => {
