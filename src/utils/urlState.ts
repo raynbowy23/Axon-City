@@ -205,6 +205,11 @@ export function encodeState(state: ShareableState): URLSearchParams {
     params.set('m', state.mapStyle.charAt(0)); // 'l' or 's'
   }
 
+  // Walkshed origin (shared link replays the ripple)
+  if (state.walkshed) {
+    params.set('w', `${state.walkshed[0].toFixed(5)},${state.walkshed[1].toFixed(5)}`);
+  }
+
   return params;
 }
 
@@ -257,6 +262,14 @@ export function decodeState(params: URLSearchParams): ShareableState | null {
   };
   const mapStyle = mapStyleCode ? mapStyleMap[mapStyleCode] : undefined;
 
+  // Walkshed origin
+  let walkshed: [number, number] | undefined;
+  const w = params.get('w');
+  if (w) {
+    const [wlon, wlat] = w.split(',').map(Number);
+    if (Number.isFinite(wlon) && Number.isFinite(wlat)) walkshed = [wlon, wlat];
+  }
+
   return {
     center: [lng, lat],
     zoom,
@@ -267,6 +280,7 @@ export function decodeState(params: URLSearchParams): ShareableState | null {
     activeLayers: undefined,
     explodedView,
     mapStyle,
+    walkshed,
   };
 }
 
@@ -288,7 +302,8 @@ export function createShareableState(
   presetId: string | null,
   activeLayers: string[],
   explodedView: boolean,
-  mapStyle: MapStyleType
+  mapStyle: MapStyleType,
+  walkshedOrigin?: [number, number] | null
 ): ShareableState {
   const encodedAreas: EncodedArea[] = areas.map((area) => {
     // Get coordinates from polygon
@@ -310,6 +325,7 @@ export function createShareableState(
     activeLayers: presetId ? undefined : activeLayers,
     explodedView,
     mapStyle: mapStyle !== 'dark' ? mapStyle : undefined,
+    walkshed: walkshedOrigin ?? undefined,
   };
 }
 

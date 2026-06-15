@@ -34,6 +34,7 @@ export function useUrlState(onAreasRestored?: (polygons: { name: string; polygon
     activeLayers,
     explodedView,
     mapStyle,
+    walkshed,
     setViewState,
     addArea,
     renameArea,
@@ -41,6 +42,8 @@ export function useUrlState(onAreasRestored?: (polygons: { name: string; polygon
     setActiveLayers,
     setExplodedView,
     setMapStyle,
+    setWalkshedMode,
+    setWalkshedRequest,
   } = useStore();
 
   const isInitializedRef = useRef(false);
@@ -86,6 +89,13 @@ export function useUrlState(onAreasRestored?: (polygons: { name: string; polygon
     // Apply exploded view
     if (urlState.explodedView) {
       setExplodedView({ enabled: true });
+    }
+
+    // Replay a shared walkshed: enable the mode and request the compute
+    // (MapView consumes walkshedRequest → fetch + ripple).
+    if (urlState.walkshed) {
+      setWalkshedMode(true);
+      setWalkshedRequest(urlState.walkshed);
     }
 
     // Restore areas from URL (only if no areas exist yet)
@@ -149,7 +159,7 @@ export function useUrlState(onAreasRestored?: (polygons: { name: string; polygon
         isRestoringRef.current = false;
       }, 200);
     }
-  }, [setViewState, applyStory, setActiveLayers, setExplodedView, setMapStyle, addArea, renameArea, onAreasRestored]);
+  }, [setViewState, applyStory, setActiveLayers, setExplodedView, setMapStyle, addArea, renameArea, onAreasRestored, setWalkshedMode, setWalkshedRequest]);
 
   // Update URL when state changes (debounced)
   useEffect(() => {
@@ -168,7 +178,8 @@ export function useUrlState(onAreasRestored?: (polygons: { name: string; polygon
         activeStoryId,
         activeLayers,
         explodedView.enabled,
-        mapStyle
+        mapStyle,
+        walkshed?.origin ?? null
       );
 
       const newUrl = generateShareUrl(shareableState);
@@ -185,7 +196,7 @@ export function useUrlState(onAreasRestored?: (polygons: { name: string; polygon
         clearTimeout(updateTimeoutRef.current);
       }
     };
-  }, [viewState, areas, activeStoryId, activeLayers, explodedView.enabled, mapStyle]);
+  }, [viewState, areas, activeStoryId, activeLayers, explodedView.enabled, mapStyle, walkshed]);
 
   // Generate current share URL
   const getShareUrl = useCallback((): string => {
@@ -195,10 +206,11 @@ export function useUrlState(onAreasRestored?: (polygons: { name: string; polygon
       activeStoryId,
       activeLayers,
       explodedView.enabled,
-      mapStyle
+      mapStyle,
+      walkshed?.origin ?? null
     );
     return generateShareUrl(shareableState);
-  }, [viewState, areas, activeStoryId, activeLayers, explodedView.enabled, mapStyle]);
+  }, [viewState, areas, activeStoryId, activeLayers, explodedView.enabled, mapStyle, walkshed]);
 
   // Copy share URL to clipboard
   const copyShareUrl = useCallback(async (): Promise<boolean> => {

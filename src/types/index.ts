@@ -295,6 +295,9 @@ export interface AppState {
   setWalkshed: (w: Walkshed | null) => void;
   walkshedLoading: boolean;
   setWalkshedLoading: (loading: boolean) => void;
+  // A shared-link origin to replay (consumed by MapView, which owns the compute)
+  walkshedRequest: [number, number] | null;
+  setWalkshedRequest: (origin: [number, number] | null) => void;
   posterThemeId: string | null;
   setPosterThemeId: (id: string | null) => void;
   // Cross-component request to open the poster dialog (set by Export/Share
@@ -357,6 +360,7 @@ export interface ShareableState {
   activeLayers?: string[];
   explodedView: boolean;
   mapStyle?: MapStyleType;
+  walkshed?: [number, number]; // origin [lon, lat] of a shared walkshed
 }
 
 export interface EncodedArea {

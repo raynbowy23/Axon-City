@@ -566,6 +566,8 @@ export const useStore = create<AppState>((set) => ({
   setWalkshed: (walkshed) => set({ walkshed }),
   walkshedLoading: false,
   setWalkshedLoading: (walkshedLoading) => set({ walkshedLoading }),
+  walkshedRequest: null,
+  setWalkshedRequest: (walkshedRequest) => set({ walkshedRequest }),
   posterThemeId: null,
   setPosterThemeId: (posterThemeId) => set({ posterThemeId }),
   posterRequested: false,

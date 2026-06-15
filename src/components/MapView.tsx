@@ -188,6 +188,8 @@ export function MapView() {
   const walkshed = useStore((s) => s.walkshed);
   const setWalkshed = useStore((s) => s.setWalkshed);
   const setWalkshedLoading = useStore((s) => s.setWalkshedLoading);
+  const walkshedRequest = useStore((s) => s.walkshedRequest);
+  const setWalkshedRequest = useStore((s) => s.setWalkshedRequest);
   const walkshedAbort = useRef<AbortController | null>(null);
 
   // Tap → fetch the walk network around the point → compute the 15-min walkshed.
@@ -211,6 +213,13 @@ export function MapView() {
       if (walkshedAbort.current === ac) setWalkshedLoading(false);
     }
   }, [setWalkshed, setWalkshedLoading]);
+
+  // Replay a walkshed from a shared link: compute it once, then clear the request.
+  useEffect(() => {
+    if (!walkshedRequest) return;
+    handleWalkshedClick(walkshedRequest[0], walkshedRequest[1]);
+    setWalkshedRequest(null);
+  }, [walkshedRequest, handleWalkshedClick, setWalkshedRequest]);
 
   // Ripple animation: a wavefront (meters from origin) sweeps outward, then
   // holds as the full static walkshed. Driven by requestAnimationFrame; only a

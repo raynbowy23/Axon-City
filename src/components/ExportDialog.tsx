@@ -140,9 +140,9 @@ export function ExportDialog({ isOpen, onClose, areas, activeLayers }: ExportDia
   // Build the share URL from store state at click time (this dialog stays
   // mounted while closed, so it must not run its own useUrlState instance)
   const handleCopyLink = async () => {
-    const { viewState, activeStoryId, explodedView, mapStyle } = useStore.getState();
+    const { viewState, activeStoryId, explodedView, mapStyle, walkshed } = useStore.getState();
     const url = generateShareUrl(
-      createShareableState(viewState, areas, activeStoryId, activeLayers, explodedView.enabled, mapStyle)
+      createShareableState(viewState, areas, activeStoryId, activeLayers, explodedView.enabled, mapStyle, walkshed?.origin ?? null)
     );
     const success = await copyTextToClipboard(url);
     if (success) {
