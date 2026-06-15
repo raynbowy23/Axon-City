@@ -6,6 +6,8 @@
  * animated) ripple. Uses Option A topology (exact OSM node IDs) per the spike.
  */
 
+import type { Feature } from 'geojson';
+import type { LayerData } from '../types';
 import {
   buildWalkGraphFromNodes,
   buildAdjacency,
@@ -73,6 +75,11 @@ export async function fetchWalkGraph(
   throw new Error(`Walk-network fetch failed: ${String(lastErr)}`);
 }
 
+export interface PoiReach {
+  label: string;
+  count: number;
+}
+
 export interface Walkshed {
   /** Snapped origin node [lon, lat]. */
   origin: [number, number];
@@ -80,10 +87,14 @@ export interface Walkshed {
   reachableEdges: Array<[[number, number], [number, number]]>;
   /** Per-reachable-edge mid-distance from origin (m), for later coloring/animation. */
   edgeDistances: number[];
+  /** Per-node distance from origin (m); Infinity if unreachable. */
+  dist: Float64Array;
   /** Number of graph nodes within the cutoff. */
   reachedNodeCount: number;
   /** Total reachable street length within the cutoff (meters). */
   reachableLengthM: number;
+  /** Amenities reachable within the cutoff, by category (filled separately). */
+  poiReach: PoiReach[];
   cutoffM: number;
 }
 
@@ -103,8 +114,10 @@ export function computeWalkshed(
       origin: [originLon, originLat],
       reachableEdges: [],
       edgeDistances: [],
+      dist: new Float64Array(0),
       reachedNodeCount: 0,
       reachableLengthM: 0,
+      poiReach: [],
       cutoffM,
     };
   }
@@ -134,8 +147,78 @@ export function computeWalkshed(
     origin: [graph.nodes[seed * 2], graph.nodes[seed * 2 + 1]],
     reachableEdges,
     edgeDistances,
+    dist,
     reachedNodeCount,
     reachableLengthM,
+    poiReach: [],
     cutoffM,
   };
+}
+
+// Amenity categories for the reach readout (label + the layer ids that feed it).
+const POI_REACH_CATEGORIES: Array<{ label: string; ids: string[] }> = [
+  { label: 'groceries', ids: ['poi-grocery'] },
+  { label: 'cafés & restaurants', ids: ['poi-food-drink'] },
+  { label: 'shops', ids: ['poi-shopping'] },
+  { label: 'health', ids: ['poi-health'] },
+  { label: 'schools', ids: ['poi-education'] },
+  { label: 'transit stops', ids: ['transit-stops'] },
+  { label: 'parks', ids: ['parks'] },
+];
+
+/** Representative lon/lat for a feature (point coord, or polygon/line midpoint). */
+function featureLonLat(f: Feature): [number, number] | null {
+  const g = f.geometry;
+  if (!g) return null;
+  if (g.type === 'Point') return g.coordinates as [number, number];
+  if (g.type === 'LineString') {
+    const c = g.coordinates;
+    return c[Math.floor(c.length / 2)] as [number, number];
+  }
+  const ring =
+    g.type === 'Polygon'
+      ? g.coordinates[0]
+      : g.type === 'MultiPolygon'
+        ? g.coordinates[0]?.[0]
+        : null;
+  if (!ring || ring.length === 0) return null;
+  let x = 0;
+  let y = 0;
+  for (const [lon, lat] of ring as number[][]) {
+    x += lon;
+    y += lat;
+  }
+  return [x / ring.length, y / ring.length];
+}
+
+/**
+ * Count amenities reachable within the walkshed: a feature counts if its
+ * nearest walk node is within `cutoffM`. Reads from the loaded layer data
+ * (clipped features). Categories with zero reachable items are omitted.
+ */
+export function computeReachablePois(
+  graph: WalkGraph,
+  dist: Float64Array,
+  layerData: Map<string, LayerData>,
+  cutoffM: number = WALK_CUTOFF_M
+): PoiReach[] {
+  if (dist.length === 0) return [];
+  const out: PoiReach[] = [];
+
+  for (const cat of POI_REACH_CATEGORIES) {
+    let count = 0;
+    for (const id of cat.ids) {
+      const ld = layerData.get(id);
+      const features = ld?.clippedFeatures?.features ?? ld?.features?.features ?? [];
+      for (const f of features) {
+        const ll = featureLonLat(f);
+        if (!ll) continue;
+        const node = nearestNode(graph, ll[0], ll[1]);
+        if (node >= 0 && dist[node] <= cutoffM) count++;
+      }
+    }
+    if (count > 0) out.push({ label: cat.label, count });
+  }
+
+  return out;
 }

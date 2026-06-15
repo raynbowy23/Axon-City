@@ -11,7 +11,7 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import { useStore } from '../store/useStore';
 import { layerManifest, getLayersByCustomOrder } from '../data/layerManifest';
 import { setMapInstance, setDeckCanvas, registerDeckPixelRatioSetter } from '../utils/mapRef';
-import { fetchWalkGraph, computeWalkshed } from '../utils/walkshed';
+import { fetchWalkGraph, computeWalkshed, computeReachablePois } from '../utils/walkshed';
 import {
   resizeRectangle,
   resizeCircle,
@@ -200,7 +200,10 @@ export function MapView() {
       const d = 0.02;
       const graph = await fetchWalkGraph([lon - d, lat - d, lon + d, lat + d], ac.signal);
       if (ac.signal.aborted) return;
-      setWalkshed(computeWalkshed(graph, lon, lat));
+      const ws = computeWalkshed(graph, lon, lat);
+      // Reachable amenities from whatever POI layers are currently loaded.
+      ws.poiReach = computeReachablePois(graph, ws.dist, useStore.getState().layerData, ws.cutoffM);
+      setWalkshed(ws);
     } catch (err) {
       if (!ac.signal.aborted) console.error('Walkshed failed:', err);
     } finally {

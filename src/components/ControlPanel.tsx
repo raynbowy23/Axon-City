@@ -343,6 +343,16 @@ export function ControlPanel({ isMobile = false }: ControlPanelProps) {
                 <div style={{ color: 'rgba(255,255,255,0.85)', marginTop: '2px' }}>
                   {(walkshed.reachableLengthM / 1000).toFixed(1)} km of streets · {walkshed.reachedNodeCount.toLocaleString()} junctions reachable
                 </div>
+                {walkshed.poiReach.length > 0 && (
+                  <div style={{ marginTop: '6px', color: 'rgba(255,255,255,0.85)' }}>
+                    <div style={{ color: 'rgba(255,255,255,0.55)', marginBottom: '2px' }}>Within reach:</div>
+                    {walkshed.poiReach.map((p) => (
+                      <div key={p.label}>
+                        <strong style={{ color: 'white' }}>{p.count}</strong> {p.label}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </>
             ) : (
               <span style={{ color: 'rgba(255,255,255,0.6)' }}>Tap the map to drop a start point.</span>
