@@ -1,6 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useStore } from '../store/useStore';
 import { TIME_MACHINE_START_YEAR, TIME_MACHINE_END_YEAR, TIME_MACHINE_MAX_KM2 } from '../utils/ohsomeHistory';
+import { getMapCanvas, getDeckCanvas } from '../utils/mapRef';
+import { canRecordCanvas, recordCanvasToWebM, downloadClip, drawTimeMachineOverlay } from '../utils/cinematicRecorder';
+import { loadPosterFonts } from '../utils/posterFonts';
 import { layerManifest } from '../data/layerManifest';
 import { DraggableLayerList } from './DraggableLayerList';
 import { StorySelector } from './StorySelector';
@@ -66,6 +69,60 @@ export function ControlPanel({ isMobile = false }: ControlPanelProps) {
 
   const tmAreaKm2 = (selectionPolygon?.area ?? 0) / 1_000_000;
   const tmAvailable = !!selectionPolygon && tmAreaKm2 <= TIME_MACHINE_MAX_KM2;
+
+  // Record the Time Machine playback from the CURRENT map view (camera is not
+  // touched — only the year advances). Composites the live basemap + deck
+  // overlay + a year caption per frame, into a downloadable WebM.
+  const [tmRecording, setTmRecording] = useState(false);
+  const recordTimeMachine = async () => {
+    if (tmRecording) return;
+    const deckCanvas = getDeckCanvas();
+    const mapCanvas = getMapCanvas();
+    if (!deckCanvas || !canRecordCanvas()) return;
+
+    setTmPlaying(false);
+    setTmRecording(true);
+    await loadPosterFonts();
+
+    const w = deckCanvas.width;
+    const h = deckCanvas.height;
+    const composite = document.createElement('canvas');
+    composite.width = w;
+    composite.height = h;
+    const ctx = composite.getContext('2d');
+    if (!ctx) {
+      setTmRecording(false);
+      return;
+    }
+
+    const DURATION = 8000;
+    setTimeMachineYear(TIME_MACHINE_START_YEAR);
+    await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
+
+    const t0 = performance.now();
+    let raf = 0;
+    const animate = (now: number) => {
+      const p = Math.min(1, (now - t0) / DURATION);
+      const year = Math.round(TIME_MACHINE_START_YEAR + p * (TIME_MACHINE_END_YEAR - TIME_MACHINE_START_YEAR));
+      setTimeMachineYear(year);
+      try {
+        ctx.fillStyle = '#1a1a2e';
+        ctx.fillRect(0, 0, w, h);
+        if (mapCanvas) ctx.drawImage(mapCanvas, 0, 0, w, h); // basemap (static)
+        ctx.drawImage(deckCanvas, 0, 0, w, h); // live time-machine overlay
+        drawTimeMachineOverlay(ctx, w, h, { year });
+      } catch {
+        // ignore transient WebGL-frame-not-ready draws
+      }
+      if (p < 1) raf = requestAnimationFrame(animate);
+    };
+    raf = requestAnimationFrame(animate);
+
+    const blob = await recordCanvasToWebM(composite, DURATION + 300);
+    cancelAnimationFrame(raf);
+    setTmRecording(false);
+    if (blob) downloadClip(blob, 'axoncity-timemachine.webm');
+  };
 
   // Calculate bounding box from features and zoom to it
   const zoomToLayer = (layerId: string) => {
@@ -437,6 +494,23 @@ export function ControlPanel({ isMobile = false }: ControlPanelProps) {
                     }}
                     style={{ flex: 1, cursor: 'pointer' }}
                   />
+                  <button
+                    onClick={recordTimeMachine}
+                    disabled={tmRecording || timeMachineLoaded.length === 0}
+                    title="Record the growth as a video (WebM), from your current view"
+                    style={{
+                      padding: '4px 8px',
+                      border: 'none',
+                      borderRadius: '4px',
+                      cursor: tmRecording ? 'wait' : 'pointer',
+                      backgroundColor: tmRecording ? 'rgba(220,80,80,0.9)' : 'rgba(80,180,140,0.85)',
+                      color: 'white',
+                      fontSize: '12px',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {tmRecording ? '● Rec' : '🎬'}
+                  </button>
                 </div>
                 <div style={{ fontSize: '10px', color: 'rgba(150,210,255,0.7)', marginTop: '6px' }}>
                   {timeMachineLoaded.length < 5
