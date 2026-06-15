@@ -22,7 +22,6 @@
     "@fontsource/space-grotesk": "^5.2.10",
     "@luma.gl/engine": "^9.2.6",
     "@turf/turf": "^7.3.2",
-    "@types/mapbox__point-geometry": "^0.1.4",
     "deck.gl": "^9.2.5",
     "jspdf": "^4.0.0",
     "maplibre-gl": "^5.16.0",
@@ -33,6 +32,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
+    "@types/mapbox__point-geometry": "^0.1.4",
     "@types/node": "^24.10.1",
     "@types/react": "^19.2.5",
     "@types/react-dom": "^19.2.3",
