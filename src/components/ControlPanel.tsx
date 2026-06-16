@@ -494,24 +494,28 @@ export function ControlPanel({ isMobile = false }: ControlPanelProps) {
                     }}
                     style={{ flex: 1, cursor: 'pointer' }}
                   />
-                  <button
-                    onClick={recordTimeMachine}
-                    disabled={tmRecording || timeMachineLoaded.length === 0}
-                    title="Record the growth as a video (WebM), from your current view"
-                    style={{
-                      padding: '4px 8px',
-                      border: 'none',
-                      borderRadius: '4px',
-                      cursor: tmRecording ? 'wait' : 'pointer',
-                      backgroundColor: tmRecording ? 'rgba(220,80,80,0.9)' : 'rgba(80,180,140,0.85)',
-                      color: 'white',
-                      fontSize: '12px',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {tmRecording ? '● Rec' : '🎬'}
-                  </button>
                 </div>
+                <button
+                  onClick={recordTimeMachine}
+                  disabled={tmRecording || timeMachineLoaded.length === 0}
+                  title="Record the growth as a video (WebM), from your current view"
+                  style={{
+                    marginTop: '8px',
+                    width: '100%',
+                    padding: '6px 8px',
+                    border: 'none',
+                    borderRadius: '4px',
+                    cursor: tmRecording ? 'wait' : timeMachineLoaded.length === 0 ? 'not-allowed' : 'pointer',
+                    backgroundColor: tmRecording ? 'rgba(220,80,80,0.9)' : 'rgba(80,180,140,0.85)',
+                    opacity: timeMachineLoaded.length === 0 ? 0.5 : 1,
+                    color: 'white',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {tmRecording ? '● Recording…' : '🎬 Record growth video'}
+                </button>
                 <div style={{ fontSize: '10px', color: 'rgba(150,210,255,0.7)', marginTop: '6px' }}>
                   {timeMachineLoaded.length < 5
                     ? `Loading layers… ${timeMachineLoaded.length}/5`

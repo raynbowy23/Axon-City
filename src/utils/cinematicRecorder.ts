@@ -1,10 +1,9 @@
 /**
- * Cinematic recorder (novelty track N5 — Cinematic Flythrough).
- *
- * Records a live <canvas> (the exploded-view deck.gl canvas) to a WebM clip
- * using the native MediaRecorder + canvas.captureStream — no ffmpeg.wasm, no
- * gif.js, no extra dependency. The caller drives the animation (layers rising,
- * slow orbit) while this records for the given duration.
+ * Canvas recorder — records the Time Machine year-growth playback to a WebM
+ * clip using the native MediaRecorder + canvas.captureStream — no ffmpeg.wasm,
+ * no gif.js, no extra dependency. The caller drives the animation (scrubbing
+ * the year while the deck layers grow) and composites each frame; this records
+ * the composite for the given duration.
  */
 
 /** Is in-browser canvas recording supported here? */
@@ -68,60 +67,6 @@ export function recordCanvasToWebM(
 }
 
 const OVERLAY_FONT = '"Space Grotesk", "Helvetica Neue", system-ui, sans-serif';
-
-/**
- * Draw the lower-third overlay (title + metric strip + attribution) onto a 2D
- * canvas, over an already-drawn frame. Called per recorded frame so the text is
- * baked into the clip. Sizes scale off canvas width (reference 1280px).
- */
-export function drawCinematicOverlay(
-  ctx: CanvasRenderingContext2D,
-  width: number,
-  height: number,
-  opts: { title: string; metrics: Array<{ value: string; label: string }> }
-): void {
-  const s = width / 1280;
-
-  // Bottom gradient for legibility.
-  const grad = ctx.createLinearGradient(0, height - 230 * s, 0, height);
-  grad.addColorStop(0, 'rgba(0,0,0,0)');
-  grad.addColorStop(1, 'rgba(0,0,0,0.72)');
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, height - 230 * s, width, 230 * s);
-
-  const pad = Math.round(48 * s);
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'alphabetic';
-
-  // Metric strip (above the title).
-  if (opts.metrics.length > 0) {
-    let mx = pad;
-    const my = height - Math.round(112 * s);
-    for (const m of opts.metrics.slice(0, 3)) {
-      ctx.font = `700 ${Math.round(26 * s)}px ${OVERLAY_FONT}`;
-      ctx.fillStyle = 'rgb(130,205,255)';
-      ctx.fillText(m.value, mx, my);
-      const vw = ctx.measureText(m.value).width;
-      ctx.font = `500 ${Math.round(20 * s)}px ${OVERLAY_FONT}`;
-      ctx.fillStyle = 'rgba(255,255,255,0.7)';
-      ctx.fillText(` ${m.label}`, mx + vw + 4 * s, my);
-      mx += vw + 4 * s + ctx.measureText(` ${m.label}`).width + 32 * s;
-    }
-  }
-
-  // Title.
-  if (opts.title) {
-    ctx.font = `700 ${Math.round(48 * s)}px ${OVERLAY_FONT}`;
-    ctx.fillStyle = 'white';
-    ctx.fillText(opts.title, pad, height - Math.round(60 * s));
-  }
-
-  // Attribution.
-  ctx.textAlign = 'right';
-  ctx.font = `500 ${Math.round(18 * s)}px ${OVERLAY_FONT}`;
-  ctx.fillStyle = 'rgba(255,255,255,0.6)';
-  ctx.fillText('AxonCity · © OpenStreetMap contributors', width - pad, height - Math.round(26 * s));
-}
 
 /** Big year + "as mapped" + attribution overlay for the Time Machine recording. */
 export function drawTimeMachineOverlay(

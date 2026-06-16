@@ -11,8 +11,6 @@ import { useStore } from '../store/useStore';
 import { getLayersByCustomOrder, layerManifest } from '../data/layerManifest';
 import { posterThemes, getPosterTheme, themeGroupStyle, themeLayerConfig, type PosterTheme } from '../data/posterThemes';
 import { calculatePOIMetrics } from '../utils/metricsCalculator';
-import { canRecordCanvas, recordCanvasToWebM, downloadClip, drawCinematicOverlay } from '../utils/cinematicRecorder';
-import { loadPosterFonts } from '../utils/posterFonts';
 import type { PosterMetric } from '../utils/posterComposer';
 import { PosterDialog } from './PosterDialog';
 import type { LayerData, LayerOrderConfig, CustomLayerConfig, AnyLayerConfig } from '../types';
@@ -1294,7 +1292,6 @@ export function ExtractedView({ isMobile = false }: ExtractedViewProps) {
 
   // Save state and toast notification
   const [isSaving, setIsSaving] = useState(false);
-  const [isRecording, setIsRecording] = useState(false);
   // Poster export dialog
   const [isPosterOpen, setIsPosterOpen] = useState(false);
   // Temporarily raised deck pixel ratio while capturing a hi-res poster.
@@ -1814,82 +1811,6 @@ export function ExtractedView({ isMobile = false }: ExtractedViewProps) {
     }
   }, [selectionLocationName, localLocationName, isComparisonMode, areas]);
 
-  // Cinematic flythrough: collapse the layers, then ease them up + slowly orbit
-  // while recording the exploded-view canvas to a downloadable WebM clip.
-  const recordFlythrough = useCallback(async () => {
-    if (isRecording) return;
-    const canvas = viewContainerRef.current?.querySelector('canvas') as HTMLCanvasElement | null;
-    const showToast = (message: string, type: 'success' | 'error') => {
-      setSaveToast({ show: true, message, type });
-      setTimeout(() => setSaveToast((p) => ({ ...p, show: false })), 3000);
-    };
-    if (!canvas) return;
-    if (!canRecordCanvas()) {
-      showToast('Recording not supported in this browser', 'error');
-      return;
-    }
-
-    setIsRecording(true);
-    await loadPosterFonts(); // so the burned-in overlay uses Space Grotesk
-
-    const DURATION = 6000;
-    const fullSpacing = layerSpacing;
-    const startSpacing = Math.max(8, fullSpacing * 0.12);
-    const startOrbit = localViewState.rotationOrbit;
-    const title = localLocationName || selectionLocationName || '';
-
-    // Composite canvas: each frame we draw the deck scene + the title/metrics
-    // overlay onto it, and record THIS canvas so the text is baked into the clip.
-    const composite = document.createElement('canvas');
-    composite.width = canvas.width;
-    composite.height = canvas.height;
-    const ctx = composite.getContext('2d');
-    if (!ctx) {
-      setIsRecording(false);
-      showToast('Recording failed', 'error');
-      return;
-    }
-
-    // Collapse, then let the first frame paint before recording starts.
-    setLayerSpacing(startSpacing);
-    await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
-
-    const t0 = performance.now();
-    let raf = 0;
-    const animate = (now: number) => {
-      const p = Math.min(1, (now - t0) / DURATION);
-      const rise = 1 - Math.pow(1 - p, 3); // easeOutCubic — layers spring up
-      setLayerSpacing(startSpacing + (fullSpacing - startSpacing) * rise);
-      setLocalViewState((prev) => ({ ...prev, rotationOrbit: startOrbit + p * 120 })); // slow orbit
-
-      // Composite this frame: deck scene, then burned-in overlay.
-      try {
-        ctx.fillStyle = posterTheme?.background ?? '#1a1a2e';
-        ctx.fillRect(0, 0, composite.width, composite.height);
-        ctx.drawImage(canvas, 0, 0, composite.width, composite.height);
-        drawCinematicOverlay(ctx, composite.width, composite.height, { title, metrics: posterMetrics });
-      } catch {
-        // Ignore transient draw failures (WebGL frame not ready)
-      }
-      if (p < 1) raf = requestAnimationFrame(animate);
-    };
-    raf = requestAnimationFrame(animate);
-
-    const blob = await recordCanvasToWebM(composite, DURATION + 300);
-    cancelAnimationFrame(raf);
-    setLayerSpacing(fullSpacing); // restore the view we started from
-    setLocalViewState((prev) => ({ ...prev, rotationOrbit: startOrbit }));
-    setIsRecording(false);
-
-    if (blob) {
-      const name = (localLocationName || selectionLocationName || 'area').replace(/[^a-z0-9]+/gi, '-').toLowerCase();
-      downloadClip(blob, `axoncity-flythrough-${name || 'area'}.webm`);
-      showToast('Flythrough saved (WebM)', 'success');
-    } else {
-      showToast('Recording failed', 'error');
-    }
-  }, [isRecording, layerSpacing, localViewState.rotationOrbit, localLocationName, selectionLocationName, posterTheme, posterMetrics]);
-
   // Don't render anything if closed or no selection
   if (!isExtractedViewOpen || !selectionPolygon) return null;
 
@@ -2116,30 +2037,6 @@ export function ExtractedView({ isMobile = false }: ExtractedViewProps) {
           >
             🖼️ Poster
           </button>
-
-          {!isComparisonMode && (
-            <button
-              onClick={recordFlythrough}
-              disabled={isRecording}
-              style={{
-                padding: isMobile ? '10px 16px' : '4px 8px',
-                backgroundColor: isRecording ? 'rgba(220, 80, 80, 0.9)' : 'rgba(80, 180, 140, 0.85)',
-                color: 'white',
-                border: 'none',
-                borderRadius: isMobile ? '8px' : '4px',
-                cursor: isRecording ? 'wait' : 'pointer',
-                fontSize: isMobile ? '14px' : '11px',
-                minHeight: isMobile ? '44px' : 'auto',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px',
-                whiteSpace: 'nowrap',
-              }}
-              title="Record a cinematic flythrough (WebM)"
-            >
-              {isRecording ? '● Recording…' : '🎬 Record'}
-            </button>
-          )}
 
           <button
             onClick={() => setExtractedViewOpen(false)}
