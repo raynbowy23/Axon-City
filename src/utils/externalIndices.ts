@@ -79,7 +79,7 @@ export const DERIVED_METRIC_DEFINITIONS: DerivedMetricDefinition[] = [
     description: 'Estimates transit accessibility using Transit Score methodology: mode-weighted stop density with logarithmic normalization. Rail stations weighted 2x, bus stops 1x.',
     formula: 'log(Σ(stops × mode_weight)) normalized to 0-100',
     unit: '',
-    requiredLayers: ['transit-stops', 'rail-lines'],
+    requiredLayers: ['transit-stops', 'rail-stations'],
     interpretation: {
       low: '< 25: Minimal Transit (few or no transit options)',
       medium: '25-50: Some Transit (a few public transportation options)',
@@ -396,10 +396,31 @@ function calculateBuildingDensity(
 
 // Transit Score mode weights
 const TRANSIT_MODE_WEIGHTS = {
-  'rail-lines': 2.0,  // Rail stations (heavy/light rail)
-  'transit-stops': 1.0,     // Bus stops
+  'rail-stations': 2.0, // Rail/subway/tram stations (railway=station|halt|tram_stop nodes)
+  'transit-stops': 1.0, // Bus stops
   // Future: 'transit-ferry': 1.5, 'transit-cable': 1.5
 };
+
+// transit-stops matches two overlapping OSM tagging schemes
+// (public_transport=stop_position and highway=bus_stop), so one physical stop
+// can appear as multiple nodes — how often varies by regional tagging culture.
+// Snapping to a ~30 m grid before counting collapses those duplicates.
+const STOP_DEDUPE_GRID_DEG = 0.0003;
+
+function dedupedPointCount(features: { geometry?: { type?: string; coordinates?: unknown } }[]): number {
+  const cells = new Set<string>();
+  let nonPoint = 0;
+  for (const f of features) {
+    const g = f.geometry;
+    if (g?.type === 'Point' && Array.isArray(g.coordinates)) {
+      const [lon, lat] = g.coordinates as [number, number];
+      cells.add(`${Math.round(lon / STOP_DEDUPE_GRID_DEG)}:${Math.round(lat / STOP_DEDUPE_GRID_DEG)}`);
+    } else {
+      nonPoint++;
+    }
+  }
+  return cells.size + nonPoint;
+}
 
 // Benchmark values based on major US cities (mode-weighted stops per km²)
 // Used for logarithmic normalization
@@ -427,17 +448,17 @@ function calculateTransitCoverage(
   let hasStationData = false;
   let hasBusData = false;
 
-  // Calculate mode-weighted sum
+  // Calculate mode-weighted sum over deduplicated station/stop nodes
   for (const [layerId, weight] of Object.entries(TRANSIT_MODE_WEIGHTS)) {
     const data = layerData.get(layerId);
     if (data?.clippedFeatures) {
-      const count = data.clippedFeatures.features.length;
+      const count = dedupedPointCount(data.clippedFeatures.features);
       breakdown[`${layerId}_count`] = count;
       breakdown[`${layerId}_weighted`] = count * weight;
       weightedSum += count * weight;
       totalStops += count;
 
-      if (layerId === 'rail-lines' && count > 0) hasStationData = true;
+      if (layerId === 'rail-stations' && count > 0) hasStationData = true;
       if (layerId === 'transit-stops' && count > 0) hasBusData = true;
     }
   }
@@ -657,36 +678,46 @@ function calculateWalkabilityProxy(
  * Calculate 15-minute city score
  */
 function calculateFifteenMinScore(
-  layerData: Map<string, LayerData>
+  layerData: Map<string, LayerData>,
+  areaKm2: number
 ): { value: number; confidence: 'high' | 'medium' | 'low'; breakdown: Record<string, number> } {
   const breakdown: Record<string, number> = {};
 
-  // Essential categories for 15-minute city
+  // Essential categories for 15-minute city, each graded by feature density
+  // against a full-credit benchmark (per km², PROVISIONAL like the fixed DNA
+  // scales) with the same log saturation used by the transit score. The old
+  // any-feature-present checklist saturated at 100 for virtually every urban
+  // area, which made the score useless for comparison.
   // Layer IDs must match layerManifest.ts
   const essentialCategories = [
-    { id: 'food', layers: ['poi-food-drink', 'poi-grocery'] },
-    { id: 'healthcare', layers: ['poi-health'] },
-    { id: 'education', layers: ['poi-education'] },
-    { id: 'green_space', layers: ['parks'] },
-    { id: 'transit', layers: ['transit-stops', 'rail-lines'] },
+    { id: 'food', layers: ['poi-food-drink', 'poi-grocery'], benchmark: 25 },
+    { id: 'healthcare', layers: ['poi-health'], benchmark: 4 },
+    { id: 'education', layers: ['poi-education'], benchmark: 4 },
+    { id: 'green_space', layers: ['parks'], benchmark: 3 },
+    { id: 'transit', layers: ['transit-stops', 'rail-stations'], benchmark: 20 },
   ];
 
-  let categoriesWithAccess = 0;
-
-  for (const category of essentialCategories) {
-    let hasAccess = false;
-    for (const layerId of category.layers) {
-      const data = layerData.get(layerId);
-      if (data?.clippedFeatures && data.clippedFeatures.features.length > 0) {
-        hasAccess = true;
-        break;
-      }
-    }
-    breakdown[category.id] = hasAccess ? 1 : 0;
-    if (hasAccess) categoriesWithAccess++;
+  if (areaKm2 === 0) {
+    return { value: 0, confidence: 'low', breakdown };
   }
 
-  const score = (categoriesWithAccess / essentialCategories.length) * 100;
+  let scoreSum = 0;
+
+  for (const category of essentialCategories) {
+    let count = 0;
+    for (const layerId of category.layers) {
+      const data = layerData.get(layerId);
+      if (data?.clippedFeatures) {
+        count += dedupedPointCount(data.clippedFeatures.features);
+      }
+    }
+    const density = count / areaKm2;
+    const categoryScore = Math.min(1, Math.log1p(density) / Math.log1p(category.benchmark));
+    breakdown[category.id] = categoryScore;
+    scoreSum += categoryScore;
+  }
+
+  const score = (scoreSum / essentialCategories.length) * 100;
 
   return {
     value: score,
@@ -897,7 +928,7 @@ export function calculateDerivedMetrics(
   });
 
   // 15-Minute City Score
-  const fifteenMin = calculateFifteenMinScore(layerData);
+  const fifteenMin = calculateFifteenMinScore(layerData, areaKm2);
   metrics.push({
     metricId: 'fifteen_min_score',
     value: fifteenMin.value,

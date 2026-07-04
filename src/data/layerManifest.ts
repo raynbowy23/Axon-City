@@ -200,6 +200,22 @@ export const layerManifest: LayerManifest = {
       description: 'Rail and subway lines',
     },
     {
+      id: 'rail-stations',
+      name: 'Rail Stations',
+      group: 'access',
+      geometryType: 'point',
+      priority: 33,
+      osmQuery: 'node["railway"~"^(station|halt|tram_stop)$"]',
+      style: {
+        fillColor: [139, 69, 19, 255], // Saddle brown (matches rail lines)
+        strokeColor: [255, 255, 255, 255],
+        strokeWidth: 2,
+      },
+      statsRecipes: ['count', 'density'],
+      visible: false,
+      description: 'Rail, subway, and tram stations',
+    },
+    {
       id: 'parking',
       name: 'Parking',
       group: 'access',
