@@ -46,7 +46,7 @@ export const POI_CATEGORIES = {
   transit: {
     id: 'transit',
     name: 'Public Transit',
-    layerIds: ['transit-stops', 'rail-lines'],
+    layerIds: ['transit-stops', 'rail-stations', 'rail-lines'],
     color: [0, 128, 255] as [number, number, number],
   },
   green: {

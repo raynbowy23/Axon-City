@@ -88,7 +88,7 @@ export const DNA_SCALES: number[] = [
   0.2, // commercial  — commercial share of buildings (0–1; OSM under-tags)
   120, // streets     — intersections / km²
   70, // bike        — bike_score (0–100)
-  100, // transit     — weighted stop density (stops / km²)
+  50, // transit     — weighted stop density (deduped stops + 2× stations / km²; matches TRANSIT_BENCHMARKS.highDensity)
   25, // green        — park area share %
   6, // water        — water area share %
   2.1, // diversity   — Shannon entropy (8 categories → ~2.08 theoretical max)
@@ -115,7 +115,7 @@ const DIM_REQUIRED_LAYERS: string[][] = [
   BUILDING_LAYERS, // commercial
   ['roads-primary', 'roads-residential'], // streets
   ['bike-lanes'], // bike
-  ['transit-stops', 'rail-lines'], // transit
+  ['transit-stops', 'rail-stations'], // transit
   ['parks'], // green
   ['water'], // water
   POI_LAYERS, // diversity
